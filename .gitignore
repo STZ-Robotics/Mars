@@ -1,0 +1,7 @@
+.gradle/
+build/
+.DS_Store
+*.class
+*.log
+.vscode/
+src/main/java/com/stzteam/mars/generated/

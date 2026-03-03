@@ -1,0 +1,79 @@
+import groovy.json.JsonSlurper
+
+plugins {
+
+    id 'java-library'
+    id 'maven-publish'
+    id "edu.wpi.first.GradleRIO" version "2026.1.1" 
+}
+
+def jsonFile = file('Mars.json')
+def parsedJson = new JsonSlurper().parseText(jsonFile.text)
+
+group = 'com.stzteam.mars'
+version = parsedJson.version
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
+
+repositories {
+    mavenCentral()
+    maven{
+        url = uri("https://Imcab.github.io/FORGEmini/maven/")
+    }
+}
+
+dependencies {
+
+    implementation wpi.java.deps.wpilib()
+    
+    implementation "edu.wpi.first.wpilibNewCommands:wpilibNewCommands-java:${wpi.versions.wpilibVersion.get()}"
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.1'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+    implementation 'com.stzteam.forgemini:ForgeMini:1.1.1'
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+            groupId = group
+            artifactId = 'Mars' 
+            version = version
+        }
+    }
+    
+    repositories {
+        maven {
+            name = 'LocalRepo'
+            url = layout.projectDirectory.dir('maven')
+        }
+    }
+}
+
+javadoc {
+    options.addStringOption('Xdoclint:none', '-quiet')
+}
+
+task generateMarsConstants {
+    doLast {
+        def srcDir = file("$projectDir/src/main/java/com/stzteam/mars/generated")
+        srcDir.mkdirs()
+        
+        def javaFile = new File(srcDir, "MarsConstants.java")
+        javaFile.text = """package com.stzteam.mars.generated;
+
+// AUTO-GENERATED FILE DO NOT EDIT
+
+public final class MarsConstants {
+    public static final String MARS_VERSION = "${parsedJson.version}";
+}
+"""
+    }
+}
+
+compileJava.dependsOn generateMarsConstants
