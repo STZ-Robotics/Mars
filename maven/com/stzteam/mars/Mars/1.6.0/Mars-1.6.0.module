@@ -1,0 +1,195 @@
+{
+  "formatVersion": "1.1",
+  "component": {
+    "group": "com.stzteam.mars",
+    "module": "Mars",
+    "version": "1.6.0",
+    "attributes": {
+      "org.gradle.status": "release"
+    }
+  },
+  "createdBy": {
+    "gradle": {
+      "version": "8.10.2"
+    }
+  },
+  "variants": [
+    {
+      "name": "apiElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 17,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-api"
+      },
+      "files": [
+        {
+          "name": "Mars-1.6.0.jar",
+          "url": "Mars-1.6.0.jar",
+          "size": 46778,
+          "sha512": "a9c703ce56f3d2ab94a9e8bf02e1b9b112c087dd727718704d1b5d6b4151abb8fe52561d0addbf479ad935231ef877c4168d88aacc97fe3b178f26497b35fe4c",
+          "sha256": "73c0dc8f087347ec7c5b8ecaac2fef40d0de135c1df13d5e6404e7280e5de094",
+          "sha1": "45a13eb53de4a53a286d41befadc4583b3526a6d",
+          "md5": "cef27e8f060557c2107f595cbbbc5ea8"
+        }
+      ]
+    },
+    {
+      "name": "runtimeElements",
+      "attributes": {
+        "org.gradle.category": "library",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.jvm.version": 17,
+        "org.gradle.libraryelements": "jar",
+        "org.gradle.usage": "java-runtime"
+      },
+      "dependencies": [
+        {
+          "group": "edu.wpi.first.wpilibj",
+          "module": "wpilibj-java",
+          "version": {
+            "requires": "2026.1.1"
+          }
+        },
+        {
+          "group": "edu.wpi.first.wpimath",
+          "module": "wpimath-java",
+          "version": {
+            "requires": "2026.1.1"
+          }
+        },
+        {
+          "group": "edu.wpi.first.ntcore",
+          "module": "ntcore-java",
+          "version": {
+            "requires": "2026.1.1"
+          }
+        },
+        {
+          "group": "edu.wpi.first.cscore",
+          "module": "cscore-java",
+          "version": {
+            "requires": "2026.1.1"
+          }
+        },
+        {
+          "group": "edu.wpi.first.cameraserver",
+          "module": "cameraserver-java",
+          "version": {
+            "requires": "2026.1.1"
+          }
+        },
+        {
+          "group": "edu.wpi.first.hal",
+          "module": "hal-java",
+          "version": {
+            "requires": "2026.1.1"
+          }
+        },
+        {
+          "group": "edu.wpi.first.wpinet",
+          "module": "wpinet-java",
+          "version": {
+            "requires": "2026.1.1"
+          }
+        },
+        {
+          "group": "edu.wpi.first.wpiutil",
+          "module": "wpiutil-java",
+          "version": {
+            "requires": "2026.1.1"
+          }
+        },
+        {
+          "group": "edu.wpi.first.apriltag",
+          "module": "apriltag-java",
+          "version": {
+            "requires": "2026.1.1"
+          }
+        },
+        {
+          "group": "edu.wpi.first.wpiunits",
+          "module": "wpiunits-java",
+          "version": {
+            "requires": "2026.1.1"
+          }
+        },
+        {
+          "group": "edu.wpi.first.epilogue",
+          "module": "epilogue-runtime-java",
+          "version": {
+            "requires": "2026.1.1"
+          }
+        },
+        {
+          "group": "edu.wpi.first.thirdparty.frc2025.opencv",
+          "module": "opencv-java",
+          "version": {
+            "requires": "4.10.0-3"
+          }
+        },
+        {
+          "group": "org.ejml",
+          "module": "ejml-simple",
+          "version": {
+            "requires": "0.44.0"
+          }
+        },
+        {
+          "group": "com.fasterxml.jackson.core",
+          "module": "jackson-annotations",
+          "version": {
+            "requires": "2.19.2"
+          }
+        },
+        {
+          "group": "com.fasterxml.jackson.core",
+          "module": "jackson-core",
+          "version": {
+            "requires": "2.19.2"
+          }
+        },
+        {
+          "group": "com.fasterxml.jackson.core",
+          "module": "jackson-databind",
+          "version": {
+            "requires": "2.19.2"
+          }
+        },
+        {
+          "group": "us.hebi.quickbuf",
+          "module": "quickbuf-runtime",
+          "version": {
+            "requires": "1.4"
+          }
+        },
+        {
+          "group": "edu.wpi.first.wpilibNewCommands",
+          "module": "wpilibNewCommands-java",
+          "version": {
+            "requires": "2026.1.1"
+          }
+        },
+        {
+          "group": "com.stzteam.forgemini",
+          "module": "ForgeMini",
+          "version": {
+            "requires": "1.1.1"
+          }
+        }
+      ],
+      "files": [
+        {
+          "name": "Mars-1.6.0.jar",
+          "url": "Mars-1.6.0.jar",
+          "size": 46778,
+          "sha512": "a9c703ce56f3d2ab94a9e8bf02e1b9b112c087dd727718704d1b5d6b4151abb8fe52561d0addbf479ad935231ef877c4168d88aacc97fe3b178f26497b35fe4c",
+          "sha256": "73c0dc8f087347ec7c5b8ecaac2fef40d0de135c1df13d5e6404e7280e5de094",
+          "sha1": "45a13eb53de4a53a286d41befadc4583b3526a6d",
+          "md5": "cef27e8f060557c2107f595cbbbc5ea8"
+        }
+      ]
+    }
+  ]
+}

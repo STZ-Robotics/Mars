@@ -1,0 +1,13 @@
+com.stzteam.mars.builder
+com.stzteam.mars.diagnostics
+com.stzteam.mars.generated
+com.stzteam.mars.models
+com.stzteam.mars.models.containers
+com.stzteam.mars.models.multimodules
+com.stzteam.mars.models.singlemodule
+com.stzteam.mars.operator
+com.stzteam.mars.requests
+com.stzteam.mars.services
+com.stzteam.mars.services.nodes
+com.stzteam.mars.test
+com.stzteam.mars.utils
