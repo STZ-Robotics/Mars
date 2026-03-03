@@ -1,0 +1,40 @@
+name: Publish MARS Javadoc & Maven
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+        
+      - name: Build Javadoc
+        run: ./gradlew javadoc -x test
+        
+      - name: Combine Javadoc and Maven
+        run: |
+          # Copiamos la carpeta 'maven' adentro del Javadoc
+          cp -r maven build/docs/javadoc/maven
+          # Copiamos el JSON de MARS para que WPILib lo encuentre
+          cp Mars.json build/docs/javadoc/
+        
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: build/docs/javadoc
