@@ -28,10 +28,10 @@
           "name": "Mars-1.6.2.jar",
           "url": "Mars-1.6.2.jar",
           "size": 48507,
-          "sha512": "dd7ec237128beea55e218c2bec9abfdd5ad2818ceaf256de079a949aba5dacce41f840a578c9e9b82d7dd04bc893f2ec4dc0cdc1d93a87b151640158c6b79fc8",
-          "sha256": "73e55fc5f2ca3c7e5f160506754446d4ac9a281cc1671eaed10bc7c17cd30c39",
-          "sha1": "1dc9e8f8e8679495291af34422ee4beeaaeb3ea6",
-          "md5": "74383a0bf46955af6babf29800672808"
+          "sha512": "07a1ad0d30eae08ae7539a8a26e51b13a0c6bd480a77f78e2b125d0fa91b31589027e4cbf0bb3d9e05535900c458dff6cfa917bb9b951f45d7e429eb3b68fb36",
+          "sha256": "14661e352f082a0a9350dbeeb3bb927e9385038af73fc9f44b3d40f9907a9e95",
+          "sha1": "2c4894a8313f73fa3adb338c2f1c9258318f9d08",
+          "md5": "62c460a904a14fa4dea73873c24c3b7e"
         }
       ]
     },
@@ -191,10 +191,50 @@
           "name": "Mars-1.6.2.jar",
           "url": "Mars-1.6.2.jar",
           "size": 48507,
-          "sha512": "dd7ec237128beea55e218c2bec9abfdd5ad2818ceaf256de079a949aba5dacce41f840a578c9e9b82d7dd04bc893f2ec4dc0cdc1d93a87b151640158c6b79fc8",
-          "sha256": "73e55fc5f2ca3c7e5f160506754446d4ac9a281cc1671eaed10bc7c17cd30c39",
-          "sha1": "1dc9e8f8e8679495291af34422ee4beeaaeb3ea6",
-          "md5": "74383a0bf46955af6babf29800672808"
+          "sha512": "07a1ad0d30eae08ae7539a8a26e51b13a0c6bd480a77f78e2b125d0fa91b31589027e4cbf0bb3d9e05535900c458dff6cfa917bb9b951f45d7e429eb3b68fb36",
+          "sha256": "14661e352f082a0a9350dbeeb3bb927e9385038af73fc9f44b3d40f9907a9e95",
+          "sha1": "2c4894a8313f73fa3adb338c2f1c9258318f9d08",
+          "md5": "62c460a904a14fa4dea73873c24c3b7e"
+        }
+      ]
+    },
+    {
+      "name": "sourcesElements",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "sources",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "Mars-1.6.2-sources.jar",
+          "url": "Mars-1.6.2-sources.jar",
+          "size": 34813,
+          "sha512": "7f83611ea8a97652d9f03acf4349d179a5fe3244f13c403f5551245256962288960c2c5bed5cc80919e8785e8764aa6cdceb1c1f6b9ffdb2f7d863d247fb5f3f",
+          "sha256": "65ea98df58d5076826a39e3caa01b036ed7848884732438371ee65fe5a30fa59",
+          "sha1": "757610a04c8ac2604816d326b8c2a1dbe023a128",
+          "md5": "9b6121c18f635eede6deaa5ce5c6581d"
+        }
+      ]
+    },
+    {
+      "name": "javadocElements",
+      "attributes": {
+        "org.gradle.category": "documentation",
+        "org.gradle.dependency.bundling": "external",
+        "org.gradle.docstype": "javadoc",
+        "org.gradle.usage": "java-runtime"
+      },
+      "files": [
+        {
+          "name": "Mars-1.6.2-javadoc.jar",
+          "url": "Mars-1.6.2-javadoc.jar",
+          "size": 275748,
+          "sha512": "b57373d399cefa6b9cc4edda238bb6de6de129811a8866bf81a1b1fb9fd21248a5817d6b489d7426c43285f2634a31338f95dcc1a89d3997a58b3107cd981ffc",
+          "sha256": "3a1a861647e2dc4d5dec369457e4fb98bbb99f1069558ceeb59465bd32806055",
+          "sha1": "92632bf7031247241c99c23894e1309cae5268f9",
+          "md5": "743dc90dbfbd2517e91be52ce6ec27d6"
         }
       ]
     }
