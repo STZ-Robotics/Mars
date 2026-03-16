@@ -35,6 +35,8 @@ dependencies {
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 
     implementation 'com.stzteam.forgemini:ForgeMini:1.1.1'
+
+    implementation "org.yaml:snakeyaml:2.0"
 }
 
 publishing {

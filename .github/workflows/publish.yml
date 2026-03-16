@@ -28,9 +28,7 @@ jobs:
         
       - name: Combine Javadoc and Maven
         run: |
-          # Copiamos la carpeta 'maven' adentro del Javadoc
           cp -r maven build/docs/javadoc/maven
-          # Copiamos el JSON de MARS para que WPILib lo encuentre
           cp Mars.json build/docs/javadoc/
         
       - name: Deploy to GitHub Pages
