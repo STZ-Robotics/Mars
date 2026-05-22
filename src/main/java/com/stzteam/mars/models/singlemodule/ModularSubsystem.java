@@ -1,13 +1,18 @@
 package com.stzteam.mars.models.singlemodule;
 
+import java.util.Optional;
 import java.util.function.Supplier;
 
 import com.stzteam.forgemini.io.IOSubsystem;
+import com.stzteam.forgemini.io.NetworkIO;
+import com.stzteam.mars.blackboard.Blackboard;
+import com.stzteam.mars.blackboard.BlackboardKey;
 import com.stzteam.mars.diagnostics.ActionStatus;
+import com.stzteam.mars.diagnostics.DiagnosticPayload;
 import com.stzteam.mars.models.SubsystemBuilder;
 import com.stzteam.mars.models.Telemetry;
 import com.stzteam.mars.requests.Request;
-import com.stzteam.mars.utils.TerminalGCS;
+import com.stzteam.mars.utils.GCSConsole;
 
 import edu.wpi.first.wpilibj2.command.Command;
 
@@ -37,6 +42,9 @@ public abstract class ModularSubsystem<D extends Data<D>, A extends IO<D>> exten
     public final boolean isFallback;
     private final Request<D, A> defaulRequest;
 
+    private String lastSentHex = "";
+    private String lastSentMessage = "";
+
     /**
      * Constructs a ModularSubsystem using the provided configuration builder.
      *
@@ -53,8 +61,11 @@ public abstract class ModularSubsystem<D extends Data<D>, A extends IO<D>> exten
         this.isFallback = actor.isFallback();
         this.defaulRequest = builder.getInitialRequest();
 
-        TerminalGCS.registerModuleMount(builder.getKey(), this.isFallback);
-        TerminalGCS.registerSubsystem(this);
+        GCSConsole.registerModuleMount(builder.getKey(), this.isFallback);
+
+        //Register the default command
+        this.setDefaultCommand(runRequest(()-> defaulRequest));
+
     }
 
     /**
@@ -76,8 +87,25 @@ public abstract class ModularSubsystem<D extends Data<D>, A extends IO<D>> exten
             this.lastStatus = currentRequest.apply(data, actor);
         }
 
+        if (this.lastStatus != null && this.lastStatus.code != null) {
+            DiagnosticPayload payload = this.lastStatus.getPayload();
+            String currentHex = payload.colorHex();
+            String currentMessage = payload.message();
+
+            if (!currentHex.equals(lastSentHex) || !currentMessage.equals(lastSentMessage)) {
+                String subKey = this.getName();
+                
+                NetworkIO.set(subKey, "Status/Name", subKey);
+                NetworkIO.set(subKey, "Status/Hex", currentHex);
+                NetworkIO.set(subKey, "Status/Message", currentMessage);
+
+                lastSentHex = currentHex;
+                lastSentMessage = currentMessage;
+            }
+        }
+
         if (telemetry != null) {
-            telemetry.telemeterize(data, lastStatus);
+            telemetry.telemeterize(data);
         }
     }
 
@@ -118,10 +146,10 @@ public abstract class ModularSubsystem<D extends Data<D>, A extends IO<D>> exten
                 String reqName = newRequest.getClass().getSimpleName();
                 
                 if (!reqName.toLowerCase().contains("idle")) {
-                    TerminalGCS.logRequest(this.getName(), reqName);
+                    GCSConsole.logRequest(this.getName(), reqName);
                     
                     String statusMsg = (lastStatus != null && lastStatus.message != null) ? lastStatus.message : "OK";
-                    TerminalGCS.logState(this.getName(), statusMsg); 
+                    GCSConsole.logState(this.getName(), statusMsg); 
                 }
             }
             this.currentRequest = newRequest;
@@ -180,5 +208,25 @@ public abstract class ModularSubsystem<D extends Data<D>, A extends IO<D>> exten
      */
     public Request<D,A> getDefaultRequest(){
         return defaulRequest;
+    }
+
+    /**
+     * Writes a value to the global blackboard under the specified key.
+     * @param <T> The type of the value being written.
+     * @param key The blackboard key to write to.
+     * @param value The value to write.
+     */
+    protected <T> void writeToBoard(BlackboardKey<T> key, T value) {
+        Blackboard.getInstance().write(key, value);
+    }
+
+    /**
+     * Reads a value from the global blackboard using the specified key.
+     * @param <T> The type of the value being read.
+     * @param key The blackboard key to read from.
+     * @return An Optional containing the value if present and of the correct type, or empty otherwise.
+     */
+    protected <T> Optional<T> readFromBoard(BlackboardKey<T> key) {
+        return Blackboard.getInstance().read(key);
     }
 }

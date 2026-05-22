@@ -1,6 +1,5 @@
 package com.stzteam.mars.models;
 
-import com.stzteam.mars.diagnostics.ActionStatus;
 import com.stzteam.mars.models.singlemodule.Data;
 
 /**
@@ -17,7 +16,6 @@ public abstract class Telemetry<D extends Data<D>> {
      * This method is called periodically by the subsystem's main loop.
      *
      * @param data       A snapshot of the current hardware inputs and states.
-     * @param lastStatus The most recent {@link ActionStatus} evaluated by the subsystem.
      */
-    public abstract void telemeterize(D data, ActionStatus lastStatus);
+    public abstract void telemeterize(D data);
 }

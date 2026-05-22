@@ -9,7 +9,7 @@ import edu.wpi.first.wpilibj.Timer;
 public class ActionStatus {
     
     /** The core status/diagnostic code. */
-    public final StatusCode code;
+    public final StatusColorCode code;
     /** A descriptive message providing context for the status. */
     public final String message;
     /** The WPILib FPGA timestamp when this status was generated. */
@@ -18,7 +18,7 @@ public class ActionStatus {
     /**
      * Internal constructor.
      */
-    private ActionStatus(StatusCode code, String message) {
+    private ActionStatus(StatusColorCode code, String message) {
         this.code = code;
         this.message = message;
         this.timestamp = Timer.getFPGATimestamp();
@@ -31,9 +31,12 @@ public class ActionStatus {
      * @param message A detailed message explaining the status.
      * @return A new {@link ActionStatus} snapshot.
      */
-    public static ActionStatus of(StatusCode code, String message) {
-        return new ActionStatus(code, message);
+    public static ActionStatus of(StatusColorCode code, Object... args) {
+
+        String formattedMessage = String.format(code.getMessageTemplate(), args);
+        return new ActionStatus(code, formattedMessage);
     }
+
 
     /**
      * Creates an ActionStatus using the default name of the provided code.
@@ -41,37 +44,37 @@ public class ActionStatus {
      * @param code The diagnostic status code.
      * @return A new {@link ActionStatus} snapshot.
      */
-    public static ActionStatus of(StatusCode code) {
-        return new ActionStatus(code, code.getName());
+    public static ActionStatus of(StatusColorCode code) {
+        return new ActionStatus(code, code.getMessageTemplate());
     }
 
     /**
      * Quick factory method for a generic nominal/OK state.
      *
-     * @return An {@link ActionStatus} representing {@link GlobalCode#NOMINAL}.
+     * @return An {@link ActionStatus} representing {@link GlobalColorCode#NOMINAL}.
      */
     public static ActionStatus ok() { 
-        return new ActionStatus(GlobalCode.NOMINAL, "OK"); 
+        return new ActionStatus(GlobalColorCode.NOMINAL, "OK"); 
     }
     
     /**
      * Quick factory method for a warning state with a custom message.
      *
      * @param msg The warning message.
-     * @return An {@link ActionStatus} representing {@link GlobalCode#WORKING}.
+     * @return An {@link ActionStatus} representing {@link GlobalColorCode#WORKING}.
      */
     public static ActionStatus warning(String msg) { 
-        return new ActionStatus(GlobalCode.WORKING, msg); 
+        return new ActionStatus(GlobalColorCode.WORKING, msg); 
     }
     
     /**
      * Quick factory method for an error state with a custom message.
      *
      * @param msg The error message detailing the fault.
-     * @return An {@link ActionStatus} representing {@link GlobalCode#HARDWARE_FAULT}.
+     * @return An {@link ActionStatus} representing {@link GlobalColorCode#HARDWARE_FAULT}.
      */
     public static ActionStatus error(String msg) { 
-        return new ActionStatus(GlobalCode.HARDWARE_FAULT, msg); 
+        return new ActionStatus(GlobalColorCode.HARDWARE_FAULT, msg); 
     }
 
     /**
@@ -81,7 +84,7 @@ public class ActionStatus {
      * @return true if the severity is OK, false otherwise.
      */
     public boolean isDone() {
-        return this.code.getSeverity() == StatusCode.Severity.OK;
+        return this.code.getSeverity() == StatusColorCode.Severity.OK;
     }
     
     /**
@@ -90,7 +93,7 @@ public class ActionStatus {
      * @return true if the severity is CRITICAL, false otherwise.
      */
     public boolean isCritical() {
-        return this.code.getSeverity() == StatusCode.Severity.CRITICAL;
+        return this.code.getSeverity() == StatusColorCode.Severity.CRITICAL;
     }
 
     /**

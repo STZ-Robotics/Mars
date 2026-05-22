@@ -2,6 +2,10 @@ package com.stzteam.mars.builder;
 
 import java.util.function.Supplier;
 
+import com.stzteam.mars.services.nodes.FallbackNode;
+import com.stzteam.mars.services.nodes.Node;
+import com.stzteam.mars.services.nodes.NodeMessage;
+
 /**
  * A utility class responsible for Dependency Injection of IO layers.
  * It evaluates the global {@link Environment} to instantiate the appropriate 
@@ -39,5 +43,21 @@ public class Injector {
             default:   
                 return simSupplier.get();
         }
+    }
+
+     /**
+     * A specialized version of createIO for instantiating Nodes.
+     * It checks if the node is enabled and either returns a real node or a FallbackNode.
+     *
+     * @param <M>              The type of the Node's message payload (must extend NodeMessage).
+     * @param isEnabled        Flag indicating if this specific node should be active.
+     * @param realNodeSupplier A supplier providing the actual Node implementation (used if enabled).
+     * @return The instantiated Node, either real or fallback based on the isEnabled flag.
+     */
+    public static <M extends NodeMessage<M>> Node<M> createNode(boolean isEnabled, Supplier<Node<M>> realNodeSupplier) {
+        if (!isEnabled) {
+            return new FallbackNode<>();
+        }
+        return realNodeSupplier.get();
     }
 }

@@ -9,7 +9,7 @@ import java.util.function.DoubleSupplier;
 
 import com.stzteam.mars.models.singlemodule.ModularSubsystem;
 import com.stzteam.mars.requests.Request;
-import com.stzteam.mars.utils.TerminalGCS;
+import com.stzteam.mars.utils.GCSConsole;
 
 /**
  * The abstract base class for defining hardware testing sequences in the MARS framework.
@@ -96,9 +96,9 @@ public abstract class TestRoutine {
         return Commands.runOnce(() -> {
             double value = valueSupplier.getAsDouble();
             if (value >= max) {
-                TerminalGCS.logError("Tests", "FAIL: " + message + " | Value: " + value + " >= " + max);
+                GCSConsole.logError("Tests", "FAIL: " + message + " | Value: " + value + " >= " + max);
             } else {
-                TerminalGCS.logInfo("Tests", "PASS: Check < " + max);
+                GCSConsole.logInfo("Tests", "PASS: Check < " + max);
             }
         });
     }
@@ -116,9 +116,9 @@ public abstract class TestRoutine {
         return Commands.runOnce(() -> {
             double value = valueSupplier.getAsDouble();
             if (value <= min) {
-                TerminalGCS.logError("Tests", "FAIL: " + message + " | Value: " + value + " <= " + min);
+                GCSConsole.logError("Tests", "FAIL: " + message + " | Value: " + value + " <= " + min);
             } else {
-                TerminalGCS.logInfo("Tests", "PASS: Check > " + min);
+                GCSConsole.logInfo("Tests", "PASS: Check > " + min);
             }
         });
     }
@@ -134,9 +134,9 @@ public abstract class TestRoutine {
     protected Command assertTrue(BooleanSupplier condition, String message) {
         return Commands.runOnce(() -> {
             if (!condition.getAsBoolean()) {
-                TerminalGCS.logError("Tests", "FAIL: " + message);
+                GCSConsole.logError("Tests", "FAIL: " + message);
             } else {
-                TerminalGCS.logInfo("Tests", "PASS: Condition fullfiled");
+                GCSConsole.logInfo("Tests", "PASS: Condition fullfiled");
             }
         });
     }
