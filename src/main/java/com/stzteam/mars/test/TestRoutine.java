@@ -7,6 +7,8 @@ import edu.wpi.first.wpilibj2.command.Subsystem;
 import java.util.function.BooleanSupplier;
 import java.util.function.DoubleSupplier;
 
+import com.stzteam.mars.models.singlemodule.Data;
+import com.stzteam.mars.models.singlemodule.IO;
 import com.stzteam.mars.models.singlemodule.ModularSubsystem;
 import com.stzteam.mars.requests.Request;
 import com.stzteam.mars.utils.GCSConsole;
@@ -60,17 +62,19 @@ public abstract class TestRoutine {
         return Commands.runOnce(action, requirements);
     }
 
-    /**
+        /**
      * Wraps a MARS {@link Request} into an instantaneous WPILib Command, injecting it 
-     * directly into the specified {@link ModularSubsystem}.
+     * directly into the specified {@link ModularSubsystem}. Fully type-safe: the compiler
+     * enforces that the request matches the subsystem's Data/IO types.
      *
+     * @param <D>          The subsystem's data type.
+     * @param <A>          The subsystem's IO type.
      * @param request      The state/action request to apply.
      * @param requirements The subsystem that will execute the request.
      * @return A WPILib {@link Command}.
      */
-    @SuppressWarnings({ "rawtypes", "unchecked" })
-    protected Command run(Request request, ModularSubsystem requirements){
-        return Commands.runOnce(()->requirements.setRequest(request), requirements);
+    protected <D extends Data<D>, A extends IO<D>> Command run(Request<D, A> request, ModularSubsystem<D, A> requirements) {
+        return Commands.runOnce(() -> requirements.setRequest(request), requirements);
     }
 
     /**

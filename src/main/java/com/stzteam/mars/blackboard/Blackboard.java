@@ -6,7 +6,9 @@ import java.util.concurrent.ConcurrentHashMap;
 public class Blackboard {
     
     private static final Blackboard INSTANCE = new Blackboard();
-    private final ConcurrentHashMap<String, Object> dataStore = new ConcurrentHashMap<>();
+    // Keyed by the BlackboardKey instance itself, not its name, to avoid
+    // silent collisions between keys that happen to share a display name.
+    private final ConcurrentHashMap<BlackboardKey<?>, Object> dataStore = new ConcurrentHashMap<>();
 
     private Blackboard() {}
 
@@ -14,26 +16,20 @@ public class Blackboard {
         return INSTANCE; 
     }
 
-    /**
-     * Writes a value to the blackboard using a strongly-typed key.
-     */
     public <T> void write(BlackboardKey<T> key, T value) {
         if (value != null) {
-            dataStore.put(key.name, value);
+            dataStore.put(key, value);
         }
     }
 
-    /**
-     * Reads a value from the blackboard securely using its typed key.
-     * The compiler automatically knows what type of data will be returned.
-     */
     @SuppressWarnings("unchecked")
     public <T> Optional<T> read(BlackboardKey<T> key) {
-        Object value = dataStore.get(key.name);
+        Object value = dataStore.get(key);
         
         if (key.type.isInstance(value)) {
             return Optional.of((T) value);
         }
         return Optional.empty();
     }
+
 }

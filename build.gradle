@@ -35,7 +35,7 @@ dependencies {
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.1'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 
-    implementation 'com.stzteam.forgemini:ForgeMini:1.1.1'
+    implementation 'com.stzteam.forgemini:ForgeMini:1.1.2'
 
     implementation "org.yaml:snakeyaml:2.0"
 }

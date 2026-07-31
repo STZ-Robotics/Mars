@@ -5,6 +5,7 @@ import java.util.function.Supplier;
 import com.stzteam.mars.services.nodes.FallbackNode;
 import com.stzteam.mars.services.nodes.Node;
 import com.stzteam.mars.services.nodes.NodeMessage;
+import com.stzteam.mars.utils.GCSConsole;
 
 /**
  * A utility class responsible for Dependency Injection of IO layers.
@@ -36,8 +37,13 @@ public class Injector {
         }
 
         switch (Environment.getMode()) {
-            case REAL: 
-                return realSupplier.get();
+            case REAL:
+                try {
+                    return realSupplier.get();
+                } catch (Exception e) {
+                    GCSConsole.logError("Injector", "Failed to init REAL IO, falling back: " + e.getMessage());
+                    return fallbackSupplier.get();
+                }
             case SIM:
             case REPLAY:
             default:   

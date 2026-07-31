@@ -22,4 +22,16 @@ public class BlackboardKey<T> {
         this.name = name;
         this.type = type;
     }
+    
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) return true;
+        if (!(obj instanceof BlackboardKey<?> other)) return false;
+        return this.name.equals(other.name) && this.type.equals(other.type);
+    }
+
+    @Override
+    public int hashCode() {
+        return java.util.Objects.hash(name, type);
+    }
 }

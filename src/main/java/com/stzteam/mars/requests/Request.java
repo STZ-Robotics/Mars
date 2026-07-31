@@ -22,4 +22,18 @@ public interface Request<P, A> {
      */
     public ActionStatus apply(P parameters, A actor);
 
+    /**
+     * Determines whether this request is logically equivalent to another for the purposes
+     * of transition logging. By default, two requests are considered equal if they share
+     * the exact same class (coarse-grained: "same behavior"). Override this to compare
+     * internal state (e.g. setpoints) so transitions like DriveToPose(A) -> DriveToPose(B)
+     * are correctly logged as new requests.
+     *
+     * @param other The request being transitioned to.
+     * @return true if this request should be treated as unchanged.
+     */
+    default boolean isSameRequest(Request<P, A> other) {
+        return other != null && this.getClass().equals(other.getClass());
+    }
+
 }

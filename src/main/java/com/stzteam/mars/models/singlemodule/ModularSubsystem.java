@@ -1,6 +1,9 @@
 package com.stzteam.mars.models.singlemodule;
 
+import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.BiConsumer;
 import java.util.function.Supplier;
 
 import com.stzteam.forgemini.io.IOSubsystem;
@@ -8,7 +11,9 @@ import com.stzteam.forgemini.io.NetworkIO;
 import com.stzteam.mars.blackboard.Blackboard;
 import com.stzteam.mars.blackboard.BlackboardKey;
 import com.stzteam.mars.diagnostics.ActionStatus;
+import com.stzteam.mars.diagnostics.AlertRegistry;
 import com.stzteam.mars.diagnostics.DiagnosticPayload;
+import com.stzteam.mars.diagnostics.MARSWatchdog;
 import com.stzteam.mars.models.SubsystemBuilder;
 import com.stzteam.mars.models.Telemetry;
 import com.stzteam.mars.requests.Request;
@@ -40,10 +45,22 @@ public abstract class ModularSubsystem<D extends Data<D>, A extends IO<D>> exten
     
     /** Indicates if the subsystem is running on a dummy IO implementation. */
     public final boolean isFallback;
-    private final Request<D, A> defaulRequest;
+    private final Request<D, A> defaultRequest;
 
     private String lastSentHex = "";
     private String lastSentMessage = "";
+
+    /**
+     * Registered global input hooks, invoked once per subsystem per loop, right after
+     * hardware inputs are read and before any Request logic runs. Intended for optional
+     * addons/Features (e.g. an AdvantageKit bridge, an external telemetry adapter) to
+     * intercept input snapshots without requiring MARS core to depend on any external
+     * library, and without different Features stepping on each other's hook.
+     * <p>
+     * Uses {@link CopyOnWriteArrayList} since registration happens rarely (typically once
+     * per Feature at boot) while iteration happens every loop for every subsystem.
+     */
+    private static final List<BiConsumer<String, Data<?>>> globalInputHooks = new CopyOnWriteArrayList<>();
 
     /**
      * Constructs a ModularSubsystem using the provided configuration builder.
@@ -59,27 +76,70 @@ public abstract class ModularSubsystem<D extends Data<D>, A extends IO<D>> exten
         this.lastStatus = ActionStatus.ok();
 
         this.isFallback = actor.isFallback();
-        this.defaulRequest = builder.getInitialRequest();
+        this.defaultRequest = builder.getInitialRequest();
 
         GCSConsole.registerModuleMount(builder.getKey(), this.isFallback);
 
-        //Register the default command
-        this.setDefaultCommand(runRequest(()-> defaulRequest));
+        this.setDefaultCommand(runRequest(() -> defaultRequest));
+    }
 
+    /**
+     * Registers a global input hook. Multiple hooks can coexist (e.g. an AdvantageKit
+     * bridge Feature and an unrelated telemetry Feature can both register independently
+     * without overwriting each other).
+     *
+     * @param hook A consumer receiving (subsystemName, dataSnapshot).
+     * @return The same hook instance, so callers can keep a reference for later removal
+     *         via {@link #removeGlobalInputHook(BiConsumer)}.
+     */
+    public static BiConsumer<String, Data<?>> addGlobalInputHook(BiConsumer<String, Data<?>> hook) {
+        if (hook != null) {
+            globalInputHooks.add(hook);
+        }
+        return hook;
+    }
+
+    /**
+     * Unregisters a previously added global input hook. No-op if the hook was never
+     * registered or was already removed.
+     *
+     * @param hook The exact hook instance previously passed to {@link #addGlobalInputHook}.
+     */
+    public static void removeGlobalInputHook(BiConsumer<String, Data<?>> hook) {
+        globalInputHooks.remove(hook);
+    }
+
+    /**
+     * Removes every registered global input hook. Mainly useful for test isolation.
+     */
+    public static void clearGlobalInputHooks() {
+        globalInputHooks.clear();
     }
 
     /**
      * The primary execution loop of the subsystem.
      * This method safely polls hardware inputs, applies any custom periodic logic, 
      * evaluates the current request, and broadcasts telemetry.
+     * Wrapped by {@link MARSWatchdog} to detect loop overruns (toggleable).
      */
     @Override
     public final void periodicLogic(){
         // Failsafe: Bypass all execution if the hardware actor is a fallback to prevent NPEs.
         if(actor.isFallback()) return;
 
+        MARSWatchdog.monitor(this.getName(), this::executePeriodicLogic);
+    }
+
+    private void executePeriodicLogic() {
         actor.updateInputs(inputs);
         D data = inputs.snapshot();
+
+        if (!globalInputHooks.isEmpty()) {
+            String name = this.getName();
+            for (BiConsumer<String, Data<?>> hook : globalInputHooks) {
+                hook.accept(name, data);
+            }
+        }
 
         absolutePeriodic(data);
 
@@ -91,10 +151,10 @@ public abstract class ModularSubsystem<D extends Data<D>, A extends IO<D>> exten
             DiagnosticPayload payload = this.lastStatus.getPayload();
             String currentHex = payload.colorHex();
             String currentMessage = payload.message();
+            String subKey = this.getName();
 
             if (!currentHex.equals(lastSentHex) || !currentMessage.equals(lastSentMessage)) {
-                String subKey = this.getName();
-                
+
                 NetworkIO.set(subKey, "Status/Name", subKey);
                 NetworkIO.set(subKey, "Status/Hex", currentHex);
                 NetworkIO.set(subKey, "Status/Message", currentMessage);
@@ -102,19 +162,15 @@ public abstract class ModularSubsystem<D extends Data<D>, A extends IO<D>> exten
                 lastSentHex = currentHex;
                 lastSentMessage = currentMessage;
             }
+
+            // Centralized alert reporting - toggleable via AlertRegistry.setEnabled(false)
+            AlertRegistry.getInstance().report(subKey, this.lastStatus);
         }
 
         if (telemetry != null) {
             telemetry.telemeterize(data);
         }
     }
-
-    /**
-     * Gets the custom state or configuration object specific to this subsystem.
-     *
-     * @return The state definition.
-     */
-    public abstract D getState();
 
     /**
      * An overrideable hook for custom logic that must run every loop iteration, 
@@ -141,13 +197,13 @@ public abstract class ModularSubsystem<D extends Data<D>, A extends IO<D>> exten
      */
     public void setRequest(Request<D, A> newRequest) {
         if (newRequest != null) {
-            if (this.currentRequest == null || !this.currentRequest.getClass().equals(newRequest.getClass())) {
-                
+            if (this.currentRequest == null || !this.currentRequest.isSameRequest(newRequest)) {
+
                 String reqName = newRequest.getClass().getSimpleName();
-                
+
                 if (!reqName.toLowerCase().contains("idle")) {
                     GCSConsole.logRequest(this.getName(), reqName);
-                    
+
                     String statusMsg = (lastStatus != null && lastStatus.message != null) ? lastStatus.message : "OK";
                     GCSConsole.logState(this.getName(), statusMsg); 
                 }
@@ -207,7 +263,18 @@ public abstract class ModularSubsystem<D extends Data<D>, A extends IO<D>> exten
      * @return The default {@link Request}.
      */
     public Request<D,A> getDefaultRequest(){
-        return defaulRequest;
+        return defaultRequest;
+    }
+
+    /**
+     * Retrieves the hardware actor for this subsystem. Primarily intended for 
+     * framework-level utilities (e.g. SysId characterization) rather than everyday use —
+     * prefer working through Requests for normal subsystem control.
+     *
+     * @return The subsystem's IO/actor instance.
+     */
+    public A getActor() {
+        return actor;
     }
 
     /**

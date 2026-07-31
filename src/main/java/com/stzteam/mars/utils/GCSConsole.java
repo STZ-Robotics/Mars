@@ -3,10 +3,11 @@ package com.stzteam.mars.utils;
 
 import com.stzteam.mars.builder.Environment;
 import com.stzteam.mars.builder.Environment.RunMode;
+import com.stzteam.mars.diagnostics.AlertRegistry;
+
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.Timer;
 
-import java.io.PrintStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
@@ -15,9 +16,8 @@ public class GCSConsole {
     
     // Paleta "Hacker Terminal" (Verde y Gris)
     private static final String RESET = "\u001b[0m";
-    private static final String BOLD = "\u001b[1m";
-    private static final String GREEN = "\u001b[32m";
     private static final String BOLD_GREEN = "\u001b[1;32m";
+    private static final String GREEN = "\u001b[32m";
     private static final String GRAY = "\u001b[90m";
     private static final String BG_GREEN_BLACK_TEXT = "\u001b[1;30;42m"; // Para alertas críticas
     
@@ -27,7 +27,33 @@ public class GCSConsole {
     private static DatagramSocket simSocket;
     private static InetAddress localhost;
 
+    // Evita hacer spam en consola si el bridge UDP falla repetidamente
+    // (por ejemplo, si la extensión de simulación no está escuchando).
+    private static boolean udpFailureLogged = false;
+
     public GCSConsole() {}
+
+    /**
+     * Envía datos crudos al bridge UDP de simulación de forma segura.
+     * Si el envío falla, se registra el error una sola vez (no en cada ciclo)
+     * para evitar saturar la consola con excepciones repetidas de red.
+     *
+     * @param data Los bytes a enviar por UDP.
+     */
+    private static void sendUdp(byte[] data) {
+        if (simSocket == null || localhost == null) return;
+
+        try {
+            simSocket.send(new DatagramPacket(data, data.length, localhost, 6666));
+            udpFailureLogged = false; // Se recuperó, permite loggear si vuelve a fallar
+        } catch (Exception e) {
+            if (!udpFailureLogged) {
+                System.out.println(GRAY + "[GCSConsole] UDP bridge unavailable (¿extensión de sim no está escuchando?): "
+                    + e.getMessage() + RESET);
+                udpFailureLogged = true;
+            }
+        }
+    }
 
     private static String format(String type, String tag, String message) {
         double time = Timer.getFPGATimestamp();
@@ -40,12 +66,7 @@ public class GCSConsole {
             GREEN, message, RESET);
 
         // Si estamos en simulación, obligamos a Java a enviarlo por UDP a la extensión
-        if (simSocket != null && localhost != null) {
-            try {
-                byte[] data = (formattedMsg + "\n").getBytes();
-                simSocket.send(new DatagramPacket(data, data.length, localhost, 6666));
-            } catch (Exception e) { /* Ignorar errores de red */ }
-        }
+        sendUdp((formattedMsg + "\n").getBytes());
 
         return formattedMsg;
     }
@@ -72,15 +93,10 @@ public class GCSConsole {
         System.out.println("=--------------------------------------------------------------=" + RESET);
         
         // Enviamos el header manual a UDP si estamos en sim
-        if (simSocket != null) {
-            try {
-                String header = BOLD_GREEN + "\n=--------------------------------------------------------------=\n" +
-                                "=  MARS Ground Control Station           STZ Robotics          =\n" +
-                                "=--------------------------------------------------------------=\n" + RESET;
-                byte[] data = header.getBytes();
-                simSocket.send(new DatagramPacket(data, data.length, localhost, 6666));
-            } catch (Exception e) {}
-        }
+        String header = BOLD_GREEN + "\n=--------------------------------------------------------------=\n" +
+                        "=  MARS Ground Control Station           STZ Robotics          =\n" +
+                        "=--------------------------------------------------------------=\n" + RESET;
+        sendUdp(header.getBytes());
 
         logInfo("Core", "Booting sequence initiated...");
         enableCrashShield();
@@ -95,8 +111,13 @@ public class GCSConsole {
     public static void printModuleSummary() {
         System.out.println(GRAY + "=--------------------------------------------------------------=" + RESET);
         logInfo("Core", "Successfully mounted " + moduleCount + " Hardware Modules.");
-        logOK("Robot", BOLD_GREEN + "Startup complete. Systems ready for ENABLE." + RESET);
         System.out.println(GRAY + "=--------------------------------------------------------------=\n" + RESET);
+
+        if (AlertRegistry.getInstance().hasCriticalAlerts()) {
+            for (var alert : AlertRegistry.getInstance().getActiveAlerts()) {
+                GCSConsole.logError(alert.subsystemName(), alert.status().message);
+            }
+        }
     }
 
     public static void logOK(String tag, String message) {
@@ -142,13 +163,8 @@ public class GCSConsole {
         
         String output = format("LOAD", tag, task + " " + bar.toString() + String.format(" %5.1f%%", percent));
         System.out.print("\r" + output);
-        
-        if (simSocket != null) {
-            try {
-                byte[] data = ("\r" + output).getBytes();
-                simSocket.send(new DatagramPacket(data, data.length, localhost, 6666));
-            } catch (Exception e) {}
-        }
+
+        sendUdp(("\r" + output).getBytes());
 
         if (percent >= 100.0) {
             System.out.println();
@@ -178,13 +194,8 @@ public class GCSConsole {
             table.append("\n");
 
             System.out.print(table.toString());
-            
-            if (simSocket != null) {
-                try {
-                    byte[] data = table.toString().getBytes();
-                    simSocket.send(new DatagramPacket(data, data.length, localhost, 6666));
-                } catch (Exception e) {}
-            }
+
+            sendUdp(table.toString().getBytes());
         }
     }
 
