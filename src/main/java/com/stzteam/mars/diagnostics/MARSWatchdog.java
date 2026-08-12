@@ -1,6 +1,8 @@
 package com.stzteam.mars.diagnostics;
 
 import edu.wpi.first.wpilibj.Timer;
+
+import com.stzteam.forgemini.io.NetworkIO;
 import com.stzteam.mars.utils.GCSConsole;
 
 /**
@@ -14,6 +16,7 @@ import com.stzteam.mars.utils.GCSConsole;
 public class MARSWatchdog{
 
     private static volatile boolean enabled = true;
+    private static volatile boolean record_enabled = true;
     private static volatile double thresholdSeconds = 0.005; // 5ms default
 
     private MARSWatchdog() {}
@@ -26,6 +29,14 @@ public class MARSWatchdog{
      */
     public static void setEnabled(boolean value) {
         enabled = value;
+    }
+
+    public static void setTelemetryEnabled(boolean value){
+        record_enabled = value;
+    }
+
+    public static boolean isTelemetryEnabled(){
+        return record_enabled;
     }
 
     public static boolean isEnabled() {
@@ -63,7 +74,12 @@ public class MARSWatchdog{
         logic.run();
         double elapsedSeconds = Timer.getFPGATimestamp() - start;
 
+        if (isTelemetryEnabled()) {
+            NetworkIO.set("WatchDog/ElapsedSeconds", subsystemName, elapsedSeconds);
+        }
+
         if (elapsedSeconds > thresholdSeconds) {
+
             GCSConsole.logWarning(subsystemName, String.format(
                 "Loop overrun: %.2fms (threshold %.2fms)",
                 elapsedSeconds * 1000.0, thresholdSeconds * 1000.0));
