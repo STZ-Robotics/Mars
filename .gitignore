@@ -12,22 +12,25 @@ dist
 dist-ssr
 *.local
 
-.tastemaker/*
+# Python bytecode, written next to any script that gets imported (the world
+# generators in simulationstudio/worlds/ import each other).
+__pycache__/
+*.pyc
 
 # Editor directories and files
 #
-# `.vscode/*` lleva barra en medio, asi que esta anclado A LA RAIZ: NO afecta a
-# templates/project/.vscode/, que es contenido de la plantilla y tiene que
-# publicarse. Lo mismo vale para su .wpilib/, que es lo que hace que la carpeta
-# generada sea un proyecto de robot para la extension de WPILib.
+# `.vscode/*` has a slash in the middle, so it is anchored TO THE ROOT: it does
+# NOT affect templates/project/.vscode/, which is template content and has to
+# be published. The same goes for its .wpilib/, which is what makes the
+# generated folder a robot project for the WPILib extension.
 #
-# extensions.json se salva a proposito: son las dos extensiones recomendadas
-# (Tauri y rust-analyzer) para quien clone esto.
+# extensions.json is kept on purpose: it holds the two recommended extensions
+# (Tauri and rust-analyzer) for whoever clones this.
 .vscode/*
 !.vscode/extensions.json
 
-# Notas de trabajo de la skill de diseno de Claude Code. Es herramienta local,
-# no documentacion del proyecto.
+# Working notes of Claude Code's design skill. A local tool, not project
+# documentation.
 .tastemaker/
 .idea
 .DS_Store
@@ -38,49 +41,48 @@ dist-ssr
 *.sw?
 
 # --- desktop/ : MARS Desktop -----------------------------------------------
-# `node_modules` y `dist` ya salen arriba (sin barra, aplican a cualquier
-# nivel), y lo de Rust lo lleva desktop/src-tauri/.gitignore, que se mudó con
-# la carpeta.
+# `node_modules` and `dist` are already covered above (no slash, so they apply
+# at any depth), and the Rust side is handled by desktop/src-tauri/.gitignore,
+# which moved in with the folder.
 
 # --- simulationstudio/ : MARS Simulation Studio -----------------------------
+# build/ also holds the logs of the processes the Studio launches
+# (app-*.log, app-*.err).
 simulationstudio/build/
 simulationstudio/install/
 simulationstudio/dist/
 simulationstudio/.gzsource/src/
-# Persistencia que deja el servidor NT4 de nt-probe al correr los tests.
+# State persisted by nt-probe's NT4 server while the tests run.
 simulationstudio/networktables.json
 
-# Bridge de simulacion
+# Simulation bridge and Studio
 simulationstudio/bridge/target/
 simulationstudio/app/target/
-# Logs que dejan los procesos que lanza MARS Sim.
-# Canchas 3D del Studio: 17 MB por cancha de asset de terceros, y la Field
-# Library las reinstala en un clic desde las que ya tiene mars-desktop. Un
-# mundo que referencia una cancha ausente sigue corriendo --- pierde el visual,
-# no la fisica --- asi que ignorarlas degrada bien.
-simulationstudio/fields/
 
-simulationstudio/build/app-*.log
-simulationstudio/build/app-*.err
+# The Studio's 3D fields: 17 MB per field of third-party assets, and the Field
+# Library reinstalls them in one click from the ones mars-desktop already has.
+# A world that references a missing field still runs --- it loses the visuals,
+# not the physics --- so ignoring them degrades gracefully.
+simulationstudio/fields/
 
 # --- installer/ -------------------------------------------------------------
 installer/target/
 installer/gen/schemas/
 
-# --- lib/ : la libreria MARS ------------------------------------------------
-# lib/.gitignore lleva lo de gradle (build/, .gradle/, las constantes
-# generadas). Lo que NO se ignora, y es deliberado, es lib/maven/: los jars
-# publicados viven en el repo porque son lo que Pages sirve a los equipos.
+# --- lib/ : the MARS library ------------------------------------------------
+# lib/.gitignore covers the gradle side (build/, .gradle/, the generated
+# constants). What is NOT ignored, deliberately, is lib/maven/: the published
+# jars live in the repository because they are what Pages serves to teams.
 
-# --- docs/ + el sitio de Pages ----------------------------------------------
+# --- docs/ + the Pages site -------------------------------------------------
 docs/site/
 docs/.cache/
-# Lo que arma .github/workflows/pages.yml: docs + javadoc + maven + Mars.json.
+# What .github/workflows/pages.yml assembles: docs + javadoc + maven + Mars.json.
 _site/
-# El Mars.json que ese workflow se descarga del sitio ya publicado para
-# comprobar que resuelve de verdad.
+# The Mars.json that workflow downloads from the already-published site to
+# check that it really resolves.
 published.json
 
-# Paquetes que produce scripts/package-release.mjs: son artefactos de build,
-# viven en las releases de GitHub, no en el repo.
+# Packages produced by scripts/package-release.mjs: build artifacts that live
+# in the GitHub releases, not in the repository.
 release/

@@ -102,3 +102,9 @@ To build the archives for your own platform without a tag:
 ```bash
 node scripts/package-release.mjs       # leaves them in release/
 ```
+
+## License
+
+[MIT](LICENSE), for everything in this repository except
+`templates/project/WPILib-License.md`, which covers the WPILib-derived files the
+project template carries.
