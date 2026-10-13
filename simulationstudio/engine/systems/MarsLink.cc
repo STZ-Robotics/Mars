@@ -16,6 +16,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <condition_variable>
+#include <cstdint>
 #include <mutex>
 #include <string>
 #include <unordered_map>
@@ -172,6 +174,17 @@ public:
 
 private:
   void OnActuators(const gz::msgs::Actuators &_msg);
+
+  /// En lockstep, el seq del comando con el que corrio este paso.
+  void EstamparSeq(gz::msgs::Header &_h)
+  {
+    std::lock_guard<std::mutex> lock(this->cmdMutex);
+    if (!this->lockstep)
+      return;
+    auto *d = _h.add_data();
+    d->set_key("seq");
+    d->add_value(std::to_string(this->stepSeq));
+  }
   void OnMatch(const gz::msgs::Int32 &_msg);
 
   gz::sim::Model model{gz::sim::kNullEntity};
@@ -189,6 +202,17 @@ private:
   std::vector<double> commands;    // normalized, para modo duty
   std::vector<double> setpoints;   // position, para modo posicion
   int matchState{0};  // 0=disabled; ver /mars/cmd/match en topics.toml
+
+  // LOCKSTEP. Si los comandos traen header.data["seq"], cada paso de fisica
+  // espera en PreUpdate al comando con el siguiente seq y PostUpdate publica
+  // el estado con ese mismo seq. Asi el codigo del robot marca el paso sin
+  // pausas ni servicios: un paso por comando, y el bridge sabe exactamente a
+  // que comando responde cada estado. Ver bridge/src/lockstep.rs.
+  std::condition_variable cmdCv;
+  bool lockstep{false};
+  std::uint64_t cmdSeq{0};    // el ultimo seq recibido
+  std::uint64_t stepSeq{0};   // el seq con el que corrio este paso
+  int esperasVacias{0};       // timeouts seguidos sin comando
   bool sawActuators{false};
 
   // Un reloj por topico: topics.toml declara tasas distintas y no son un
@@ -350,6 +374,33 @@ void MarsLink::OnActuators(const gz::msgs::Actuators &_msg)
                               static_cast<int>(this->setpoints.size()));
   for (int i = 0; i < m; ++i)
     this->setpoints[i] = _msg.position(i);
+
+  // LOCKSTEP: un comando con seq despierta al paso que lo espera en
+  // PreUpdate. Un seq repetido (el bridge reenvia si no ve respuesta) no
+  // cuenta como comando nuevo, asi que no se cuela un paso de mas.
+  for (const auto &d : _msg.header().data())
+  {
+    if (d.key() == "seq" && d.value_size() > 0)
+    {
+      const std::uint64_t seq = std::stoull(d.value(0));
+      if (seq < this->cmdSeq)
+      {
+        // Un seq MENOR es un bridge nuevo que empieza a contar de 1 sobre un
+        // mundo que siguio vivo: se reinicia la cuenta para no ignorarlo.
+        this->stepSeq = seq - 1;
+      }
+      this->cmdSeq = seq;
+      if (!this->lockstep)
+      {
+        this->lockstep = true;
+        gzmsg << "[MarsLink] lockstep: physics now waits for each command"
+              << std::endl;
+      }
+      this->esperasVacias = 0;
+      this->cmdCv.notify_all();
+      break;
+    }
+  }
 }
 
 void MarsLink::OnMatch(const gz::msgs::Int32 &_msg)
@@ -369,7 +420,26 @@ void MarsLink::PreUpdate(const gz::sim::UpdateInfo &_info,
   std::vector<double> target;
   bool enabled = false;
   {
-    std::lock_guard<std::mutex> lock(this->cmdMutex);
+    std::unique_lock<std::mutex> lock(this->cmdMutex);
+    if (this->lockstep)
+    {
+      // Espera acotada: si el robot se va (fin de un test, recompilar) el
+      // mundo no puede quedarse colgado para siempre. Tres esperas vacias
+      // seguidas y se vuelve a correr libre hasta el proximo comando con seq.
+      const bool hay = this->cmdCv.wait_for(
+          lock, std::chrono::seconds(1),
+          [this] { return this->cmdSeq > this->stepSeq; });
+      if (hay)
+      {
+        this->stepSeq = this->cmdSeq;
+      }
+      else if (++this->esperasVacias >= 3)
+      {
+        this->lockstep = false;
+        gzmsg << "[MarsLink] lockstep: no commands for 3 s, running free"
+              << std::endl;
+      }
+    }
     duty = this->commands;
     target = this->setpoints;
     enabled = this->matchState != 0 && this->matchState != 4;
@@ -457,8 +527,16 @@ void MarsLink::PostUpdate(const gz::sim::UpdateInfo &_info,
 
   // Las tasas salen de topics.toml. La fisica corre a 250 Hz; publicar en cada
   // paso gastaria ancho de banda sin darle al bridge nada que no tuviera ya.
-  const auto kPosePeriod = std::chrono::milliseconds(20);    // 50 Hz
-  const auto kJointsPeriod = std::chrono::milliseconds(5);   // 200 Hz
+  //
+  // Las dos a 4 ms, o sea UNA por paso de fisica. Con 5 ms los joints salian
+  // cada DOS pasos (8 ms = 125 Hz, medido): 4 ms no alcanza el umbral de 5 y el
+  // mensaje se saltaba un paso. En lockstep el bridge espera el estado de cada
+  // paso, asi que saltarse uno lo dejaba colgado; y en tiempo real el lazo de
+  // velocidad del TalonFX, que corre en el robot, recibia los encoders con un
+  // paso extra de retraso. La pose tambien va por paso: el yaw del giroscopio
+  // simulado sale de ella.
+  const auto kPosePeriod = std::chrono::milliseconds(4);     // 250 Hz
+  const auto kJointsPeriod = std::chrono::milliseconds(4);   // 250 Hz
 
   const bool tocaPose = _info.simTime - this->lastPose >= kPosePeriod;
   const bool tocaJoints = _info.simTime - this->lastJoints >= kJointsPeriod;
@@ -474,6 +552,7 @@ void MarsLink::PostUpdate(const gz::sim::UpdateInfo &_info,
 
     gz::msgs::Pose_V poses;
     *poses.mutable_header()->mutable_stamp() = stamp;
+    this->EstamparSeq(*poses.mutable_header());
     for (const auto link : this->model.Links(_ecm))
     {
       const auto *name = _ecm.Component<gz::sim::components::Name>(link);
@@ -494,6 +573,7 @@ void MarsLink::PostUpdate(const gz::sim::UpdateInfo &_info,
 
   gz::msgs::Model joints;
   *joints.mutable_header()->mutable_stamp() = stamp;
+  this->EstamparSeq(*joints.mutable_header());
   joints.set_name(this->model.Name(_ecm));
   for (const auto &a : this->actuators)
   {

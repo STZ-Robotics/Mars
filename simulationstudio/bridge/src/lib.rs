@@ -5,6 +5,7 @@
 
 pub mod field;
 pub mod glue;
+pub mod lockstep;
 pub mod nt4;
 pub mod robotmap;
 pub mod wpistruct;

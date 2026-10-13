@@ -16,6 +16,11 @@
 //!
 //! Con `--nt-host` se apunta al servidor NT4 del robot. En simulación de
 //! escritorio suele ser localhost, que es lo que asume por defecto.
+//!
+//! Con `--lockstep-port PUERTO` no hay NT4 ni tiempo real: el glue del robot
+//! se conecta por TCP y cada petición avanza la física un paso. El mundo corre
+//! con `run` y real_time_factor 0: MarsLink espera cada comando. Ver
+//! src/lockstep.rs.
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -52,12 +57,14 @@ struct Args {
     robot_map: PathBuf,
     nt_host: String,
     nt_port: u16,
+    lockstep_port: Option<u16>,
 }
 
 fn parse_args() -> Result<Args> {
     let mut robot_map = None;
     let mut nt_host = "127.0.0.1".to_string();
     let mut nt_port = 5810u16;
+    let mut lockstep_port = None;
 
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
@@ -71,6 +78,14 @@ fn parse_args() -> Result<Args> {
                     .parse()
                     .context("--nt-port is not a number")?
             }
+            "--lockstep-port" => {
+                lockstep_port = Some(
+                    it.next()
+                        .ok_or_else(|| anyhow!("--lockstep-port needs a value"))?
+                        .parse()
+                        .context("--lockstep-port is not a number")?,
+                )
+            }
             otro => return Err(anyhow!("unknown argument: {otro}")),
         }
     }
@@ -79,6 +94,7 @@ fn parse_args() -> Result<Args> {
         robot_map: robot_map.ok_or_else(|| anyhow!("--robot-map is required"))?,
         nt_host,
         nt_port,
+        lockstep_port,
     })
 }
 
@@ -96,6 +112,10 @@ fn main() -> Result<()> {
     // La API del FFI es sincrónica y entrega canales de crossbeam, así que el
     // lazo principal vive en este hilo y NT4 corre en su propio runtime.
     let mut node = gz_transport::Node::new().ok_or_else(|| anyhow!("could not create the gz node"))?;
+
+    if let Some(puerto) = args.lockstep_port {
+        return correr_lockstep(&mut node, &mapa, campo, puerto);
+    }
 
     // Cola de 1 en todos: solo importa el estado más reciente. Una cola larga
     // haría que el bridge publicara poses viejas cuando se atrasa, que es peor
@@ -185,6 +205,23 @@ fn main() -> Result<()> {
     let mut aviso_glue = Instant::now();
     let mut glue_visto = false;
 
+        // Un error escribiendo a NT4 casi siempre es que el codigo del robot
+        // se cerro a mitad de escritura (fin de un test, recompilar). Eso no es
+        // motivo para morir: se vuelve al principio de la sesion y se espera
+        // al servidor, igual que cuando is_connected() da false.
+        macro_rules! nt_try {
+            ($e:expr) => {
+                if let Err(e) = $e {
+                    if !nt.is_connected() {
+                        println!("
+[bridge] the NT4 server went away ({e}); waiting for it to come back");
+                        continue 'sesion;
+                    }
+                    return Err(e);
+                }
+            };
+        }
+
         // --- lazo principal --------------------------------------------------
         let mut ultima_salud = Instant::now();
         let mut sim_previo = 0.0f64;
@@ -204,43 +241,55 @@ fn main() -> Result<()> {
                 continue 'sesion;
             }
 
+            // El lazo va al ritmo de los JOINTS (200 Hz), no de las poses
+            // (50 Hz): los encoders son la realimentacion del lazo de velocidad
+            // del TalonFX, que corre en el robot, y entregarlos a 50 Hz le mete
+            // 20 ms de retraso. Medido con Offseason2026: a 50 Hz el mismo path
+            // seguia con 10 cm de RMS contra 2 cm de la sim cinematica.
+            //
             // El timeout hace de latido: si el motor se detiene, en vez de
             // bloquearse para siempre el bridge lo dice y marca el estado.
-            match poses.recv_timeout(Duration::from_secs(2)) {
-                Ok(msg) => {
-                    if let Some(pose) = msg.pose.iter().find(|p| p.name == mapa.base_link) {
-                        let (Some(pos), Some(rot)) = (pose.position.as_ref(), pose.orientation.as_ref())
-                        else {
-                            continue;
-                        };
+            let joint_actual = match joints.recv_timeout(Duration::from_secs(2)) {
+                Ok(j) => j,
+                Err(_) => {
+                    nt_try!(nt.set_string(proto::T_MARS_SIM_STATE, "paused"));
+                    eprintln!("[bridge] no joints from the engine for 2 s");
+                    continue;
+                }
+            };
+
+            // La pose llega a 50 Hz: se publica la mas reciente cuando hay una
+            // nueva, y el yaw se conserva entre ciclos sin pose.
+            let mut ultima_pose = None;
+            while let Ok(p) = poses.try_recv() {
+                ultima_pose = Some(p);
+            }
+            if let Some(msg) = ultima_pose {
+                if let Some(pose) = msg.pose.iter().find(|p| p.name == mapa.base_link) {
+                    if let (Some(pos), Some(rot)) = (pose.position.as_ref(), pose.orientation.as_ref()) {
                         let (x, y) = campo.to_wpilib(pos.x, pos.y);
                         let yaw = yaw_from_quaternion(rot.w, rot.x, rot.y, rot.z);
                         yaw_actual = yaw;
 
-                        nt.set_raw(
+                        nt_try!(nt.set_raw(
                             proto::T_MARS_SIM_TRUTHPOSE,
                             "struct:Pose2d",
                             wpistruct::pose2d(x, y, yaw),
-                        )?;
-                        nt.set_raw(
+                        ));
+                        nt_try!(nt.set_raw(
                             proto::T_MARS_SIM_TRUTHPOSE3D,
                             "struct:Pose3d",
                             wpistruct::pose3d(x, y, pos.z, rot.w, rot.x, rot.y, rot.z),
-                        )?;
+                        ));
                         // Redundante con truthPose, pero es la convención de Field2d
                         // de WPILib: con esto la sim se ve en Glass, Shuffleboard y
                         // AdvantageScope sin configurar nada.
-                        nt.set_double_array(
+                        nt_try!(nt.set_double_array(
                             proto::T_SMARTDASHBOARD_FIELD_ROBOT,
                             &[x, y, yaw.to_degrees()],
-                        )?;
+                        ));
                         publicadas += 1;
                     }
-                }
-                Err(_) => {
-                    nt.set_string(proto::T_MARS_SIM_STATE, "paused")?;
-                    eprintln!("[bridge] no poses from the engine for 2 s");
-                    continue;
                 }
             }
 
@@ -295,16 +344,15 @@ fn main() -> Result<()> {
                 // Estado de la fisica de vuelta al robot. Se usa el joint mas
                 // reciente y se descarta el resto: aplicar una posicion de hace
                 // varios pasos es peor que saltarsela.
-                let mut ultimo = None;
+                let mut ultimo = joint_actual;
                 while let Ok(j) = joints.try_recv() {
-                    ultimo = Some(j);
+                    ultimo = j;
                 }
-                if let Some(j) = ultimo {
-                    g.publicar_estado(&nt, &j, yaw_actual)?;
-                }
+                nt_try!(g.publicar_estado(&nt, &ultimo, yaw_actual));
             } else {
                 // Sin glue igual hay que drenar: dejar el canal lleno hace que
                 // MarsLink escriba a un buzon saturado.
+                let _ = joint_actual;
                 while joints.try_recv().is_ok() {}
             }
 
@@ -314,7 +362,7 @@ fn main() -> Result<()> {
                     let sim = c.sim.as_ref().map_or(0.0, |t| t.sec as f64 + t.nsec as f64 * 1e-9);
                     let real = c.real.as_ref().map_or(0.0, |t| t.sec as f64 + t.nsec as f64 * 1e-9);
 
-                    nt.set_double(proto::T_MARS_SIM_SIMTIME, sim)?;
+                    nt_try!(nt.set_double(proto::T_MARS_SIM_SIMTIME, sim));
 
                     // RTF como derivada, no como sim/real acumulado: lo que importa
                     // es si la simulación va al día AHORA. El cociente acumulado
@@ -323,7 +371,7 @@ fn main() -> Result<()> {
                     let d_real = real - real_previo;
                     if d_real > 1e-6 {
                         let rtf = d_sim / d_real;
-                        nt.set_double(proto::T_MARS_SIM_REALTIMEFACTOR, rtf)?;
+                        nt_try!(nt.set_double(proto::T_MARS_SIM_REALTIMEFACTOR, rtf));
                         // Por debajo de esto el código del robot corre su ciclo de
                         // 20 ms contra una física más lenta, y cualquier ganancia
                         // que se afine ahí no transfiere al robot real.
@@ -333,7 +381,7 @@ fn main() -> Result<()> {
                     }
                     sim_previo = sim;
                     real_previo = real;
-                    nt.set_string(proto::T_MARS_SIM_STATE, "running")?;
+                    nt_try!(nt.set_string(proto::T_MARS_SIM_STATE, "running"));
                 }
 
                 let s = arranque.elapsed().as_secs_f64();
@@ -343,4 +391,37 @@ fn main() -> Result<()> {
             }
         }
     }
+}
+
+/// El modo lockstep: sus propias suscripciones, con capacidad de sobra, porque
+/// `subscribe_channel` usa `try_send` y con un canal lleno pierde el mensaje
+/// NUEVO. Ver src/lockstep.rs.
+fn correr_lockstep(
+    node: &mut gz_transport::Node,
+    mapa: &RobotMap,
+    campo: Field,
+    puerto: u16,
+) -> Result<()> {
+    use mars_sim_bridge::lockstep::{Canales, Lockstep};
+
+    let joints = node
+        .subscribe_channel::<Model>(proto::T_MARS_STATE_JOINTS, 256)
+        .ok_or_else(|| anyhow!("could not subscribe to {}", proto::T_MARS_STATE_JOINTS))?;
+    let poses = node
+        .subscribe_channel::<Pose_V>(proto::T_MARS_STATE_POSE, 256)
+        .ok_or_else(|| anyhow!("could not subscribe to {}", proto::T_MARS_STATE_POSE))?;
+    let mut act_pub = node
+        .advertise::<Actuators>(proto::T_MARS_CMD_ACTUATORS)
+        .ok_or_else(|| anyhow!("could not advertise {}", proto::T_MARS_CMD_ACTUATORS))?;
+    let mut match_pub = node
+        .advertise::<Int32>(proto::T_MARS_CMD_MATCH)
+        .ok_or_else(|| anyhow!("could not advertise {}", proto::T_MARS_CMD_MATCH))?;
+
+    // Mismo respiro que el modo normal: el discovery de gz-transport es
+    // asincrono y el primer paso no puede salir antes de que el motor nos vea.
+    std::thread::sleep(Duration::from_millis(800));
+    println!("[bridge] lockstep mode");
+
+    Lockstep::new(mapa, campo, Canales { joints, poses }, &mut act_pub, &mut match_pub)
+        .servir(puerto)
 }

@@ -297,7 +297,15 @@ impl Nt4 {
                 // `prefix` es lo que convierte la lista en un patron. `all` pide
                 // TODOS los cambios y no solo el ultimo por periodo: un comando
                 // de motor que se pierda es un ciclo de control perdido.
-                "options": { "prefix": true, "all": true }
+                //
+                // `periodic` es CADA CUANTO el servidor manda lo acumulado. Sin
+                // el, NT4 usa 100 ms: el servidor del robot junta los duty de
+                // traccion y los entrega en rafagas a 10 Hz, y el lazo de
+                // velocidad del TalonFX (que corre en el robot) queda con hasta
+                // 100 ms de retraso. Medido con Offseason2026: el mismo path
+                // daba 13 cm de RMS una vez y abortaba con 50 cm la siguiente,
+                // con 60-86 cm de patinaje. 5 ms es el minimo de NT4.
+                "options": { "prefix": true, "all": true, "periodic": 0.005 }
             }
         }]);
         if std::env::var("MARS_NT_DEBUG").is_ok() {

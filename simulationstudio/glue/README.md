@@ -138,3 +138,59 @@ del `robot-map.json`. Un nombre mal escrito no da error en ninguna parte: el
 motor no recibe nada y se queda quieto. Es el fallo más silencioso del sistema,
 así que si un módulo no se mueve, mirá el árbol de NetworkTables bajo
 `/MARS/Glue/`.
+
+---
+
+## Lockstep
+
+En tiempo real, el robot y la física corren cada uno con su reloj. Funciona,
+pero cada corrida sale distinta (±10% medido con el autotune de trayectoria de
+Offseason2026) y una PC cargada degrada la física en vez de ir más lenta.
+
+En **lockstep** el código del robot marca el paso: el tiempo de WPILib se pausa,
+y cada paso de 4 ms el glue manda los comandos, la física avanza exactamente ese
+paso y el robot no sigue hasta tener el estado resultante. La misma corrida da
+el mismo resultado (±0.6% medido).
+
+```powershell
+# 1. el mundo (con real_time_factor 0) y el bridge en modo lockstep
+.\simulationstudio\lockstep.ps1 -World worlds\offseason2026_lockstep.sdf `
+    -RobotMap models\offseason2026\robot-map.json -Gui
+
+# 2. el robot, en su proyecto
+$env:MARS_LOCKSTEP = "127.0.0.1:5811"; ./gradlew simulateJava
+```
+
+Cómo funciona, de punta a punta:
+
+| | qué hace |
+|---|---|
+| glue (Java) | pausa el tiempo de WPILib; por paso: lee los voltajes, manda los comandos por TCP, inyecta el estado, `SimHooks.stepTiming(0.004)` |
+| bridge | `--lockstep-port`: recibe por TCP, publica el comando con `header.data["seq"]`, espera los joints con ese mismo seq |
+| MarsLink | con comandos que traen `seq`, cada paso espera en `PreUpdate` al siguiente; publica joints y pose estampados con él |
+
+**Por qué TCP y no NT4:** NT4 entrega como mucho cada 5 ms, o sea ≥10 ms por ida
+y vuelta para un paso de 4 ms. Un socket local tarda microsegundos.
+
+**El límite de velocidad es Phoenix, no Gazebo.** El firmware simulado del
+TalonFX corre en el reloj de pared y no se puede pausar (medido: tarda 1.5 ms
+de mediana y 2.2 ms como mucho en reaccionar a un cambio de sensor). Cada paso
+espera `MARS_LOCKSTEP_SETTLE_MS` de pared antes de leer los voltajes:
+
+| `MARS_LOCKSTEP_SETTLE_MS` | velocidad | efecto |
+|---|---|---|
+| 2.5 (defecto) | ~1.1x | fiel: el TalonFX siempre alcanzó a reaccionar |
+| 1.0 | ~2x | ~10% de sesgo: a veces lee el voltaje de un paso atrás |
+| 0.3 | ~3.4x | ~30%: demasiado retraso artificial para tunear |
+
+Gazebo solo, con este robot, da ~3x tiempo real; sin el firmware de Phoenix de
+por medio el lockstep podría acercarse a eso.
+
+## Orientación y offsets de los sensores
+
+El glue configura en el constructor `Orientation` de cada TalonFX y CANcoder y
+el `SensorOffset` del CANcoder, igual que `SimSwerveDrivetrain` de CTRE. Sin eso
+el CANcoder reporta la posición cruda más el offset del imán: un módulo en 0°
+aparecía en -135.7°. En tiempo real el bug quedaba oculto por casualidad, porque
+el glue arranca con la sim de CTRE mientras Gazebo no contesta y esa sim deja
+los campos puestos. En lockstep Gazebo contesta desde el primer paso.

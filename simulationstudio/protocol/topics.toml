@@ -43,7 +43,12 @@ type = "gz.msgs.Actuators"
 dir = "out"
 source = "custom"
 rate_hz = 200
-desc = """Comandos de motor, indexados por el orden de actuadores del
+desc = """En LOCKSTEP el bridge pone header.data["seq"] (creciente) y MarsLink
+deja de correr libre: cada paso espera al comando con el siguiente seq, y
+/mars/state/joints y /mars/state/pose salen con el mismo seq en su header. Ver
+bridge/src/lockstep.rs.
+
+Comandos de motor, indexados por el orden de actuadores del
 robot-map. Los tres campos comparten indexacion y cada actuador lee el que le
 toca segun su modo de control, declarado en el <actuator> del SDF:
 
@@ -74,7 +79,7 @@ topic = "/mars/state/joints"
 type = "gz.msgs.Model"
 dir = "in"
 source = "custom"
-rate_hz = 200
+rate_hz = 250
 desc = """Posición y velocidad de cada joint. De aquí se derivan los encoders: \
 el bridge multiplica por countsPerRevolution y la relación de engranaje del \
 robot-map. Va a 200 Hz porque un ciclo de robot son 20 ms y queremos que \
@@ -85,7 +90,7 @@ topic = "/mars/state/pose"
 type = "gz.msgs.Pose_V"
 dir = "in"
 source = "custom"
-rate_hz = 50
+rate_hz = 250
 desc = """Pose de cada link del robot en coordenadas del mundo. Esta es la \
 VERDAD de la física, no una estimación. Va a NT para que la app pueda \
 dibujarla encima de la odometría del robot y hacer visible el error."""
