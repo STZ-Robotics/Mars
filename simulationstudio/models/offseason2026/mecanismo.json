@@ -1,0 +1,309 @@
+{
+  "$comment": "GENERADO por Offseason2026-main/simustudio/gazebo/convertir_mecanismo.py desde RobotAnimation2.json. No editar a mano.",
+  "fuente": "RobotAnimation2.json",
+  "visuales_chasis": [
+    {
+      "malla": "meshes/robotbase.stl",
+      "color": [
+        0.16,
+        0.16,
+        0.18
+      ]
+    },
+    {
+      "malla": "meshes/robotbase_bumper.stl",
+      "color": [
+        0.82,
+        0.71,
+        0.53
+      ]
+    }
+  ],
+  "colision_superior": {
+    "centro": [
+      -0.0045,
+      0.0007,
+      0.455
+    ],
+    "tamano": [
+      0.6949,
+      0.7001,
+      0.5499
+    ]
+  },
+  "piezas": [
+    {
+      "nombre": "intake_arm",
+      "pieza": "IntakeArm",
+      "malla": "meshes/intakearm.stl",
+      "color": [
+        0.0,
+        0.639,
+        0.843
+      ],
+      "tipo": "revolute",
+      "continuo": false,
+      "pivote": [
+        0.3007,
+        0.0124,
+        0.23
+      ],
+      "eje": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "limites": [
+        -1.919862,
+        0.0
+      ],
+      "cero": 0.0,
+      "unidades": "degrees",
+      "masa": 3.0,
+      "centro_masa": [
+        0.1554,
+        -0.0125,
+        -0.0315
+      ],
+      "inercia": [
+        0.147754,
+        0.064881,
+        0.163301
+      ],
+      "control": "position",
+      "motor": "neo",
+      "reduccion": 45.0,
+      "limite_corriente": 40,
+      "kp": 2.0,
+      "kd": 0.05
+    },
+    {
+      "nombre": "dumper",
+      "pieza": "Angulator",
+      "malla": "meshes/angulator.stl",
+      "color": [
+        0.4,
+        0.612,
+        0.208
+      ],
+      "tipo": "revolute",
+      "continuo": false,
+      "pivote": [
+        -0.1993,
+        0.0124,
+        0.51
+      ],
+      "eje": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "limites": [
+        0.0,
+        0.872665
+      ],
+      "cero": 88.0,
+      "unidades": "degrees",
+      "masa": 1.5,
+      "centro_masa": [
+        0.0811,
+        -0.0126,
+        0.0485
+      ],
+      "inercia": [
+        0.072595,
+        0.021792,
+        0.066843
+      ],
+      "control": "position",
+      "motor": "neo",
+      "reduccion": 60.0,
+      "limite_corriente": 40,
+      "kp": 2.0,
+      "kd": 0.05
+    },
+    {
+      "nombre": "shooter",
+      "pieza": "Tambor",
+      "malla": "meshes/tambor.stl",
+      "color": [
+        0.58,
+        0.129,
+        0.573
+      ],
+      "tipo": "revolute",
+      "continuo": true,
+      "pivote": [
+        -0.1993,
+        0.0124,
+        0.51
+      ],
+      "eje": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "limites": null,
+      "cero": 0.0,
+      "unidades": "degrees",
+      "masa": 1.2,
+      "centro_masa": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "inercia": [
+        0.037067,
+        0.002113,
+        0.037064
+      ],
+      "control": "duty",
+      "motor": "kraken_x60",
+      "reduccion": 1.0,
+      "limite_corriente": 120,
+      "kp": null,
+      "kd": null
+    },
+    {
+      "nombre": "box",
+      "pieza": "Box",
+      "malla": "meshes/box.stl",
+      "color": [
+        0.725,
+        0.176,
+        0.365
+      ],
+      "tipo": "prismatic",
+      "continuo": false,
+      "pivote": [
+        -0.0193,
+        0.0124,
+        0.48
+      ],
+      "eje": [
+        -1.0,
+        0.0,
+        0.0
+      ],
+      "limites": [
+        -0.23,
+        0.0
+      ],
+      "cero": 0.0,
+      "unidades": "meters",
+      "masa": 2.0,
+      "centro_masa": [
+        0.2103,
+        -0.0121,
+        0.0467
+      ],
+      "inercia": [
+        0.100075,
+        0.043335,
+        0.088356
+      ],
+      "control": "position",
+      "motor": "neo",
+      "reduccion": 250.0,
+      "limite_corriente": 40,
+      "kp": 20.0,
+      "kd": 0.5
+    },
+    {
+      "nombre": "intake_rollers",
+      "pieza": "Roller1",
+      "malla": "meshes/roller1.stl",
+      "color": [
+        0.8,
+        0.91,
+        0.71
+      ],
+      "tipo": "revolute",
+      "continuo": true,
+      "pivote": [
+        0.2957,
+        0.0124,
+        0.21
+      ],
+      "eje": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "limites": null,
+      "cero": 0.0,
+      "unidades": "degrees",
+      "masa": 0.6,
+      "centro_masa": [
+        -0.0015,
+        -0.0056,
+        -0.0028
+      ],
+      "inercia": [
+        0.018046,
+        0.000236,
+        0.018046
+      ],
+      "control": "duty",
+      "motor": "kraken_x60",
+      "reduccion": 1.0,
+      "limite_corriente": 40,
+      "kp": null,
+      "kd": null
+    },
+    {
+      "nombre": "indexer_rollers",
+      "pieza": "Roller2",
+      "malla": "meshes/roller2.stl",
+      "color": [
+        0.0,
+        0.992,
+        1.0
+      ],
+      "tipo": "revolute",
+      "continuo": true,
+      "pivote": [
+        -0.0993,
+        0.0124,
+        0.13
+      ],
+      "eje": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "limites": null,
+      "cero": 0.0,
+      "unidades": "degrees",
+      "masa": 0.5,
+      "centro_masa": [
+        -0.0011,
+        -0.0065,
+        0.0032
+      ],
+      "inercia": [
+        0.020724,
+        0.000271,
+        0.020724
+      ],
+      "control": "duty",
+      "motor": "neo",
+      "reduccion": 3.0,
+      "limite_corriente": 40,
+      "kp": null,
+      "kd": null
+    }
+  ],
+  "bumper": {
+    "centro": [
+      0.0,
+      -0.0001,
+      0.0917
+    ],
+    "tamano": [
+      0.9017,
+      0.9017,
+      0.1143
+    ]
+  }
+}

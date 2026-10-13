@@ -1,0 +1,311 @@
+{
+  "$comment": "GENERADO por sim/worlds/gen_offseason2026.py junto con offseason2026.sdf. No editar a mano.",
+  "protocol": "0.1.0",
+  "robot": "offseason2026",
+  "world": "mars",
+  "model": "robot",
+  "profile": "vendor",
+  "$comment_profile": "vendor: motores CAN (Kraken sobre TalonFX). El lazo de hardware va por el glue sobre NT4 porque HALSim WebSocket no cubre CAN.",
+  "sdf": "worlds/offseason2026.sdf",
+  "base_link": "chassis",
+  "actuators": [
+    {
+      "name": "fl_drive",
+      "joint": "fl_drive_joint",
+      "motor": "kraken_x60",
+      "gearRatio": 5.2734375,
+      "inverted": false,
+      "control": "duty",
+      "hal": {
+        "kind": "pwm",
+        "channel": 0
+      }
+    },
+    {
+      "name": "fl_steer",
+      "joint": "fl_steer_joint",
+      "motor": "kraken_x60",
+      "gearRatio": 26.09090909090909,
+      "inverted": false,
+      "control": "position",
+      "hal": {
+        "kind": "pwm",
+        "channel": 1
+      }
+    },
+    {
+      "name": "fr_drive",
+      "joint": "fr_drive_joint",
+      "motor": "kraken_x60",
+      "gearRatio": 5.2734375,
+      "inverted": false,
+      "control": "duty",
+      "hal": {
+        "kind": "pwm",
+        "channel": 2
+      }
+    },
+    {
+      "name": "fr_steer",
+      "joint": "fr_steer_joint",
+      "motor": "kraken_x60",
+      "gearRatio": 26.09090909090909,
+      "inverted": false,
+      "control": "position",
+      "hal": {
+        "kind": "pwm",
+        "channel": 3
+      }
+    },
+    {
+      "name": "bl_drive",
+      "joint": "bl_drive_joint",
+      "motor": "kraken_x60",
+      "gearRatio": 5.2734375,
+      "inverted": false,
+      "control": "duty",
+      "hal": {
+        "kind": "pwm",
+        "channel": 4
+      }
+    },
+    {
+      "name": "bl_steer",
+      "joint": "bl_steer_joint",
+      "motor": "kraken_x60",
+      "gearRatio": 26.09090909090909,
+      "inverted": false,
+      "control": "position",
+      "hal": {
+        "kind": "pwm",
+        "channel": 5
+      }
+    },
+    {
+      "name": "br_drive",
+      "joint": "br_drive_joint",
+      "motor": "kraken_x60",
+      "gearRatio": 5.2734375,
+      "inverted": false,
+      "control": "duty",
+      "hal": {
+        "kind": "pwm",
+        "channel": 6
+      }
+    },
+    {
+      "name": "br_steer",
+      "joint": "br_steer_joint",
+      "motor": "kraken_x60",
+      "gearRatio": 26.09090909090909,
+      "inverted": false,
+      "control": "position",
+      "hal": {
+        "kind": "pwm",
+        "channel": 7
+      }
+    },
+    {
+      "name": "intake_arm",
+      "joint": "intake_arm_joint",
+      "motor": "neo",
+      "gearRatio": 45.0,
+      "inverted": false,
+      "control": "position",
+      "hal": {
+        "kind": "pwm",
+        "channel": 8
+      }
+    },
+    {
+      "name": "dumper",
+      "joint": "dumper_joint",
+      "motor": "neo",
+      "gearRatio": 60.0,
+      "inverted": false,
+      "control": "position",
+      "hal": {
+        "kind": "pwm",
+        "channel": 9
+      }
+    },
+    {
+      "name": "shooter",
+      "joint": "shooter_joint",
+      "motor": "kraken_x60",
+      "gearRatio": 1.0,
+      "inverted": false,
+      "control": "duty",
+      "hal": {
+        "kind": "pwm",
+        "channel": 10
+      }
+    },
+    {
+      "name": "box",
+      "joint": "box_joint",
+      "motor": "neo",
+      "gearRatio": 250.0,
+      "inverted": false,
+      "control": "position",
+      "hal": {
+        "kind": "pwm",
+        "channel": 11
+      }
+    },
+    {
+      "name": "intake_rollers",
+      "joint": "intake_rollers_joint",
+      "motor": "kraken_x60",
+      "gearRatio": 1.0,
+      "inverted": false,
+      "control": "duty",
+      "hal": {
+        "kind": "pwm",
+        "channel": 12
+      }
+    },
+    {
+      "name": "indexer_rollers",
+      "joint": "indexer_rollers_joint",
+      "motor": "neo",
+      "gearRatio": 3.0,
+      "inverted": false,
+      "control": "duty",
+      "hal": {
+        "kind": "pwm",
+        "channel": 13
+      }
+    }
+  ],
+  "encoders": [
+    {
+      "name": "fl_drive_enc",
+      "joint": "fl_drive_joint",
+      "countsPerRevolution": 2048,
+      "hal": {
+        "kind": "encoder",
+        "index": 0
+      }
+    },
+    {
+      "name": "fl_steer_enc",
+      "joint": "fl_steer_joint",
+      "countsPerRevolution": 2048,
+      "hal": {
+        "kind": "encoder",
+        "index": 1
+      }
+    },
+    {
+      "name": "fr_drive_enc",
+      "joint": "fr_drive_joint",
+      "countsPerRevolution": 2048,
+      "hal": {
+        "kind": "encoder",
+        "index": 2
+      }
+    },
+    {
+      "name": "fr_steer_enc",
+      "joint": "fr_steer_joint",
+      "countsPerRevolution": 2048,
+      "hal": {
+        "kind": "encoder",
+        "index": 3
+      }
+    },
+    {
+      "name": "bl_drive_enc",
+      "joint": "bl_drive_joint",
+      "countsPerRevolution": 2048,
+      "hal": {
+        "kind": "encoder",
+        "index": 4
+      }
+    },
+    {
+      "name": "bl_steer_enc",
+      "joint": "bl_steer_joint",
+      "countsPerRevolution": 2048,
+      "hal": {
+        "kind": "encoder",
+        "index": 5
+      }
+    },
+    {
+      "name": "br_drive_enc",
+      "joint": "br_drive_joint",
+      "countsPerRevolution": 2048,
+      "hal": {
+        "kind": "encoder",
+        "index": 6
+      }
+    },
+    {
+      "name": "br_steer_enc",
+      "joint": "br_steer_joint",
+      "countsPerRevolution": 2048,
+      "hal": {
+        "kind": "encoder",
+        "index": 7
+      }
+    },
+    {
+      "name": "intake_arm_enc",
+      "joint": "intake_arm_joint",
+      "countsPerRevolution": 42,
+      "hal": {
+        "kind": "encoder",
+        "index": 8
+      }
+    },
+    {
+      "name": "dumper_enc",
+      "joint": "dumper_joint",
+      "countsPerRevolution": 42,
+      "hal": {
+        "kind": "encoder",
+        "index": 9
+      }
+    },
+    {
+      "name": "shooter_enc",
+      "joint": "shooter_joint",
+      "countsPerRevolution": 2048,
+      "hal": {
+        "kind": "encoder",
+        "index": 10
+      }
+    },
+    {
+      "name": "box_enc",
+      "joint": "box_joint",
+      "countsPerRevolution": 42,
+      "hal": {
+        "kind": "encoder",
+        "index": 11
+      }
+    },
+    {
+      "name": "intake_rollers_enc",
+      "joint": "intake_rollers_joint",
+      "countsPerRevolution": 2048,
+      "hal": {
+        "kind": "encoder",
+        "index": 12
+      }
+    },
+    {
+      "name": "indexer_rollers_enc",
+      "joint": "indexer_rollers_joint",
+      "countsPerRevolution": 42,
+      "hal": {
+        "kind": "encoder",
+        "index": 13
+      }
+    }
+  ],
+  "$comment_imu": "Sin IMU todavia: el yaw sale de la pose real. Un giroscopio perfecto esconde errores de odometria, asi que agregar el <sensor type=\"imu\"> con ruido es el siguiente paso de fidelidad.",
+  "imu": null
+}

@@ -1,0 +1,491 @@
+<?xml version="1.0" ?>
+<!--
+  Swerve de cuatro modulos sobre Kraken X60.
+
+  GENERADO por sim/worlds/gen_swerve.py. Para cambiar el robot se toca el
+  script y se vuelve a correr, no este archivo.
+
+  Cada modulo son DOS joints: uno de direccion sobre Z (el cuerpo del
+  modulo gira entero) y uno de traccion sobre el eje de la rueda. El link
+  de la rueda cuelga del de direccion y no del chasis, porque girar la
+  direccion tiene que arrastrar la rueda con ella.
+
+  Las direcciones NO tienen tope ni resorte: con par cero quedan libres y
+  las fuerzas laterales las mueven, igual que un modulo real sin
+  corriente. El codigo del robot tiene que cerrar el lazo de posicion.
+  sim/bridge/fake-robot.py lo hace con un P para poder probarlo.
+
+  Los limites de la cancha son cajas de colision sacadas del modelo
+  oficial: guardrails, los seis driver stations, las torres, los
+  outposts y los dos HUB. Se apagan con HITBOXES en el generador.
+-->
+<sdf version="1.11">
+  <world name="mars">
+
+    <physics name="250hz" type="ignored">
+      <max_step_size>0.004</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster"/>
+
+    <gravity>0 0 -9.8</gravity>
+
+    <light type="directional" name="sun">
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry><plane><normal>0 0 1</normal></plane></geometry>
+          <surface><friction><ode><mu>0.9</mu><mu2>0.9</mu2></ode></friction></surface>
+        </collision>
+        <visual name="visual">
+          <geometry><plane><normal>0 0 1</normal><size>16.54 8.21</size></plane></geometry>
+          <material><ambient>0.16 0.17 0.19 1</ambient><diffuse>0.30 0.32 0.36 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- La FISICA de la cancha: la malla de arriba no tiene colision
+         ninguna, asi que sin estas cajas el robot atraviesa la pared
+         de la estacion y el HUB conduciendo.
+
+         Las medidas salen de los AABB de los nodos del glTF oficial,
+         no de una tabla a mano. Cuales entran y por que el trench y
+         los bumps NO estan: worlds/cancha_2026.py. -->
+    <model name="field_collision">
+      <static>true</static>
+      <link name="link">
+        <collision name="guardrail_1">
+          <pose>-0.0000 4.1927 0.2611 0.00000 0.00000 0.00000</pose>
+          <geometry><box><size>16.6372 0.3580 0.5237</size></box></geometry>
+        </collision>
+        <collision name="guardrail_2">
+          <pose>0.0000 -4.1927 0.2611 0.00000 0.00000 0.00000</pose>
+          <geometry><box><size>16.6372 0.3580 0.5237</size></box></geometry>
+        </collision>
+        <collision name="driver_station_1">
+          <pose>-8.4467 3.0798 0.9949 0.00000 0.00000 0.00000</pose>
+          <geometry><box><size>0.3810 1.8288 1.9853</size></box></geometry>
+        </collision>
+        <collision name="driver_station_2">
+          <pose>-8.4467 1.2510 0.9949 0.00000 0.00000 0.00000</pose>
+          <geometry><box><size>0.3810 1.8288 1.9853</size></box></geometry>
+        </collision>
+        <collision name="driver_station_3">
+          <pose>-8.4467 -1.8288 0.9949 0.00000 0.00000 0.00000</pose>
+          <geometry><box><size>0.3810 1.8288 1.9853</size></box></geometry>
+        </collision>
+        <collision name="driver_station_4">
+          <pose>8.4467 1.8288 0.9949 0.00000 0.00000 0.00000</pose>
+          <geometry><box><size>0.3810 1.8288 1.9853</size></box></geometry>
+        </collision>
+        <collision name="driver_station_5">
+          <pose>8.4467 -1.2510 0.9949 0.00000 0.00000 0.00000</pose>
+          <geometry><box><size>0.3810 1.8288 1.9853</size></box></geometry>
+        </collision>
+        <collision name="driver_station_6">
+          <pose>8.4467 -3.0798 0.9949 0.00000 0.00000 0.00000</pose>
+          <geometry><box><size>0.3810 1.8288 1.9853</size></box></geometry>
+        </collision>
+        <collision name="tower_1">
+          <pose>-7.7285 -0.2889 0.9956 0.00000 0.00000 0.00000</pose>
+          <geometry><box><size>1.2050 1.2509 1.9911</size></box></geometry>
+        </collision>
+        <collision name="tower_2">
+          <pose>7.7285 0.2889 0.9956 0.00000 0.00000 0.00000</pose>
+          <geometry><box><size>1.2050 1.2509 1.9911</size></box></geometry>
+        </collision>
+        <collision name="outpost_1">
+          <pose>-8.7156 -3.4592 0.9955 0.00000 0.00000 0.00000</pose>
+          <geometry><box><size>1.0247 1.4319 1.9909</size></box></geometry>
+        </collision>
+        <collision name="outpost_2">
+          <pose>8.7156 3.4592 0.9955 0.00000 0.00000 0.00000</pose>
+          <geometry><box><size>1.0247 1.4319 1.9909</size></box></geometry>
+        </collision>
+        <collision name="hub_1">
+          <pose>-3.4933 0.0051 1.5407 0.00000 0.00000 0.00000</pose>
+          <geometry><box><size>1.5306 1.4947 3.0814</size></box></geometry>
+        </collision>
+        <collision name="hub_2">
+          <pose>3.4933 -0.0051 1.5407 0.00000 0.00000 0.00000</pose>
+          <geometry><box><size>1.5306 1.4947 3.0814</size></box></geometry>
+        </collision>
+        <collision name="bump_1_1">
+          <pose>-3.9155 -1.6345 0.0443 0.00000 -0.28539 0.00000</pose>
+          <geometry><box><size>0.5876 2.2333 0.0800</size></box></geometry>
+        </collision>
+        <collision name="bump_1_2">
+          <pose>-3.3743 -1.6345 0.0443 0.00000 0.28539 0.00000</pose>
+          <geometry><box><size>0.5876 2.2333 0.0800</size></box></geometry>
+        </collision>
+        <collision name="bump_2_1">
+          <pose>-3.9155 1.6345 0.0443 0.00000 -0.28539 0.00000</pose>
+          <geometry><box><size>0.5876 2.2333 0.0800</size></box></geometry>
+        </collision>
+        <collision name="bump_2_2">
+          <pose>-3.3743 1.6345 0.0443 0.00000 0.28539 0.00000</pose>
+          <geometry><box><size>0.5876 2.2333 0.0800</size></box></geometry>
+        </collision>
+        <collision name="bump_3_1">
+          <pose>3.3743 -1.6345 0.0443 0.00000 -0.28539 0.00000</pose>
+          <geometry><box><size>0.5876 2.2333 0.0800</size></box></geometry>
+        </collision>
+        <collision name="bump_3_2">
+          <pose>3.9155 -1.6345 0.0443 0.00000 0.28539 0.00000</pose>
+          <geometry><box><size>0.5876 2.2333 0.0800</size></box></geometry>
+        </collision>
+        <collision name="bump_4_1">
+          <pose>3.3743 1.6345 0.0443 0.00000 -0.28539 0.00000</pose>
+          <geometry><box><size>0.5876 2.2333 0.0800</size></box></geometry>
+        </collision>
+        <collision name="bump_4_2">
+          <pose>3.9155 1.6345 0.0443 0.00000 0.28539 0.00000</pose>
+          <geometry><box><size>0.5876 2.2333 0.0800</size></box></geometry>
+        </collision>
+      </link>
+    </model>
+
+    <model name="robot">
+      <pose>-1.25 0.0 0.0 0.0 0.0 0.0</pose>
+
+      <link name="chassis">
+        <pose>0 0 0.2 0 0 0</pose>
+        <inertial>
+          <mass>38.575</mass>
+          <inertia><ixx>2.9474</ixx><iyy>2.9474</iyy><izz>5.7792</izz>
+            <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+        </inertial>
+        <collision name="bumper"><pose>0.0 -0.0001 -0.1083 0 0 0</pose><geometry><box><size>0.9017 0.9017 0.1143</size></box></geometry></collision>
+        <collision name="torre"><pose>-0.0045 0.0007 0.2550 0 0 0</pose><geometry><box><size>0.6949 0.7001 0.5499</size></box></geometry></collision>
+        <visual name="cad_0">
+          <pose>0 0 -0.2000 0 0 0</pose>
+          <geometry><mesh><uri>model://offseason2026/meshes/robotbase.stl</uri></mesh></geometry>
+          <material><ambient>0.072 0.072 0.081 1</ambient><diffuse>0.160 0.160 0.180 1</diffuse><specular>0.15 0.15 0.15 1</specular></material>
+        </visual>
+        <visual name="cad_1">
+          <pose>0 0 -0.2000 0 0 0</pose>
+          <geometry><mesh><uri>model://offseason2026/meshes/robotbase_bumper.stl</uri></mesh></geometry>
+          <material><ambient>0.369 0.320 0.239 1</ambient><diffuse>0.820 0.710 0.530 1</diffuse><specular>0.15 0.15 0.15 1</specular></material>
+        </visual>
+      </link>
+
+      <!-- modulo fl -->
+      <link name="fl_steer">
+        <pose>0.276225 0.276225 0.12 0 0 0</pose>
+        <inertial>
+          <mass>1.2</mass>
+          <inertia><ixx>0.015346</ixx><iyy>0.015346</iyy><izz>0.030091</izz>
+            <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+        </inertial>
+      </link>
+
+      <link name="fl_wheel">
+        <pose>0.276225 0.276225 0.0508 -1.5707963 0 0</pose>
+        <inertial>
+          <mass>0.8</mass>
+          <inertia><ixx>0.001122</ixx><iyy>0.001122</iyy><izz>0.002200</izz>
+            <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+        </inertial>
+        <collision name="collision">
+          <geometry><cylinder><radius>0.0508</radius><length>0.045</length></cylinder></geometry>
+          <surface><friction><ode><mu>1.1</mu><mu2>1.1</mu2></ode></friction></surface>
+        </collision>
+      </link>
+
+      <joint name="fl_steer_joint" type="revolute">
+        <parent>chassis</parent><child>fl_steer</child>
+        <axis><xyz>0 0 1</xyz>
+          <dynamics><damping>0.05</damping></dynamics>
+          <limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>
+      </joint>
+      <joint name="fl_drive_joint" type="revolute">
+        <parent>fl_steer</parent><child>fl_wheel</child>
+        <axis><xyz>0 0 1</xyz>
+          <dynamics><damping>0.004</damping></dynamics>
+          <limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>
+      </joint>
+
+      <!-- modulo fr -->
+      <link name="fr_steer">
+        <pose>0.276225 -0.276225 0.12 0 0 0</pose>
+        <inertial>
+          <mass>1.2</mass>
+          <inertia><ixx>0.015346</ixx><iyy>0.015346</iyy><izz>0.030091</izz>
+            <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+        </inertial>
+      </link>
+
+      <link name="fr_wheel">
+        <pose>0.276225 -0.276225 0.0508 -1.5707963 0 0</pose>
+        <inertial>
+          <mass>0.8</mass>
+          <inertia><ixx>0.001122</ixx><iyy>0.001122</iyy><izz>0.002200</izz>
+            <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+        </inertial>
+        <collision name="collision">
+          <geometry><cylinder><radius>0.0508</radius><length>0.045</length></cylinder></geometry>
+          <surface><friction><ode><mu>1.1</mu><mu2>1.1</mu2></ode></friction></surface>
+        </collision>
+      </link>
+
+      <joint name="fr_steer_joint" type="revolute">
+        <parent>chassis</parent><child>fr_steer</child>
+        <axis><xyz>0 0 1</xyz>
+          <dynamics><damping>0.05</damping></dynamics>
+          <limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>
+      </joint>
+      <joint name="fr_drive_joint" type="revolute">
+        <parent>fr_steer</parent><child>fr_wheel</child>
+        <axis><xyz>0 0 1</xyz>
+          <dynamics><damping>0.004</damping></dynamics>
+          <limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>
+      </joint>
+
+      <!-- modulo bl -->
+      <link name="bl_steer">
+        <pose>-0.276225 0.276225 0.12 0 0 0</pose>
+        <inertial>
+          <mass>1.2</mass>
+          <inertia><ixx>0.015346</ixx><iyy>0.015346</iyy><izz>0.030091</izz>
+            <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+        </inertial>
+      </link>
+
+      <link name="bl_wheel">
+        <pose>-0.276225 0.276225 0.0508 -1.5707963 0 0</pose>
+        <inertial>
+          <mass>0.8</mass>
+          <inertia><ixx>0.001122</ixx><iyy>0.001122</iyy><izz>0.002200</izz>
+            <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+        </inertial>
+        <collision name="collision">
+          <geometry><cylinder><radius>0.0508</radius><length>0.045</length></cylinder></geometry>
+          <surface><friction><ode><mu>1.1</mu><mu2>1.1</mu2></ode></friction></surface>
+        </collision>
+      </link>
+
+      <joint name="bl_steer_joint" type="revolute">
+        <parent>chassis</parent><child>bl_steer</child>
+        <axis><xyz>0 0 1</xyz>
+          <dynamics><damping>0.05</damping></dynamics>
+          <limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>
+      </joint>
+      <joint name="bl_drive_joint" type="revolute">
+        <parent>bl_steer</parent><child>bl_wheel</child>
+        <axis><xyz>0 0 1</xyz>
+          <dynamics><damping>0.004</damping></dynamics>
+          <limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>
+      </joint>
+
+      <!-- modulo br -->
+      <link name="br_steer">
+        <pose>-0.276225 -0.276225 0.12 0 0 0</pose>
+        <inertial>
+          <mass>1.2</mass>
+          <inertia><ixx>0.015346</ixx><iyy>0.015346</iyy><izz>0.030091</izz>
+            <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+        </inertial>
+      </link>
+
+      <link name="br_wheel">
+        <pose>-0.276225 -0.276225 0.0508 -1.5707963 0 0</pose>
+        <inertial>
+          <mass>0.8</mass>
+          <inertia><ixx>0.001122</ixx><iyy>0.001122</iyy><izz>0.002200</izz>
+            <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+        </inertial>
+        <collision name="collision">
+          <geometry><cylinder><radius>0.0508</radius><length>0.045</length></cylinder></geometry>
+          <surface><friction><ode><mu>1.1</mu><mu2>1.1</mu2></ode></friction></surface>
+        </collision>
+      </link>
+
+      <joint name="br_steer_joint" type="revolute">
+        <parent>chassis</parent><child>br_steer</child>
+        <axis><xyz>0 0 1</xyz>
+          <dynamics><damping>0.05</damping></dynamics>
+          <limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>
+      </joint>
+      <joint name="br_drive_joint" type="revolute">
+        <parent>br_steer</parent><child>br_wheel</child>
+        <axis><xyz>0 0 1</xyz>
+          <dynamics><damping>0.004</damping></dynamics>
+          <limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>
+      </joint>
+
+      <!-- MECANISMOS. Salen del Mechanism3D de MARS Desktop
+           (RobotAnimation2.json) via convertir_mecanismo.py: el pivote, el eje
+           y los limites son los de alla. Solo visual y masa: no chocan
+           con nada, para que un brazo no empuje al propio robot. -->
+
+      <!-- IntakeArm -> intake_arm (position) -->
+      <link name="intake_arm">
+        <pose>0.3007 0.0124 0.23 0 0 0</pose>
+        <inertial>
+          <pose>0.1554 -0.0125 -0.0315 0 0 0</pose>
+          <mass>3.0000</mass>
+          <inertia><ixx>0.147754</ixx><iyy>0.149931</iyy><izz>0.163301</izz>
+            <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+        </inertial>
+        <visual name="cad">
+          <pose>-0.3007 -0.0124 -0.23 0 0 0</pose>
+          <geometry><mesh><uri>model://offseason2026/meshes/intakearm.stl</uri></mesh></geometry>
+          <material><ambient>0.000 0.288 0.379 1</ambient><diffuse>0.000 0.639 0.843 1</diffuse><specular>0.15 0.15 0.15 1</specular></material>
+        </visual>
+      </link>
+      <joint name="intake_arm_joint" type="revolute">
+        <parent>chassis</parent><child>intake_arm</child>
+        <axis><xyz>0.0 1.0 0.0</xyz>
+          <dynamics><damping>0.01</damping></dynamics>
+          <limit><lower>-1.919862</lower><upper>0.0</upper></limit></axis>
+      </joint>
+
+      <!-- Angulator -> dumper (position) -->
+      <link name="dumper">
+        <pose>-0.1993 0.0124 0.51 0 0 0</pose>
+        <inertial>
+          <pose>0.0811 -0.0126 0.0485 0 0 0</pose>
+          <mass>1.5000</mass>
+          <inertia><ixx>0.088226</ixx><iyy>0.172992</iyy><izz>0.088226</izz>
+            <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+        </inertial>
+        <visual name="cad">
+          <pose>0.1993 -0.0124 -0.51 0 0 0</pose>
+          <geometry><mesh><uri>model://offseason2026/meshes/angulator.stl</uri></mesh></geometry>
+          <material><ambient>0.180 0.275 0.094 1</ambient><diffuse>0.400 0.612 0.208 1</diffuse><specular>0.15 0.15 0.15 1</specular></material>
+        </visual>
+      </link>
+      <joint name="dumper_joint" type="revolute">
+        <parent>chassis</parent><child>dumper</child>
+        <axis><xyz>0.0 1.0 0.0</xyz>
+          <dynamics><damping>0.01</damping></dynamics>
+          <limit><lower>0.0</lower><upper>0.872665</upper></limit></axis>
+      </joint>
+
+      <!-- Tambor -> shooter (duty) -->
+      <link name="shooter">
+        <pose>-0.1993 0.0124 0.51 0 0 0</pose>
+        <inertial>
+          <pose>0.0 0.0 0.0 0 0 0</pose>
+          <mass>1.2000</mass>
+          <inertia><ixx>0.037067</ixx><iyy>0.002155</iyy><izz>0.037064</izz>
+            <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+        </inertial>
+        <visual name="cad">
+          <pose>0.1993 -0.0124 -0.51 0 0 0</pose>
+          <geometry><mesh><uri>model://offseason2026/meshes/tambor.stl</uri></mesh></geometry>
+          <material><ambient>0.261 0.058 0.258 1</ambient><diffuse>0.580 0.129 0.573 1</diffuse><specular>0.15 0.15 0.15 1</specular></material>
+        </visual>
+      </link>
+      <joint name="shooter_joint" type="revolute">
+        <parent>chassis</parent><child>shooter</child>
+        <axis><xyz>0.0 1.0 0.0</xyz>
+          <dynamics><damping>0.0005</damping><friction>0.03</friction></dynamics>
+          <limit><lower>-1e+16</lower><upper>1e+16</upper></limit></axis>
+      </joint>
+
+      <!-- Box -> box (position) -->
+      <link name="box">
+        <pose>-0.0193 0.0124 0.48 0 0 0</pose>
+        <inertial>
+          <pose>0.2103 -0.0121 0.0467 0 0 0</pose>
+          <mass>4.6250</mass>
+          <inertia><ixx>0.100075</ixx><iyy>0.043335</iyy><izz>0.088356</izz>
+            <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+        </inertial>
+        <visual name="cad">
+          <pose>0.0193 -0.0124 -0.48 0 0 0</pose>
+          <geometry><mesh><uri>model://offseason2026/meshes/box.stl</uri></mesh></geometry>
+          <material><ambient>0.326 0.079 0.164 1</ambient><diffuse>0.725 0.176 0.365 1</diffuse><specular>0.15 0.15 0.15 1</specular></material>
+        </visual>
+      </link>
+      <joint name="box_joint" type="prismatic">
+        <parent>chassis</parent><child>box</child>
+        <axis><xyz>-1.0 0.0 0.0</xyz>
+          <dynamics><damping>0.01</damping></dynamics>
+          <limit><lower>-0.23</lower><upper>0.0</upper></limit></axis>
+      </joint>
+
+      <!-- Roller1 -> intake_rollers (duty) -->
+      <link name="intake_rollers">
+        <pose>0.2957 0.0124 0.21 0 0 0</pose>
+        <inertial>
+          <pose>-0.0015 -0.0056 -0.0028 0 0 0</pose>
+          <mass>0.6000</mass>
+          <inertia><ixx>0.018046</ixx><iyy>0.000278</iyy><izz>0.018046</izz>
+            <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+        </inertial>
+        <visual name="cad">
+          <pose>-0.2957 -0.0124 -0.21 0 0 0</pose>
+          <geometry><mesh><uri>model://offseason2026/meshes/roller1.stl</uri></mesh></geometry>
+          <material><ambient>0.360 0.410 0.320 1</ambient><diffuse>0.800 0.910 0.710 1</diffuse><specular>0.15 0.15 0.15 1</specular></material>
+        </visual>
+      </link>
+      <joint name="intake_rollers_joint" type="revolute">
+        <parent>chassis</parent><child>intake_rollers</child>
+        <axis><xyz>0.0 1.0 0.0</xyz>
+          <dynamics><damping>0.0005</damping><friction>0.03</friction></dynamics>
+          <limit><lower>-1e+16</lower><upper>1e+16</upper></limit></axis>
+      </joint>
+
+      <!-- Roller2 -> indexer_rollers (duty) -->
+      <link name="indexer_rollers">
+        <pose>-0.0993 0.0124 0.13 0 0 0</pose>
+        <inertial>
+          <pose>-0.0011 -0.0065 0.0032 0 0 0</pose>
+          <mass>0.5000</mass>
+          <inertia><ixx>0.020724</ixx><iyy>0.000649</iyy><izz>0.020724</izz>
+            <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz></inertia>
+        </inertial>
+        <visual name="cad">
+          <pose>0.0993 -0.0124 -0.13 0 0 0</pose>
+          <geometry><mesh><uri>model://offseason2026/meshes/roller2.stl</uri></mesh></geometry>
+          <material><ambient>0.000 0.446 0.450 1</ambient><diffuse>0.000 0.992 1.000 1</diffuse><specular>0.15 0.15 0.15 1</specular></material>
+        </visual>
+      </link>
+      <joint name="indexer_rollers_joint" type="revolute">
+        <parent>chassis</parent><child>indexer_rollers</child>
+        <axis><xyz>0.0 1.0 0.0</xyz>
+          <dynamics><damping>0.0005</damping><friction>0.03</friction></dynamics>
+          <limit><lower>-1e+16</lower><upper>1e+16</upper></limit></axis>
+      </joint>
+
+      <!-- El ORDEN es el contrato: define el indice dentro de
+           gz.msgs.Actuators.normalized. El robot-map lista los suyos en
+           el mismo orden y check.py lo verifica.
+
+           Limite de corriente: 120 A en traccion (la de
+           deslizamiento, calculada de la masa y el mu) y
+           60 A en direccion.
+
+           Reducciones reales del robot: 5.2734375 de traccion,
+           26.091 de direccion. Salen de TunerConstants.java. -->
+      <plugin filename="MarsLink" name="mars::MarsLink">
+        <actuator joint="fl_drive_joint" motor="kraken_x60" gearRatio="5.2734375" currentLimit="120" neutralMode="brake"/>
+        <actuator joint="fl_steer_joint" motor="kraken_x60" gearRatio="26.09090909090909" control="position" currentLimit="60" kp="0.9" kd="0.01"/>
+        <actuator joint="fr_drive_joint" motor="kraken_x60" gearRatio="5.2734375" currentLimit="120" neutralMode="brake"/>
+        <actuator joint="fr_steer_joint" motor="kraken_x60" gearRatio="26.09090909090909" control="position" currentLimit="60" kp="0.9" kd="0.01"/>
+        <actuator joint="bl_drive_joint" motor="kraken_x60" gearRatio="5.2734375" currentLimit="120" neutralMode="brake"/>
+        <actuator joint="bl_steer_joint" motor="kraken_x60" gearRatio="26.09090909090909" control="position" currentLimit="60" kp="0.9" kd="0.01"/>
+        <actuator joint="br_drive_joint" motor="kraken_x60" gearRatio="5.2734375" currentLimit="120" neutralMode="brake"/>
+        <actuator joint="br_steer_joint" motor="kraken_x60" gearRatio="26.09090909090909" control="position" currentLimit="60" kp="0.9" kd="0.01"/>
+        <actuator joint="intake_arm_joint" motor="neo" gearRatio="45.0" currentLimit="40" control="position" kp="2.0" kd="0.05"/>
+        <actuator joint="dumper_joint" motor="neo" gearRatio="60.0" currentLimit="40" control="position" kp="2.0" kd="0.05"/>
+        <actuator joint="shooter_joint" motor="kraken_x60" gearRatio="1.0" currentLimit="120"/>
+        <actuator joint="box_joint" motor="neo" gearRatio="250.0" currentLimit="40" control="position" kp="20.0" kd="0.5"/>
+        <actuator joint="intake_rollers_joint" motor="kraken_x60" gearRatio="1.0" currentLimit="40"/>
+        <actuator joint="indexer_rollers_joint" motor="neo" gearRatio="3.0" currentLimit="40"/>
+      </plugin>
+    </model>
+
+  </world>
+</sdf>
