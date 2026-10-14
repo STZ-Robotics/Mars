@@ -1,34 +1,34 @@
-# El bridge de simulación: traduce entre gz-transport (el motor), HALSim
-# WebSocket (el código del robot) y NT4 (la app). Ver ../protocol/README.md.
+# The simulation bridge: translates between gz-transport (the engine), HALSim
+# WebSocket (the robot code) and NT4 (the app). See ../protocol/README.md.
 #
-# Crate independiente a propósito, fuera del workspace de src-tauri: el bridge
-# se compila y distribuye como binario aparte, y meterlo al workspace de la app
-# haría que un `cargo build` de Tauri arrastre las dependencias de Gazebo.
+# An independent crate on purpose, outside src-tauri's workspace: the bridge
+# is built and shipped as a separate binary, and putting it in the app's
+# workspace would make a Tauri `cargo build` drag in Gazebo's dependencies.
 #
-# Para compilar hace falta el entorno conda `mars-sim` (por las libs de
-# gz-transport) y PKG_CONFIG_PATH apuntando a su pkgconfig. Ver README.md.
+# Building it needs the `mars-sim` conda environment (for the gz-transport
+# libs) and PKG_CONFIG_PATH pointing at its pkgconfig. See README.md.
 [package]
 name = "mars-sim-bridge"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# Envoltorio FFI del gz-transport de C++. Se eligió sobre `gz-transport-rs`
-# (implementación pura en Rust) porque el publish de ese crate anuncia
-# tcp://0.0.0.0, que no es conectable, y el motor nunca recibe los comandos.
-# El detalle completo está en README.md.
+# FFI wrapper around the C++ gz-transport. Chosen over `gz-transport-rs` (a
+# pure Rust implementation) because that crate's publish advertises
+# tcp://0.0.0.0, which is not connectable, and the engine never receives the
+# commands. The full story is in README.md.
 #
-# El coste del FFI resultó ser cero en la práctica: el motor obliga a
-# distribuir el entorno conda de todas formas, así que enlazar contra sus libs
-# no añade ninguna dependencia nueva en tiempo de ejecución.
+# The FFI's cost turned out to be zero in practice: the engine forces shipping
+# the conda environment anyway, so linking against its libs adds no new
+# runtime dependency.
 gz-transport = { version = "0.10", features = ["jetty"] }
 gz-msgs = { version = "0.10", features = ["jetty"] }
 
-crossbeam-channel = "0.5"   # el tipo del canal que devuelve subscribe_channel
+crossbeam-channel = "0.5"   # the type of the channel subscribe_channel returns
 anyhow = "1"
 
-# NT4: websocket + MessagePack. Las mismas versiones que usa src-tauri, para que
-# el dia que se unifique el cliente no haya que reconciliar dependencias.
+# NT4: websocket + MessagePack. The same versions src-tauri uses, so the day
+# the client is unified there are no dependencies to reconcile.
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
 tokio-tungstenite = "0.21"
 futures-util = "0.3"
@@ -38,5 +38,5 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 [build-dependencies]
-# Para leer sim/protocol/topics.toml y generar las constantes del protocolo.
+# To read sim/protocol/topics.toml and generate the protocol constants.
 toml = "0.8"

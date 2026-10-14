@@ -1,28 +1,29 @@
-// El mundo: la ventana 3D de la simulación.
+// The world: the simulation's 3D window.
 //
-// Es la GUI de Gazebo, con nuestra configuración de paneles. NO es un visor
-// nuestro y eso es deliberado: escena 3D, árbol del mundo, inspector de
-// componentes, control de transformación, luces, estadísticas de física y
-// control de reproducción ya existen ahí, hechos y probados. Rehacerlos con
-// three.js daría un modelo bonito sin física --- exactamente lo que ya hace
-// AdvantageScope y lo que NO se quería.
+// It is Gazebo's GUI, with our panel configuration. It is NOT a viewer of our
+// own and that is deliberate: 3D scene, world tree, component inspector,
+// transform control, lights, physics statistics and playback control already
+// exist there, done and tested. Redoing them with three.js would give a pretty
+// model without physics --- exactly what AdvantageScope already does and what
+// was NOT wanted.
 //
-// # Por qué es un binario propio y no `gz sim -g`
+// # Why it is a binary of its own and not `gz sim -g`
 //
-// El CLI `gz` es un script de Ruby, y Ruby no viene en el entorno de conda de
-// Windows. `runGui` está documentado justo para esto: "Used when running
-// without gz-tools". De paso nos deja fijar nuestra configuración de paneles
-// sin depender de lo que el usuario tenga en ~/.gz/sim/gui.config.
+// The `gz` CLI is a Ruby script, and Ruby does not come in the Windows conda
+// environment. `runGui` is documented exactly for this: "Used when running
+// without gz-tools". It also lets us pin our panel configuration without
+// depending on whatever the user has in ~/.gz/sim/gui.config.
 //
-// # Cómo encuentra el mundo
+// # How it finds the world
 //
-// No lo carga: se CONECTA. gz-sim separa servidor y GUI, y la GUI descubre por
-// gz-transport al servidor que ya está corriendo --- nuestro mars-sim-server.
-// Por eso hay que arrancar el servidor primero, y por eso mover el robot desde
-// el código del robot se ve aquí sin que esta ventana sepa nada de WPILib.
+// It does not load it: it CONNECTS. gz-sim separates server and GUI, and the
+// GUI discovers over gz-transport the server that is already running --- our
+// mars-sim-server. That is why the server has to start first, and why moving
+// the robot from the robot code shows up here without this window knowing
+// anything about WPILib.
 //
-// Uso:
-//   mars-sim-gui [ruta/gui.config]
+// Usage:
+//   mars-sim-gui [path/gui.config]
 
 #include <cstdlib>
 #include <iostream>
@@ -36,15 +37,15 @@ int main(int argc, char **argv)
   if (const char *v = std::getenv("MARS_VERBOSE"))
     gz::common::Console::SetVerbosity(std::atoi(v));
 
-  // Sin configuración explícita, gz-sim usa la de GZ_HOMEDIR/.gz/sim/gui.config,
-  // que es la del usuario y puede tener cualquier cosa. Preferimos la nuestra.
+  // Without an explicit configuration, gz-sim uses GZ_HOMEDIR/.gz/sim/gui.config,
+  // which is the user's and could hold anything. We prefer ours.
   const std::string config = (argc > 1) ? argv[1] : "gui/mars.config";
 
   std::cout << "[mars-gui] panel layout: " << config << "\n"
             << "[mars-gui] connecting to the simulation server..." << std::endl;
 
-  // El motor de render se deja en nullptr para que valga el del config
-  // (ogre2). Forzarlo aqui impediria caer a ogre en equipos cuyo driver no
-  // aguante ogre2, que en un equipo de FRC con laptops prestadas pasa.
+  // The render engine is left as nullptr so the config's one applies (ogre2).
+  // Forcing it here would prevent falling back to ogre on machines whose
+  // driver cannot handle ogre2, which happens on an FRC team's borrowed laptops.
   return gz::sim::gui::runGui(argc, argv, config.c_str());
 }

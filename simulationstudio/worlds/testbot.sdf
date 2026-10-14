@@ -1,15 +1,15 @@
 <?xml version="1.0" ?>
 <!--
-  Robot de pruebas: chasis de 40 kg y cuatro ruedas motrices, sin dirección.
+  Test robot: a 40 kg chassis and four driven wheels, with no steering.
 
-  Es skid-steer y no swerve a propósito. Con cuatro joints en vez de ocho, y
-  sin lazo de dirección, prueba exactamente lo mismo del protocolo (comandos
-  entran, par se aplica, estado sale) con la mitad de superficie donde
-  equivocarse. El swerve viene cuando este lazo esté cerrado.
+  It is skid-steer and not swerve on purpose. With four joints instead of
+  eight, and no steering loop, it tests exactly the same of the protocol
+  (commands go in, torque is applied, state comes out) with half the surface
+  to get wrong. The swerve comes once this loop is closed.
 
-  El robot va definido dentro del mundo en lugar de en sim/models/ para no
-  depender todavía de GZ_SIM_RESOURCE_PATH: una variable de entorno menos que
-  puede estar mal puesta mientras se depura el lazo.
+  The robot is defined inside the world instead of in sim/models/ so as not
+  to depend on GZ_SIM_RESOURCE_PATH yet: one less environment variable that
+  can be set wrong while the loop is being debugged.
 -->
 <sdf version="1.11">
   <world name="mars">
@@ -35,10 +35,10 @@
     </light>
 
     <!--
-      Sin muros de perimetro todavia. El <size> del visual dibuja la cancha,
-      pero un <plane> de COLISION es infinito, asi que el robot puede salirse
-      del campo conduciendo y nada lo detiene. Para probar el lazo da igual;
-      para simular un partido hara falta el perimetro.
+      No perimeter walls yet. The visual's <size> draws the field, but a
+      COLLISION <plane> is infinite, so the robot can drive off the field and
+      nothing stops it. For testing the loop it does not matter; simulating a
+      match will need the perimeter.
     -->
     <model name="ground_plane">
       <static>true</static>
@@ -68,7 +68,7 @@
         <pose>0 0 0.15 0 0 0</pose>
         <inertial>
           <mass>40.0</mass>
-          <!-- Caja de 0.7 x 0.6 x 0.15: I = m/12 * (a^2 + b^2) por eje. -->
+          <!-- A 0.7 x 0.6 x 0.15 box: I = m/12 * (a^2 + b^2) per axis. -->
           <inertia>
             <ixx>1.275</ixx><iyy>1.708</iyy><izz>2.833</izz>
             <ixy>0</ixy><ixz>0</ixz><iyz>0</iyz>
@@ -86,7 +86,7 @@
         </visual>
       </link>
 
-      <!-- Ruedas de 3 pulgadas (r = 0.0762 m), 1 kg. Cilindro con el eje en
+      <!-- 3 inch wheels (r = 0.0762 m), 1 kg. A cylinder with its axis on
            Y: I_axial = m*r^2/2, I_perp = m*(3r^2 + h^2)/12. -->
       <link name="fl_wheel">
         <pose>0.25 0.3 0.0762 -1.5707963 0 0</pose>
@@ -172,8 +172,8 @@
         </visual>
       </link>
 
-      <!-- El eje es Z del link de la rueda, que la rotación -90 grados en X
-           del <pose> deja apuntando a lo largo de Y del robot. -->
+      <!-- The axis is the wheel link's Z, which the <pose>'s -90 degree
+           rotation about X leaves pointing along the robot's Y. -->
       <joint name="fl_drive_joint" type="revolute">
         <parent>chassis</parent><child>fl_wheel</child>
         <axis><xyz>0 0 1</xyz><limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>
@@ -191,16 +191,16 @@
         <axis><xyz>0 0 1</xyz><limit><lower>-1e16</lower><upper>1e16</upper></limit></axis>
       </joint>
 
-      <!-- El ORDEN de estos <actuator> es el contrato: define el índice
-           dentro de gz.msgs.Actuators.normalized. El robot-map del bridge
-           lista los suyos en el mismo orden y check.py lo verifica.
+      <!-- The ORDER of these <actuator>s is the contract: it defines the
+           index inside gz.msgs.Actuators.normalized. The bridge's robot map
+           lists its own in the same order and check.py verifies it.
 
-           NINGUNA rueda va invertida. En un robot real se invierte un lado
-           porque los motores estan montados en espejo, pero aqui los cuatro
-           links tienen la misma rotacion (-90 grados en X), asi que sus ejes
-           apuntan igual y el mismo signo los hace rodar en la misma
-           direccion. Invertir el lado derecho hace que el robot gire sobre
-           si mismo en vez de avanzar. -->
+           NO wheel is inverted. On a real robot one side is inverted because
+           the motors are mounted mirrored, but here all four links have the
+           same rotation (-90 degrees about X), so their axes point the same
+           way and the same sign makes them roll in the same direction.
+           Inverting the right side makes the robot spin in place instead of
+           moving forward. -->
       <plugin filename="MarsLink" name="mars::MarsLink">
         <actuator joint="fl_drive_joint" motor="kraken_x60" gearRatio="6.75"/>
         <actuator joint="fr_drive_joint" motor="kraken_x60" gearRatio="6.75"/>

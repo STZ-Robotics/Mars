@@ -1,45 +1,51 @@
-//! El lazo de hardware del perfil `vendor`, sobre NT4.
+//! The `vendor` profile's hardware loop, over NT4.
 //!
-//! Existe porque **el protocolo HALSim WebSocket no cubre motores CAN**. Cubre
-//! PWM, DIO, AnalogIn, Encoder, Relay, SimDevice y DriverStation -- todo lo
-//! nativo del roboRIO -- pero un TalonFX o un SparkMax se simulan por la API de
-//! sim de su vendor (`TalonFXSimState`, `SparkSim`), que vive dentro del proceso
-//! del robot y no se asoma a wpilibws. Un drivetrain sobre CAN, que es donde
-//! esta casi todo FRC hoy, no puede cerrar el lazo por ahi.
+//! It exists because **the HALSim WebSocket protocol does not cover CAN
+//! motors**. It covers PWM, DIO, AnalogIn, Encoder, Relay, SimDevice and
+//! DriverStation -- everything native to the roboRIO -- but a TalonFX or a
+//! SparkMax is simulated by its vendor's sim API (`TalonFXSimState`,
+//! `SparkSim`), which lives inside the robot's process and never shows up on
+//! wpilibws. A drivetrain on CAN, which is where almost all of FRC is today,
+//! cannot close the loop that way.
 //!
-//! La salida son ~50 lineas en el `simulationPeriodic` del robot que publican lo
-//! que el vendor le esta aplicando al motor y reinyectan lo que la fisica
-//! devuelve. Ese codigo vive en el repo del robot; su contrato esta en
-//! `[[glue]]` de sim/protocol/topics.toml.
+//! The way out is ~50 lines in the robot's `simulationPeriodic` that publish
+//! what the vendor is applying to the motor and inject back what the physics
+//! returns. That code lives in the robot's repository; its contract is
+//! `[[glue]]` in sim/protocol/topics.toml.
 //!
-//! Direcciones, vistas desde el BRIDGE:
+//! Directions, seen from the BRIDGE:
 //!
 //! ```text
-//!   codigo del robot  --duty, enabled-->  bridge  --Actuators-->  motor
-//!   codigo del robot  <--pos, vel, yaw--  bridge  <--Model,Pose--  motor
+//!   robot code  --duty, enabled-->  bridge  --Actuators-->  engine
+//!   robot code  <--pos, vel, yaw--  bridge  <--Model,Pose--  engine
 //! ```
+//!
+//! The public names still in Spanish (`PREFIJO_SALIDA`, `suscribir`,
+//! `comandos`, `publicar_estado` and `Comandos`' fields) are what
+//! `bin/mars-bridge.rs` and the lockstep work call; they are renamed together
+//! with those.
 
 use anyhow::Result;
 
 use crate::nt4::Nt4;
 use crate::robotmap::{Control, RobotMap};
 
-/// Prefijo de todo lo que publica el codigo del robot. El bridge se suscribe a
-/// el en bloque, sin enumerar actuadores.
+/// Prefix of everything the robot code publishes. The bridge subscribes to it
+/// as a block, without listing actuators.
 pub const PREFIJO_SALIDA: &str = "/MARS/Glue/out/";
 pub const T_ENABLED: &str = "/MARS/Glue/out/enabled";
 pub const T_GYRO_YAW: &str = "/MARS/Glue/in/gyro/yaw";
-/// Contador que sube en cada ciclo. Es como el codigo del robot sabe que la
-/// simulacion esta viva: un robot parado publica ceros que no se distinguen de
-/// un canal muerto.
+/// A counter that goes up every cycle. It is how the robot code knows the
+/// simulation is alive: a stopped robot publishes zeros that cannot be told
+/// apart from a dead channel.
 pub const T_HEARTBEAT: &str = "/MARS/Glue/in/heartbeat";
 
-/// Un actuador visto desde el glue: donde leer su comando y donde escribir su
-/// estado.
-struct Canal {
-    /// Indice dentro de los arreglos de `gz.msgs.Actuators`. Es el orden del
-    /// robot-map, que check.py verifica contra el orden del SDF.
-    indice: usize,
+/// An actuator as the glue sees it: where to read its command and where to
+/// write its state.
+struct Channel {
+    /// Index inside the `gz.msgs.Actuators` arrays. It is the robot map's
+    /// order, which check.py verifies against the SDF's order.
+    index: usize,
     joint: String,
     gear_ratio: f64,
     control: Control,
@@ -49,26 +55,28 @@ struct Canal {
     t_vel: String,
 }
 
-/// Lo que el codigo del robot esta pidiendo, listo para el motor.
+/// What the robot code is asking for, ready for the engine.
 pub struct Comandos {
     pub duty: Vec<f64>,
+    /// Position setpoints, in JOINT radians.
     pub posicion: Vec<f64>,
+    /// Whether the robot is enabled.
     pub habilitado: bool,
 }
 
 pub struct Glue {
-    canales: Vec<Canal>,
-    latido: std::cell::Cell<f64>,
+    channels: Vec<Channel>,
+    heartbeat: std::cell::Cell<f64>,
 }
 
 impl Glue {
-    pub fn new(mapa: &RobotMap) -> Self {
-        let canales = mapa
+    pub fn new(map: &RobotMap) -> Self {
+        let channels = map
             .actuators
             .iter()
             .enumerate()
-            .map(|(i, a)| Canal {
-                indice: i,
+            .map(|(i, a)| Channel {
+                index: i,
                 joint: a.joint.clone(),
                 gear_ratio: a.gear_ratio,
                 control: a.control,
@@ -78,75 +86,76 @@ impl Glue {
                 t_vel: format!("/MARS/Glue/in/{}/velocity", a.name),
             })
             .collect();
-        Self { canales, latido: std::cell::Cell::new(0.0) }
+        Self { channels, heartbeat: std::cell::Cell::new(0.0) }
     }
 
+    /// Subscribes to everything the robot code publishes.
     pub fn suscribir(&self, nt: &Nt4) -> Result<()> {
         nt.subscribe_prefix(PREFIJO_SALIDA)
     }
 
+    /// How many actuators the robot map declares.
     pub fn actuadores(&self) -> usize {
-        self.canales.len()
+        self.channels.len()
     }
 
-    /// Lee los comandos del codigo del robot.
+    /// Reads the robot code's commands.
     ///
-    /// Cada actuador aporta a UN solo arreglo, el que le toca por su modo:
-    /// `normalized` en modo duty, `position` en modo posicion. El motor lee el
-    /// que corresponde y el otro le llega en cero, que es inofensivo porque no
-    /// lo mira.
+    /// Each actuator contributes to ONE array only, the one its mode calls
+    /// for: `normalized` in duty mode, `position` in position mode. The engine
+    /// reads the right one and gets zero in the other, which is harmless
+    /// because it does not look at it.
     ///
-    /// Un actuador del que todavia no llego nada queda en 0. Para un duty eso
-    /// es "sin potencia"; para una consigna de posicion es "vuelve al cero del
-    /// encoder", que es lo unico razonable sin saber que quiere el robot -- y
-    /// da igual en la practica, porque hasta que el robot no se habilita el
-    /// motor fuerza par cero de todas formas.
+    /// An actuator nothing has arrived from yet stays at 0. For a duty that is
+    /// "no power"; for a position setpoint it is "go back to the encoder's
+    /// zero", which is the only reasonable thing without knowing what the
+    /// robot wants -- and it does not matter in practice, because until the
+    /// robot is enabled the engine forces zero torque anyway.
     pub fn comandos(&self, nt: &Nt4) -> Comandos {
-        let mut duty = vec![0.0; self.canales.len()];
-        let mut posicion = vec![0.0; self.canales.len()];
+        let mut duty = vec![0.0; self.channels.len()];
+        let mut position = vec![0.0; self.channels.len()];
 
-        for c in &self.canales {
+        for c in &self.channels {
             match c.control {
                 Control::Duty => {
                     if let Some(v) = nt.get_f64(&c.t_duty) {
-                        duty[c.indice] = v.clamp(-1.0, 1.0);
+                        duty[c.index] = v.clamp(-1.0, 1.0);
                     }
                 }
                 Control::Position => {
                     if let Some(v) = nt.get_f64(&c.t_setpoint) {
-                        // El robot habla en radianes del MOTOR; el motor de la
-                        // simulacion razona en el joint. La reduccion se
-                        // deshace aqui, en el mismo sitio donde se aplica al
-                        // volver, para que las dos direcciones no puedan
-                        // divergir.
-                        posicion[c.indice] = v / c.gear_ratio;
+                        // The robot speaks in MOTOR radians; the simulation's
+                        // engine reasons about the joint. The reduction is
+                        // undone here, in the same place it is applied on the
+                        // way back, so the two directions cannot diverge.
+                        position[c.index] = v / c.gear_ratio;
                     }
                 }
             }
         }
 
-        // Sin dato explicito, deshabilitado. Que un fallo de comunicacion deje
-        // el robot corriendo seria lo peor posible.
+        // With no explicit value, disabled. A communication failure leaving
+        // the robot running would be the worst possible outcome.
         Comandos {
             duty,
-            posicion,
+            posicion: position,
             habilitado: nt.get_bool(T_ENABLED).unwrap_or(false),
         }
     }
 
-    /// Publica hacia el codigo del robot lo que la fisica devolvio.
+    /// Publishes to the robot code what the physics returned.
     ///
-    /// Las posiciones y velocidades van en el eje del MOTOR, no en el del joint:
-    /// se multiplican por la reduccion, que es como las reportan los encoders
-    /// integrados de Falcon y Kraken y lo que el vendor espera en
-    /// `setRawRotorPosition`.
+    /// Positions and velocities go on the MOTOR's shaft, not the joint's:
+    /// they are multiplied by the reduction, which is how the integrated
+    /// encoders of Falcon and Kraken report them and what the vendor expects
+    /// in `setRawRotorPosition`.
     pub fn publicar_estado(
         &self,
         nt: &Nt4,
         joints: &gz_msgs::model::Model,
         yaw_rad: f64,
     ) -> Result<()> {
-        for c in &self.canales {
+        for c in &self.channels {
             let Some(j) = joints.joint.iter().find(|j| j.name == c.joint) else {
                 continue;
             };
@@ -155,15 +164,15 @@ impl Glue {
             nt.set_double(&c.t_vel, axis.velocity * c.gear_ratio)?;
         }
 
-        // Grados y CCW positivo: la convencion de WPILib, no la de Gazebo. La
-        // conversion la hace el bridge para que el glue sea lo mas tonto
-        // posible -- cuanto menos calcule el codigo del robot, menos hay que
-        // depurar del lado que no controlamos.
+        // Degrees and CCW positive: WPILib's convention, not Gazebo's. The
+        // bridge does the conversion so the glue can be as dumb as possible --
+        // the less the robot code computes, the less there is to debug on the
+        // side we do not control.
         nt.set_double(T_GYRO_YAW, yaw_rad.to_degrees())?;
 
-        // El latido va AL FINAL: si llega, todo lo de arriba llego tambien.
-        self.latido.set(self.latido.get() + 1.0);
-        nt.set_double(T_HEARTBEAT, self.latido.get())?;
+        // The heartbeat goes LAST: if it arrives, everything above did too.
+        self.heartbeat.set(self.heartbeat.get() + 1.0);
+        nt.set_double(T_HEARTBEAT, self.heartbeat.get())?;
         Ok(())
     }
 }
@@ -173,11 +182,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn los_topicos_se_arman_desde_el_nombre_del_actuador() {
-        // Se construye a mano en vez de leer un robot-map: el test es sobre la
-        // forma de los topicos, no sobre el parseo.
-        let canal = Canal {
-            indice: 0,
+    fn topics_are_built_from_the_actuator_name() {
+        // Built by hand instead of reading a robot map: the test is about the
+        // shape of the topics, not the parsing.
+        let channel = Channel {
+            index: 0,
             joint: "fl_drive_joint".into(),
             gear_ratio: 6.75,
             control: Control::Duty,
@@ -186,14 +195,14 @@ mod tests {
             t_pos: "/MARS/Glue/in/fl_drive/position".into(),
             t_vel: "/MARS/Glue/in/fl_drive/velocity".into(),
         };
-        assert_eq!(canal.t_duty, "/MARS/Glue/out/fl_drive/duty");
-        // El prefijo de suscripcion tiene que cubrir lo que el robot publica.
-        assert!(canal.t_duty.starts_with(PREFIJO_SALIDA));
+        assert_eq!(channel.t_duty, "/MARS/Glue/out/fl_drive/duty");
+        // The subscription prefix has to cover what the robot publishes.
+        assert!(channel.t_duty.starts_with(PREFIJO_SALIDA));
         assert!(T_ENABLED.starts_with(PREFIJO_SALIDA));
-        assert_eq!(canal.indice, 0);
-        assert_eq!(canal.gear_ratio, 6.75);
-        assert_eq!(canal.joint, "fl_drive_joint");
-        assert_eq!(canal.control, Control::Duty);
-        assert!(canal.t_setpoint.starts_with(PREFIJO_SALIDA));
+        assert_eq!(channel.index, 0);
+        assert_eq!(channel.gear_ratio, 6.75);
+        assert_eq!(channel.joint, "fl_drive_joint");
+        assert_eq!(channel.control, Control::Duty);
+        assert!(channel.t_setpoint.starts_with(PREFIJO_SALIDA));
     }
 }

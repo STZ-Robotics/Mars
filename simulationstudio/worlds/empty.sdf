@@ -1,25 +1,25 @@
 <?xml version="1.0" ?>
 <!--
-  Mundo mínimo para la prueba de vida de la fase 0: suelo, luz y física.
-  La cancha FRC real va en su propio .sdf cuando el entorno ya compile.
+  Minimal world for phase 0's proof of life: floor, light and physics.
+  The real FRC field goes in its own .sdf once the environment builds.
 -->
 <sdf version="1.11">
   <world name="mars">
 
-    <!-- 250 Hz. Los ciclos de WPILib van a 50 Hz (20 ms), así que cinco pasos
-         de física por ciclo de robot: suficiente resolución para que las
-         ruedas no atraviesen el suelo sin que el paso se vuelva caro. -->
+    <!-- 250 Hz. WPILib's cycles run at 50 Hz (20 ms), so five physics steps
+         per robot cycle: enough resolution for the wheels not to go through
+         the floor without making the step expensive. -->
     <physics name="250hz" type="ignored">
       <max_step_size>0.004</max_step_size>
       <real_time_factor>1.0</real_time_factor>
     </physics>
 
-    <!-- Physics resuelve la dinámica. UserCommands permite spawn/borrado en
-         caliente (game pieces). SceneBroadcaster publica el estado del mundo
-         por gz-transport: es el tópico del que va a leer el bridge. -->
+    <!-- Physics solves the dynamics. UserCommands allows spawning and
+         deleting at run time (game pieces). SceneBroadcaster publishes the
+         world's state over gz-transport: it is the topic the bridge reads. -->
     <plugin filename="gz-sim-physics-system"
             name="gz::sim::systems::Physics">
-      <!-- Por defecto DART. Si en Windows da problemas, la alternativa es:
+      <!-- DART by default. If it gives trouble on Windows, the alternative is:
       <engine><filename>gz-physics-bullet-featherstone-plugin</filename></engine>
       -->
     </plugin>
@@ -46,8 +46,8 @@
           <surface>
             <friction>
               <ode>
-                <!-- Alfombra FRC. Valor de arranque: hay que calibrarlo
-                     contra datos reales del robot antes de confiar en él. -->
+                <!-- FRC carpet. A starting value: it has to be calibrated
+                     against real robot data before trusting it. -->
                 <mu>0.9</mu>
                 <mu2>0.9</mu2>
               </ode>

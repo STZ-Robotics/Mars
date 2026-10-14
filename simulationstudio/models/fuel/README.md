@@ -1,60 +1,60 @@
 # FUEL
 
-El elemento de puntuación de REBUILT (FRC 2026): una pelota de espuma de alta
-densidad de 15 cm, la AndyMark am-5801.
+REBUILT's (FRC 2026) scoring element: a 15 cm high-density foam ball, the
+AndyMark am-5801.
 
-Este directorio es el modelo con **física**. Las 456 FUEL que se ven en la
-cancha 2026 están horneadas en el glTF como decorado: no tienen colisión ni
-masa y no se pueden empujar ni recoger. Las de verdad las siembra el World
-Editor (grupo *FUEL (game pieces)*), que escribe un `<include>` de
-`model://fuel` por pelota.
+This directory is the model **with physics**. The 456 FUEL you see on the 2026
+field are baked into the glTF as scenery: they have no collision or mass and
+cannot be pushed or picked up. The real ones are seeded by the World Editor
+(the *FUEL (game pieces)* group), which writes one `<include>` of
+`model://fuel` per ball.
 
-## De dónde sale cada número
+## Where each number comes from
 
-| Magnitud | Valor | Fuente |
+| Quantity | Value | Source |
 |---|---|---|
-| Diámetro | 15.0 cm (5.91 in) | manual de juego, 5.10.1 |
-| Masa | 0.215 kg | manual: 0.448–0.500 lb, nominal |
-| Inercia | 4.8375e-4 kg·m² | esfera sólida, `2/5·m·r²` |
-| Color | 0.956 0.597 0.056 | `baseColorFactor` del material de las 456 FUEL del `.glb` oficial |
-| Fricción | μ = 0.85 | **punto de partida, no una medida** |
+| Diameter | 15.0 cm (5.91 in) | game manual, 5.10.1 |
+| Mass | 0.215 kg | manual: 0.448–0.500 lb, nominal |
+| Inertia | 4.8375e-4 kg·m² | solid sphere, `2/5·m·r²` |
+| Color | 0.956 0.597 0.056 | `baseColorFactor` of the material of the official `.glb`'s 456 FUEL |
+| Friction | μ = 0.85 | **a starting point, not a measurement** |
 
-La esfera sólida no es una simplificación: una pelota de espuma es
-prácticamente homogénea. Importa más de lo que parece — esa inercia es la que
-decide cuánto gira al rozar contra un rodillo de intake.
+The solid sphere is not a simplification: a foam ball is practically
+homogeneous. It matters more than it looks — that inertia is what decides how
+much it spins when rubbing against an intake roller.
 
-## Lo que hay que calibrar
+## What needs calibrating
 
-**μ = 0.85** es lo único del modelo que no sale del manual. Decide si la FUEL
-rueda o se arrastra cuando un robot la empuja, y si un intake la agarra o
-patina contra ella. La espuma de alta densidad agarra más que un plástico liso
-y menos que el caucho de una rueda; la alfombra FRC del suelo está en 0.9.
+**μ = 0.85** is the only thing in the model that does not come from the
+manual. It decides whether the FUEL rolls or drags when a robot pushes it, and
+whether an intake grabs it or slips against it. High-density foam grips more
+than smooth plastic and less than a wheel's rubber; the FRC carpet on the
+floor is at 0.9.
 
-`worlds/fuel-drop.sdf` es el banco: su cuarta pelota baja por una rampa de 20°.
-Con μ correcto rueda; con μ bajo se desliza y llega abajo girando menos de lo
-que debería.
+`worlds/fuel-drop.sdf` is the bench: its fourth ball goes down a 20° ramp.
+With the right μ it rolls; with a low μ it slides and reaches the bottom
+spinning less than it should.
 
-## El rebote no existe, y está medido
+## Bounce does not exist, and that is measured
 
-El modelo llevaba `<bounce><restitution_coefficient>0.35</...>`. Se quitó
-después de medirlo: con `bridge/src/bin/fuel-bounce.rs` contra
-`worlds/fuel-drop.sdf`, las tres pelotas dan **e = 0.000** tanto con DART como
-con bullet-featherstone. Este build de gz-physics ignora `<bounce>` por
-completo.
+The model used to carry `<bounce><restitution_coefficient>0.35</...>`. It was
+removed after measuring it: with `bridge/src/bin/fuel-bounce.rs` against
+`worlds/fuel-drop.sdf`, the three balls give **e = 0.000** with both DART and
+bullet-featherstone. This gz-physics build ignores `<bounce>` entirely.
 
-Dejarlo puesto habría sido peor que no tenerlo: un número que se puede
-"afinar" durante una tarde entera sin que cambie nada.
+Leaving it in would have been worse than not having it: a number that can be
+"tuned" for a whole afternoon without anything changing.
 
-Consecuencia práctica: la FUEL cae y se queda. Para una pelota de espuma sobre
-alfombra eso se parece bastante a la realidad, pero **no sirve para estudiar un
-tiro que rebota en el borde del HUB**. Conseguir rebote de verdad requiere
-fijar la restitución por contacto desde un system en C++ — gz-physics expone
-`SetContactPropertiesCallbackFeature` —, o sea trabajo para `MarsLink`, no una
-etiqueta del SDF.
+Practical consequence: the FUEL drops and stays. For a foam ball on carpet that
+is fairly close to reality, but **it is no use for studying a shot that
+bounces off the HUB's rim**. Getting real bounce requires setting the
+restitution per contact from a C++ system — gz-physics exposes
+`SetContactPropertiesCallbackFeature` —, i.e. work for `MarsLink`, not an SDF
+tag.
 
-## Coste
+## Cost
 
-Cada FUEL sembrada es un cuerpo dinámico más en el lazo del solver. Es la
-primera cosa que hay que recortar si el real-time factor baja de ~0.95: por
-debajo de ahí el lazo de control ya no es representativo del robot real, y las
-ganancias que se afinen contra esta simulación no transfieren.
+Each seeded FUEL is one more dynamic body in the solver's loop. It is the
+first thing to cut if the real-time factor drops below ~0.95: below that the
+control loop is no longer representative of the real robot, and gains tuned
+against this simulation do not transfer.

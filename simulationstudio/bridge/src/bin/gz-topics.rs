@@ -1,7 +1,7 @@
-//! Diagnóstico: lista los tópicos que el discovery de gz-transport ve.
+//! Diagnostic: lists the topics gz-transport's discovery sees.
 //!
-//! Sirve para el caso en que un tópico "no existe" aunque el motor lo esté
-//! publicando. Con el motor corriendo:
+//! For the case where a topic "does not exist" even though the engine is
+//! publishing it. With the engine running:
 //!
 //!   cargo run --bin gz-topics
 
@@ -11,8 +11,8 @@ use std::time::Duration;
 fn main() -> Result<()> {
     let node = gz_transport::Node::new().ok_or_else(|| anyhow!("could not create the node"))?;
 
-    // El discovery es por multicast y asíncrono: consultar de inmediato
-    // devuelve una lista vacía y hace pensar que no hay nadie publicando.
+    // Discovery is multicast and asynchronous: asking right away returns an
+    // empty list and makes it look like nobody is publishing.
     println!("[topics] waiting 3 s for discovery...");
     std::thread::sleep(Duration::from_secs(3));
 

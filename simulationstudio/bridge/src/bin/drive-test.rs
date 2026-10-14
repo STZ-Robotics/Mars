@@ -1,46 +1,46 @@
-//! Prueba del lazo completo de actuadores contra el testbot.
+//! Test of the full actuator loop against the testbot.
 //!
-//! Lo que ejercita, de punta a punta:
-//!   Rust publica /mars/cmd/match y /mars/cmd/actuators
-//!     -> MarsLink los recibe y aplica par con el modelo DC del motor
-//!     -> la física mueve el robot
-//!     -> MarsLink publica /mars/state/pose y /mars/state/joints
-//!     -> Rust lo lee y comprueba que el chasis avanzó
+//! What it exercises, end to end:
+//!   Rust publishes /mars/cmd/match and /mars/cmd/actuators
+//!     -> MarsLink receives them and applies torque with the motor's DC model
+//!     -> the physics moves the robot
+//!     -> MarsLink publishes /mars/state/pose and /mars/state/joints
+//!     -> Rust reads it and checks the chassis moved forward
 //!
-//! Uso, con el motor corriendo aparte:
+//! Usage, with the engine running separately:
 //!   mars-sim-server worlds/testbot.sdf run
 //!   cargo run --bin drive-test
 
 use anyhow::{anyhow, bail, Result};
 use std::time::{Duration, Instant};
 
-// Los tipos cuelgan de un modulo por .proto, no de la raiz del crate.
+// The types hang from one module per .proto, not from the crate's root.
 use gz_msgs::actuators::Actuators;
 use gz_msgs::int32::Int32;
 use gz_msgs::model::Model;
 use gz_msgs::pose_v::Pose_V;
 use gz_transport::Node;
 
-/// Tópicos de sim/protocol/topics.toml.
+/// Topics from sim/protocol/topics.toml.
 const T_MATCH: &str = "/mars/cmd/match";
 const T_ACTUATORS: &str = "/mars/cmd/actuators";
 const T_POSE: &str = "/mars/state/pose";
 const T_JOINTS: &str = "/mars/state/joints";
 
-/// Valores de /mars/cmd/match. 0 = disabled, 2 = teleop.
+/// Values of /mars/cmd/match. 0 = disabled, 2 = teleop.
 const MATCH_TELEOP: i32 = 2;
 
-/// Cuánto tiene que avanzar el chasis para dar la prueba por buena. Cuatro
-/// Krakens a plena potencia mueven 44 kg mucho más que esto en dos segundos; el
-/// umbral es bajo a propósito para no volverse frágil si se afina la fricción o
-/// la masa del modelo.
-const MIN_AVANCE_M: f64 = 0.20;
+/// How far the chassis has to move for the test to pass. Four Krakens at full
+/// power move 44 kg much further than this in two seconds; the threshold is
+/// low on purpose so it does not turn brittle if the model's friction or mass
+/// gets tuned.
+const MIN_TRAVEL_M: f64 = 0.20;
 
 fn main() -> Result<()> {
     let mut node = Node::new().ok_or_else(|| anyhow!("could not create the node"))?;
 
-    // Cola de 1: solo interesa el estado más reciente. Una cola larga haría que
-    // leyéramos poses viejas y midiéramos el avance con retraso.
+    // A queue of 1: only the most recent state matters. A long queue would
+    // have us read old poses and measure the travel late.
     let poses = node
         .subscribe_channel::<Pose_V>(T_POSE, 1)
         .ok_or_else(|| anyhow!("could not subscribe to {T_POSE}"))?;
@@ -57,16 +57,16 @@ fn main() -> Result<()> {
         .ok_or_else(|| anyhow!("could not advertise {T_ACTUATORS}"))?;
     println!("[drive] publishing to {T_MATCH} and {T_ACTUATORS}");
 
-    // El discovery es asíncrono y bidireccional: no basta con que nosotros
-    // veamos al motor, el motor tiene que vernos a nosotros. Publicar antes de
-    // que enganche manda los mensajes al vacío, sin error.
+    // Discovery is asynchronous and bidirectional: it is not enough for us to
+    // see the engine, the engine has to see us. Publishing before it latches
+    // on sends the messages into the void, without error.
     std::thread::sleep(Duration::from_millis(1500));
 
     let x0 = chassis_x(&poses)?;
     println!("[drive] initial x = {x0:.4}");
 
-    // Habilitar primero: MarsLink fuerza par cero mientras match sea disabled,
-    // igual que un robot real con el Driver Station apagado.
+    // Enable first: MarsLink forces zero torque while match is disabled, just
+    // like a real robot with the Driver Station off.
     let enabled = Int32 { data: MATCH_TELEOP, ..Default::default() };
     if !match_pub.publish(&enabled) {
         bail!("publishing to {T_MATCH} failed");
@@ -77,11 +77,11 @@ fn main() -> Result<()> {
         ..Default::default()
     };
 
-    // Se republica en bucle en vez de una sola vez porque el bridge real va a
-    // mandar comandos a 200 Hz; probar el caso de un único mensaje escondería
-    // un fallo de watchdog el día que se añada uno.
-    let hasta = Instant::now() + Duration::from_secs(2);
-    while Instant::now() < hasta {
+    // Republished in a loop instead of once because the real bridge sends
+    // commands at 200 Hz; testing the single-message case would hide a
+    // watchdog failure the day one is added.
+    let until = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < until {
         if !act_pub.publish(&full_forward) {
             bail!("publishing to {T_ACTUATORS} failed");
         }
@@ -89,20 +89,20 @@ fn main() -> Result<()> {
     }
 
     let x1 = chassis_x(&poses)?;
-    let avance = x1 - x0;
-    println!("[drive] final x   = {x1:.4}  (moved {avance:.4} m)");
+    let travel = x1 - x0;
+    println!("[drive] final x   = {x1:.4}  (moved {travel:.4} m)");
 
-    // Los joints tienen que haber girado: si el chasis se movió pero las ruedas
-    // no, algo lo empujó y el lazo de actuadores no es lo que se probó.
+    // The joints have to have turned: if the chassis moved but the wheels did
+    // not, something pushed it and the actuator loop is not what got tested.
     let (joint, vel) = joint_velocity(&joints)?;
     println!("[drive] {joint} turning at {vel:.2} rad/s");
 
-    // Parar antes de salir, o el robot sigue acelerando con el último comando.
+    // Stop before leaving, or the robot keeps accelerating on the last command.
     let disabled = Int32 { data: 0, ..Default::default() };
     let _ = match_pub.publish(&disabled);
 
-    if avance < MIN_AVANCE_M {
-        bail!("the robot did not move ({avance:.4} m < {MIN_AVANCE_M} m)");
+    if travel < MIN_TRAVEL_M {
+        bail!("the robot did not move ({travel:.4} m < {MIN_TRAVEL_M} m)");
     }
     if vel.abs() < 1.0 {
         bail!("the wheels are not turning ({vel:.2} rad/s): torque never reached the joints");
@@ -112,12 +112,12 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// Posición X del chasis según /mars/state/pose.
+/// The chassis' X position according to /mars/state/pose.
 fn chassis_x(rx: &crossbeam_channel::Receiver<Pose_V>) -> Result<f64> {
-    let plazo = Duration::from_secs(5);
+    let timeout = Duration::from_secs(5);
     for _ in 0..500 {
         let msg = rx
-            .recv_timeout(plazo)
+            .recv_timeout(timeout)
             .map_err(|e| anyhow!("no poses on {T_POSE}: {e}"))?;
         if let Some(p) = msg.pose.iter().find(|p| p.name == "chassis") {
             if let Some(v) = p.position.as_ref() {
@@ -128,12 +128,12 @@ fn chassis_x(rx: &crossbeam_channel::Receiver<Pose_V>) -> Result<f64> {
     bail!("no pose for link 'chassis' ever arrived on {T_POSE}")
 }
 
-/// Nombre y velocidad del primer joint de /mars/state/joints.
+/// Name and velocity of the first joint in /mars/state/joints.
 fn joint_velocity(rx: &crossbeam_channel::Receiver<Model>) -> Result<(String, f64)> {
-    let plazo = Duration::from_secs(5);
+    let timeout = Duration::from_secs(5);
     for _ in 0..500 {
         let msg = rx
-            .recv_timeout(plazo)
+            .recv_timeout(timeout)
             .map_err(|e| anyhow!("no joints on {T_JOINTS}: {e}"))?;
         if let Some(j) = msg.joint.first() {
             if let Some(axis) = j.axis1.as_ref() {

@@ -1,71 +1,72 @@
-﻿# Compila el motor de simulacion en Windows.
+﻿# Builds the simulation engine on Windows.
 #
-#   .\simulationstudio\build.ps1              configura y compila
-#   .\simulationstudio\build.ps1 -Clean       borra la cache de CMake antes
-#   .\simulationstudio\build.ps1 -Smoke       compila y corre 500 pasos de fisica
+#   .\simulationstudio\build.ps1              configure and build
+#   .\simulationstudio\build.ps1 -Clean       wipe the CMake cache first
+#   .\simulationstudio\build.ps1 -Smoke       build and run 500 physics steps
 #
-# Existe este script porque el build a mano tiene tres trampas:
+# This script exists because building by hand has three traps:
 #
-#  1. MSYS2. Si C:\msys64\ucrt64\bin esta en el PATH, CMake elige su g++ (o
-#     peor: compila con cl.exe y enlaza con ld.exe, que falla buscando
-#     shell32.lib). Aqui se filtra del PATH.
+#  1. MSYS2. If C:\msys64\ucrt64\bin is on the PATH, CMake picks its g++ (or
+#     worse: compiles with cl.exe and links with ld.exe, which fails looking
+#     for shell32.lib). It is filtered out of the PATH here.
 #
-#  2. Expansion de %PATH% en cmd. Poner conda en el PATH DESPUES de llamar a
-#     vcvars64.bat no funciona: cmd expande %PATH% al parsear la linea
-#     completa, antes de que vcvars corra, y el PATH de MSVC se pierde. Hay
-#     que armar el PATH primero y llamar a vcvars al final.
+#  2. %PATH% expansion in cmd. Putting conda on the PATH AFTER calling
+#     vcvars64.bat does not work: cmd expands %PATH% when parsing the whole
+#     line, before vcvars runs, and MSVC's PATH is lost. The PATH has to be
+#     built first and vcvars called last.
 #
-#  3. Cache envenenada. Si un configure falla a mitad, CMakeCache.txt queda
-#     con el compilador equivocado y los siguientes intentos lo reusan. Ante
-#     cualquier error raro: -Clean.
+#  3. A poisoned cache. If a configure fails halfway, CMakeCache.txt is left
+#     with the wrong compiler and later attempts reuse it. For any odd error:
+#     -Clean.
 param(
   [switch]$Clean,
   [switch]$Smoke
 )
 
 $ErrorActionPreference = "Stop"
-# El script vive DENTRO de la carpeta que compila, y esa carpeta se llama
-# distinto segun donde este: simulationstudio/ en el repositorio, sim/ en una
-# instalacion, que es como viaja dentro del paquete. Por eso se parte de
-# $PSScriptRoot y no de un nombre: asi los dos sitios funcionan igual.
+# The script lives INSIDE the folder it builds, and that folder has a
+# different name depending on where it is: simulationstudio/ in the
+# repository, sim/ in an installation, which is how it travels inside the
+# package. That is why it starts from $PSScriptRoot and not from a name: that
+# way both places work the same.
 $sim  = $PSScriptRoot
 $repo = Split-Path -Parent $sim
 
-# --- Localizar el entorno conda ---------------------------------------
-# El orden es el mismo que usa la app (app/src/supervisor.rs): primero lo
-# que se pide a mano, luego el entorno que este activo, y solo despues los
-# sitios por defecto. CONDA_PREFIX no es un lujo: en CI el entorno lo instala
-# setup-miniconda en su propia ruta, y sin esa linea este script no encuentra
-# nada aunque el entorno este creado y activado.
-$candidatos = @()
-if ($env:MARS_CONDA_ENV) { $candidatos += $env:MARS_CONDA_ENV }
-if ($env:CONDA_PREFIX)   { $candidatos += $env:CONDA_PREFIX }
+# --- Locate the conda environment -------------------------------------
+# The order is the same the app uses (app/src/supervisor.rs): first what is
+# asked for by hand, then whichever environment is active, and only then the
+# default places. CONDA_PREFIX is not a luxury: in CI the environment is
+# installed by setup-miniconda in its own path, and without that line this
+# script finds nothing even with the environment created and activated.
+$candidates = @()
+if ($env:MARS_CONDA_ENV) { $candidates += $env:MARS_CONDA_ENV }
+if ($env:CONDA_PREFIX)   { $candidates += $env:CONDA_PREFIX }
 foreach ($root in @("$env:USERPROFILE\miniforge3", "$env:LOCALAPPDATA\miniforge3",
                     "$env:USERPROFILE\miniconda3", "$env:USERPROFILE\anaconda3")) {
-  $candidatos += (Join-Path $root "envs\mars-sim")
+  $candidates += (Join-Path $root "envs\mars-sim")
 }
-$condaEnv = $candidatos |
+$condaEnv = $candidates |
   Where-Object { $_ -and (Test-Path (Join-Path $_ "Library\lib\cmake\gz-sim")) } |
   Select-Object -First 1
 if (-not $condaEnv) {
-  throw "No se encontro el entorno 'mars-sim'. Crealo con: conda env create -f simulationstudio\environment.yml"
+  throw "The 'mars-sim' environment was not found. Create it with: conda env create -f simulationstudio\environment.yml"
 }
 
-# --- Localizar MSVC ---------------------------------------------------
+# --- Locate MSVC -------------------------------------------------------
 $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-if (-not (Test-Path $vswhere)) { throw "No hay Visual Studio instalado (falta vswhere.exe)." }
+if (-not (Test-Path $vswhere)) { throw "Visual Studio is not installed (vswhere.exe is missing)." }
 $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
 if (-not $vsPath) { $vsPath = & $vswhere -latest -products * -property installationPath }
 $vcvars = Join-Path $vsPath "VC\Auxiliary\Build\vcvars64.bat"
-if (-not (Test-Path $vcvars)) { throw "Falta el workload de C++ en Visual Studio (no existe $vcvars)." }
+if (-not (Test-Path $vcvars)) { throw "The C++ workload is missing from Visual Studio ($vcvars does not exist)." }
 
 if ($Clean) {
   Remove-Item -Recurse -Force (Join-Path $sim "build\CMakeCache.txt"),
                               (Join-Path $sim "build\CMakeFiles") -ErrorAction SilentlyContinue
-  Write-Host "cache de CMake borrada" -ForegroundColor Yellow
+  Write-Host "CMake cache wiped" -ForegroundColor Yellow
 }
 
-# Trampa 1: fuera MSYS2. Trampa 2: el PATH se arma antes de vcvars.
+# Trap 1: MSYS2 out. Trap 2: the PATH is built before vcvars.
 $cleanPath = ($env:PATH -split ';' | Where-Object { $_ -and $_ -notmatch 'msys64' }) -join ';'
 $prefix = "$(Split-Path -Parent $vswhere);$condaEnv\Library\bin;$condaEnv\Scripts;$cleanPath"
 
@@ -76,13 +77,13 @@ $steps = @(
 if ($Smoke) { $steps += "cd /d `"$sim`" && build\mars-sim-server.exe worlds\empty.sdf 500" }
 
 $cmd = "set `"PATH=$prefix`" && call `"$vcvars`" >nul && " + ($steps -join " && ")
-# PowerShell 5.1 convierte cada linea de stderr de un .exe en un ErrorRecord.
-# Gazebo escribe warnings benignos a stderr (por ejemplo el del descriptor de
-# gz-msgs), asi que con ErrorActionPreference=Stop el build "fallaria" sin
-# haber fallado. Se baja la guardia y se confia solo en el codigo de salida.
+# PowerShell 5.1 turns every stderr line of an .exe into an ErrorRecord.
+# Gazebo writes benign warnings to stderr (the gz-msgs descriptor one, for
+# instance), so with ErrorActionPreference=Stop the build would "fail" without
+# having failed. The guard is lowered and only the exit code is trusted.
 $ErrorActionPreference = "Continue"
 cmd /c $cmd
 $code = $LASTEXITCODE
 $ErrorActionPreference = "Stop"
-if ($code -ne 0) { throw "el build fallo con codigo $code" }
+if ($code -ne 0) { throw "the build failed with code $code" }
 Write-Host "`nOK -> $sim\build\mars-sim-server.exe" -ForegroundColor Green

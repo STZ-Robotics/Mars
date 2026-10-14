@@ -1,20 +1,20 @@
-//! Mide por qué el swerve simulado "se siente mal".
+//! Measures why the simulated swerve "feels wrong".
 //!
-//! Dos síntomas que la gente reporta juntos --- patina y pesa --- tienen
-//! causas distintas y se miden por separado:
+//! Two symptoms people report together --- it slips and it feels heavy --- have
+//! different causes and are measured separately:
 //!
-//!   1. ESCALÓN DE DIRECCIÓN. Manda las cuatro direcciones a 90 grados y
-//!      cronometra cuánto tardan. Un MK4i real llega en ~0.15 s. Si aquí tarda
-//!      medio segundo, el robot pasa cada cambio de dirección con las ruedas
-//!      apuntando a otro lado: eso se ve como patinar y se siente como inercia
-//!      que el robot no tiene.
+//!   1. STEERING STEP. Sends all four steering modules to 90 degrees and times
+//!      how long they take. A real MK4i gets there in ~0.15 s. If it takes
+//!      half a second here, the robot goes through every change of direction
+//!      with its wheels pointing elsewhere: that looks like slipping and feels
+//!      like an inertia the robot does not have.
 //!
-//!   2. ESCALÓN DE TRACCIÓN. Con las ruedas rectas, duty 1.0 y se compara la
-//!      velocidad de la superficie de la rueda (omega * r) con la del chasis.
-//!      La diferencia es DESLIZAMIENTO de verdad: si es alto, el problema es
-//!      el contacto y no el control.
+//!   2. DRIVE STEP. With the wheels straight, duty 1.0, and the wheel's
+//!      surface speed (omega * r) is compared with the chassis'. The
+//!      difference is real SLIP: if it is high, the problem is the contact and
+//!      not the control.
 //!
-//! Uso, con el motor corriendo aparte:
+//! Usage, with the engine running separately:
 //!   mars-sim-server worlds/swerve.sdf run
 //!   cargo run --bin swerve-step
 
@@ -35,11 +35,11 @@ const T_JOINTS: &str = "/mars/state/joints";
 
 const MATCH_TELEOP: i32 = 2;
 
-/// Radio de rueda de `worlds/gen_swerve.py`. Hace falta para pasar de rad/s del
-/// joint a m/s de superficie, que es la mitad de la cuenta del deslizamiento.
-const R_RUEDA: f64 = 0.0508;
+/// Wheel radius from `worlds/gen_swerve.py`. Needed to go from the joint's
+/// rad/s to surface m/s, which is half of the slip calculation.
+const WHEEL_RADIUS: f64 = 0.0508;
 
-/// Índices dentro de `gz.msgs.Actuators`, en el orden del robot-map:
+/// Indices inside `gz.msgs.Actuators`, in the robot map's order:
 /// fl_drive, fl_steer, fr_drive, fr_steer, bl_drive, bl_steer, br_drive, br_steer.
 const N_ACT: usize = 8;
 const DRIVE: [usize; 4] = [0, 2, 4, 6];
@@ -60,15 +60,15 @@ fn main() -> Result<()> {
         .advertise::<Actuators>(T_ACTUATORS)
         .ok_or_else(|| anyhow!("could not advertise {T_ACTUATORS}"))?;
 
-    // El discovery es bidireccional: publicar antes de que enganche manda los
-    // mensajes al vacío, sin ningún error.
+    // Discovery is bidirectional: publishing before it latches on sends the
+    // messages into the void, without any error.
     std::thread::sleep(Duration::from_millis(1500));
     if !match_pub.publish(&Int32 { data: MATCH_TELEOP, ..Default::default() }) {
         bail!("publishing to {T_MATCH} failed");
     }
 
-    // --- 1. escalón de dirección -----------------------------------------
-    let objetivo = std::f64::consts::FRAC_PI_2;
+    // --- 1. steering step -----------------------------------------------------
+    let target = std::f64::consts::FRAC_PI_2;
     println!("[step] steer: 0 -> 90 deg on all four modules");
     let mut cmd = Actuators {
         normalized: vec![0.0; N_ACT],
@@ -76,55 +76,55 @@ fn main() -> Result<()> {
         ..Default::default()
     };
     for i in STEER {
-        cmd.position[i] = objetivo;
+        cmd.position[i] = target;
     }
 
-    let arranque = Instant::now();
+    let start = Instant::now();
     let mut t10 = None;
     let mut t90 = None;
-    let mut t_asentado = None;
-    let mut maximo: f64 = 0.0;
-    while arranque.elapsed() < Duration::from_secs(3) {
+    let mut t_settled = None;
+    let mut peak: f64 = 0.0;
+    while start.elapsed() < Duration::from_secs(3) {
         if !act_pub.publish(&cmd) {
             bail!("publishing to {T_ACTUATORS} failed");
         }
         if let Ok(msg) = joints.recv_timeout(Duration::from_millis(20)) {
-            let a = angulo(&msg, "fl_steer_joint").unwrap_or(0.0);
-            let t = arranque.elapsed().as_secs_f64();
-            maximo = maximo.max(a);
-            if t10.is_none() && a >= 0.1 * objetivo {
+            let a = angle(&msg, "fl_steer_joint").unwrap_or(0.0);
+            let t = start.elapsed().as_secs_f64();
+            peak = peak.max(a);
+            if t10.is_none() && a >= 0.1 * target {
                 t10 = Some(t);
             }
-            if t90.is_none() && a >= 0.9 * objetivo {
+            if t90.is_none() && a >= 0.9 * target {
                 t90 = Some(t);
             }
-            // Asentado: dentro del 2%, que es un grado y medio.
-            if t_asentado.is_none() && (a - objetivo).abs() <= 0.02 * objetivo {
-                t_asentado = Some(t);
+            // Settled: within 2%, which is a degree and a half.
+            if t_settled.is_none() && (a - target).abs() <= 0.02 * target {
+                t_settled = Some(t);
             }
         }
     }
-    let final_ = angulo_bloqueante(&joints, "fl_steer_joint")?;
+    let final_ = blocking_angle(&joints, "fl_steer_joint")?;
     println!(
         "[step]   t10 = {}  t90 = {}  settled(2%) = {}",
         opt(t10),
         opt(t90),
-        opt(t_asentado)
+        opt(t_settled)
     );
     println!(
         "[step]   final = {:.1} deg (target 90.0), overshoot = {:.1} deg",
         final_.to_degrees(),
-        (maximo - objetivo).max(0.0).to_degrees()
+        (peak - target).max(0.0).to_degrees()
     );
     println!("[step]   a real MK4i steering module gets there in about 0.15 s");
 
-    // --- 2. escalón de tracción -------------------------------------------
+    // --- 2. drive step --------------------------------------------------------
     println!("[step] steer back to 0, then drive at full duty");
     for i in STEER {
         cmd.position[i] = 0.0;
     }
-    let hasta = Instant::now() + Duration::from_secs(2);
-    while Instant::now() < hasta {
+    let until = Instant::now() + Duration::from_secs(2);
+    while Instant::now() < until {
         let _ = act_pub.publish(&cmd);
         std::thread::sleep(Duration::from_millis(5));
     }
@@ -133,33 +133,33 @@ fn main() -> Result<()> {
         cmd.normalized[i] = 1.0;
     }
     let (x0, ts0) = chassis_x(&poses)?;
-    let arranque = Instant::now();
-    let mut muestras: Vec<(f64, f64, f64)> = Vec::new(); // t, v_chasis, v_rueda
+    let start = Instant::now();
+    let mut samples: Vec<(f64, f64, f64)> = Vec::new(); // t, v_chassis, v_wheel
     let mut x_prev = x0;
     let mut t_prev = 0.0;
     let mut v_max: f64 = 0.0;
-    let mut z_alto: f64 = 0.0;
-    while arranque.elapsed() < Duration::from_millis(1500) {
+    let mut z_high: f64 = 0.0;
+    while start.elapsed() < Duration::from_millis(1500) {
         let _ = act_pub.publish(&cmd);
         std::thread::sleep(Duration::from_millis(20));
         let (x, ts) = chassis_x(&poses)?;
-        z_alto = z_alto.max(chassis_z(&poses)?);
+        z_high = z_high.max(chassis_z(&poses)?);
         let t = ts - ts0;
-        let w = velocidad(&joints, "fl_drive_joint")?;
-        // Dos lecturas del mismo mensaje dan dt = 0: sin este filtro la
-        // division reparte un dx cualquiera entre cero y escupe un infinito.
+        let w = velocity(&joints, "fl_drive_joint")?;
+        // Two reads of the same message give dt = 0: without this filter the
+        // division spreads some dx over zero and spits out an infinity.
         if t - t_prev > 1e-6 {
             let v = (x - x_prev) / (t - t_prev);
-            // Con las hitboxes de la cancha puestas, el HUB esta a 2.7 m del
-            // punto de spawn: a fondo se llega en menos de un segundo. Cortar
-            // al chocar deja la medida de aceleracion limpia, que es de lo que
-            // trata esta fase --- el choque lo prueba la siguiente.
+            // With the field's hitboxes in place, the HUB is 2.7 m from the
+            // spawn point: at full throttle it is reached in under a second.
+            // Cutting on impact keeps the acceleration measurement clean, which
+            // is what this phase is about --- the next one tests the crash.
             if v_max > 1.0 && v < 0.5 * v_max {
                 println!("[step]   hit something at x = {x:.2} m, stopping the run");
                 break;
             }
             v_max = v_max.max(v);
-            muestras.push((t, v, w * R_RUEDA));
+            samples.push((t, v, w * WHEEL_RADIUS));
         }
         x_prev = x;
         t_prev = t;
@@ -168,39 +168,39 @@ fn main() -> Result<()> {
 
     println!();
     println!("  {:>6} {:>12} {:>12} {:>10}", "t (s)", "chassis m/s", "wheel m/s", "slip");
-    for (t, v, vw) in muestras.iter().step_by(5) {
+    for (t, v, vw) in samples.iter().step_by(5) {
         let slip = if vw.abs() > 1e-3 { (vw - v) / vw } else { 0.0 };
         println!("  {t:>6.2} {v:>12.2} {vw:>12.2} {:>9.0}%", slip * 100.0);
     }
-    // --- 3. la pared -------------------------------------------------------
-    // Sigue a fondo hasta que el chasis deja de avanzar. Sin las hitboxes de la
-    // cancha el robot se va de largo: el <plane> del suelo es infinito y la
-    // malla de la cancha no tiene colision ninguna.
+    // --- 3. the wall ----------------------------------------------------------
+    // Keeps going at full throttle until the chassis stops advancing. Without
+    // the field's hitboxes the robot drives straight off: the floor's <plane>
+    // is infinite and the field mesh has no collision at all.
     println!();
     println!("[step] full duty until something stops it (field limit test)");
-    let arranque = Instant::now();
+    let start = Instant::now();
     let mut x_max = x0;
-    let mut z_max: f64 = z_alto;
-    let mut quieto = 0;
-    while arranque.elapsed() < Duration::from_secs(6) {
+    let mut z_max: f64 = z_high;
+    let mut still = 0;
+    while start.elapsed() < Duration::from_secs(6) {
         let _ = act_pub.publish(&cmd);
         std::thread::sleep(Duration::from_millis(50));
         let (x, _) = chassis_x(&poses)?;
         z_max = z_max.max(chassis_z(&poses)?);
         if x - x_max < 0.01 {
-            quieto += 1;
-            if quieto >= 6 {
+            still += 1;
+            if still >= 6 {
                 break;
             }
         } else {
-            quieto = 0;
+            still = 0;
         }
         x_max = x_max.max(x);
     }
     let _ = match_pub.publish(&Int32 { data: 0, ..Default::default() });
-    // La pared de la estacion esta en x = 8.45 y la torre se mete hasta 7.13;
-    // un chasis de 0.72 m se para antes de eso.
-    // Con el chasis en z = 0.20, subir una rampa de 16.5 cm lo pone en 0.36.
+    // The driver station wall is at x = 8.45 and the tower reaches in to 7.13;
+    // a 0.72 m chassis stops before that.
+    // With the chassis at z = 0.20, climbing a 16.5 cm ramp puts it at 0.36.
     println!("[step]   highest the chassis got: z = {z_max:.3} m (0.200 on flat carpet)");
     println!(
         "[step]   stopped at x = {x_max:.2} m  ({})",
@@ -211,71 +211,72 @@ fn main() -> Result<()> {
         }
     );
 
-    // --- 4. soltar el gas --------------------------------------------------
-    // Lo que mas se parece a "se siente pesado": cuanto tarda en pararse solo.
-    // Un swerve real en coast rueda; uno que se clava al soltar el stick da la
-    // sensacion de arrastrar un peso que no tiene.
+    // --- 4. letting off the throttle ------------------------------------------
+    // What most resembles "it feels heavy": how long it takes to stop on its
+    // own. A real swerve in coast rolls; one that digs in when the stick is
+    // released feels like dragging a weight it does not have.
     println!();
     println!("[step] back to full duty, then release to zero and let it coast");
     let _ = match_pub.publish(&Int32 { data: MATCH_TELEOP, ..Default::default() });
     for i in DRIVE {
-        cmd.normalized[i] = -1.0;   // hacia atras: por delante esta el HUB
+        cmd.normalized[i] = -1.0;   // backwards: the HUB is in front
     }
-    let hasta = Instant::now() + Duration::from_millis(1200);
-    while Instant::now() < hasta {
+    let until = Instant::now() + Duration::from_millis(1200);
+    while Instant::now() < until {
         let _ = act_pub.publish(&cmd);
         std::thread::sleep(Duration::from_millis(5));
     }
     for i in DRIVE {
         cmd.normalized[i] = 0.0;
     }
-    let (mut x_ant, mut t_ant) = chassis_x(&poses)?;
+    let (mut x_last, mut t_last) = chassis_x(&poses)?;
     let mut v0: f64 = 0.0;
-    let mut historia: Vec<(f64, f64)> = Vec::new();
-    let arranque = Instant::now();
-    while arranque.elapsed() < Duration::from_millis(2500) {
+    let mut history: Vec<(f64, f64)> = Vec::new();
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_millis(2500) {
         let _ = act_pub.publish(&cmd);
         std::thread::sleep(Duration::from_millis(20));
         let (x, ts) = chassis_x(&poses)?;
-        if ts - t_ant > 1e-6 {
-            let v = (x - x_ant).abs() / (ts - t_ant);
-            if historia.is_empty() {
+        if ts - t_last > 1e-6 {
+            let v = (x - x_last).abs() / (ts - t_last);
+            if history.is_empty() {
                 v0 = v;
             }
-            historia.push((ts, v));
+            history.push((ts, v));
             if v < 0.05 * v0.max(0.1) {
                 break;
             }
         }
-        x_ant = x;
-        t_ant = ts;
+        x_last = x;
+        t_last = ts;
     }
     println!("  {:>6} {:>12}", "t (s)", "chassis m/s");
-    if let Some((t_ini, _)) = historia.first() {
-        for (ts, v) in historia.iter().step_by(4) {
-            println!("  {:>6.2} {v:>12.2}", ts - t_ini);
+    if let Some((t_first, _)) = history.first() {
+        for (ts, v) in history.iter().step_by(4) {
+            println!("  {:>6.2} {v:>12.2}", ts - t_first);
         }
     }
-    if let (Some((t_ini, _)), Some((t_fin, v_fin))) = (historia.first(), historia.last()) {
+    if let (Some((t_first, _)), Some((t_end, v_end))) = (history.first(), history.last()) {
         println!(
-            "[step]   released at {v0:.2} m/s, down to {v_fin:.2} m/s in {:.2} s  ->  {:.1} m/s^2",
-            t_fin - t_ini,
-            (v0 - v_fin) / (t_fin - t_ini).max(1e-6)
+            "[step]   released at {v0:.2} m/s, down to {v_end:.2} m/s in {:.2} s  ->  {:.1} m/s^2",
+            t_end - t_first,
+            (v0 - v_end) / (t_end - t_first).max(1e-6)
         );
         println!("[step]   a real swerve coasting loses about 1 m/s^2; in brake mode, 3 to 5");
     }
     let _ = match_pub.publish(&Int32 { data: 0, ..Default::default() });
 
-    // Hasta la velocidad MAXIMA, no hasta la ultima muestra: la ultima puede
-    // ser ya el frenazo contra lo que se haya cruzado, y una muestra de choque
-    // dentro del promedio lo baja a la mitad sin que se note de donde sale.
-    let pico = muestras
+    // Up to the MAXIMUM speed, not up to the last sample: the last one may
+    // already be the braking against whatever got in the way, and a crash
+    // sample inside the average halves it without making clear where that
+    // comes from.
+    let top = samples
         .iter()
         .enumerate()
         .max_by(|a, b| a.1 .1.total_cmp(&b.1 .1))
         .map(|(i, _)| i);
-    if let (Some(i), Some((t0, v0, _))) = (pico, muestras.first()) {
-        let (t1, v1, _) = muestras[i];
+    if let (Some(i), Some((t0, v0, _))) = (top, samples.first()) {
+        let (t1, v1, _) = samples[i];
         println!();
         println!(
             "[step]   average acceleration {:.2} m/s^2 over {:.2} s, up to {v1:.2} m/s",
@@ -291,7 +292,7 @@ fn opt(v: Option<f64>) -> String {
     v.map(|x| format!("{x:.3}s")).unwrap_or_else(|| "never".into())
 }
 
-fn angulo(msg: &Model, joint: &str) -> Option<f64> {
+fn angle(msg: &Model, joint: &str) -> Option<f64> {
     msg.joint
         .iter()
         .find(|j| j.name == joint)
@@ -299,10 +300,10 @@ fn angulo(msg: &Model, joint: &str) -> Option<f64> {
         .map(|a| a.position)
 }
 
-fn angulo_bloqueante(rx: &Receiver<Model>, joint: &str) -> Result<f64> {
+fn blocking_angle(rx: &Receiver<Model>, joint: &str) -> Result<f64> {
     for _ in 0..200 {
         if let Ok(msg) = rx.recv_timeout(Duration::from_secs(2)) {
-            if let Some(a) = angulo(&msg, joint) {
+            if let Some(a) = angle(&msg, joint) {
                 return Ok(a);
             }
         }
@@ -310,7 +311,7 @@ fn angulo_bloqueante(rx: &Receiver<Model>, joint: &str) -> Result<f64> {
     bail!("no state for {joint} on {T_JOINTS}")
 }
 
-fn velocidad(rx: &Receiver<Model>, joint: &str) -> Result<f64> {
+fn velocity(rx: &Receiver<Model>, joint: &str) -> Result<f64> {
     for _ in 0..200 {
         if let Ok(msg) = rx.recv_timeout(Duration::from_secs(2)) {
             if let Some(v) = msg
@@ -327,14 +328,7 @@ fn velocidad(rx: &Receiver<Model>, joint: &str) -> Result<f64> {
     bail!("no state for {joint} on {T_JOINTS}")
 }
 
-/// X del chasis y el instante de SIMULACION en el que se midio.
-///
-/// El tiempo sale del stamp del mensaje y no del reloj de pared a proposito.
-/// Derivar una posicion contra el reloj de pared mete en la cuenta todo lo que
-/// pasa entre medias --- una muestra que llega tarde, o dos lecturas del mismo
-/// mensaje --- y eso salia como picos de 12 m/s^2 y velocidades por encima de
-/// la velocidad libre del motor. La fisica no dio esos saltos: los dio el
-/// muestreo.
+/// The chassis' Z, for the ramp test.
 fn chassis_z(rx: &Receiver<Pose_V>) -> Result<f64> {
     for _ in 0..500 {
         let msg = rx
@@ -349,6 +343,14 @@ fn chassis_z(rx: &Receiver<Pose_V>) -> Result<f64> {
     bail!("no pose for link 'chassis' ever arrived on {T_POSE}")
 }
 
+/// The chassis' X and the SIMULATION instant it was measured at.
+///
+/// The time comes from the message's stamp and not the wall clock on purpose.
+/// Differentiating a position against the wall clock brings into the
+/// calculation everything that happens in between --- a sample arriving late,
+/// or two reads of the same message --- and that showed up as 12 m/s^2 spikes
+/// and speeds above the motor's free speed. The physics made no such jumps:
+/// the sampling did.
 fn chassis_x(rx: &Receiver<Pose_V>) -> Result<(f64, f64)> {
     for _ in 0..500 {
         let msg = rx

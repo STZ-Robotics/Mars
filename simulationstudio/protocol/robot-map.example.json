@@ -1,5 +1,5 @@
 {
-  "$comment": "Mapa de robot: la traduccion entre lo que el codigo del robot cree que tiene (canales, IDs de CAN) y lo que existe en el SDF (joints, links). Es lo unico que cambia entre un robot y otro; el motor y el bridge son genericos. Un archivo de estos por robot, en sim/models/<robot>/robot-map.json.",
+  "$comment": "Robot map: the translation between what the robot code believes it has (channels, CAN IDs) and what exists in the SDF (joints, links). It is the only thing that changes from one robot to another; the engine and the bridge are generic. One of these files per robot, in sim/models/<robot>/robot-map.json.",
 
   "protocol": "0.1.0",
   "robot": "swerve-2026",
@@ -7,9 +7,9 @@
   "model": "robot",
   "profile": "vendor",
 
-  "$comment_profile": "vendor = los motores son CAN (TalonFX/SparkMax) y hace falta el glue en el codigo del robot. hal = todo es PWM/DIO nativo del roboRIO y el lazo es transparente por wpilibws. Ver README.",
+  "$comment_profile": "vendor = the motors are CAN (TalonFX/SparkMax) and the robot code needs the glue. hal = everything is roboRIO-native PWM/DIO and the loop is transparent over wpilibws. See README.",
 
-  "$comment_actuators": "gearRatio es reduccion: vueltas de motor por vuelta de salida. El radio de rueda NO va aqui, sale de la geometria de colision del SDF, que es la unica fuente que la fisica respeta.",
+  "$comment_actuators": "gearRatio is a reduction: motor turns per output turn. The wheel radius does NOT go here, it comes from the SDF's collision geometry, which is the only source the physics respects.",
   "actuators": [
     { "name": "fl_drive", "joint": "fl_drive_joint", "motor": "kraken_x60", "gearRatio": 6.75,  "inverted": false, "hal": { "kind": "pwm", "channel": 0 } },
     { "name": "fl_steer", "joint": "fl_steer_joint", "motor": "kraken_x60", "gearRatio": 12.8,  "inverted": false, "hal": { "kind": "pwm", "channel": 1 } },
@@ -21,7 +21,7 @@
     { "name": "br_steer", "joint": "br_steer_joint", "motor": "kraken_x60", "gearRatio": 12.8,  "inverted": false, "hal": { "kind": "pwm", "channel": 7 } }
   ],
 
-  "$comment_encoders": "countsPerRevolution se mide en el EJE DEL MOTOR, antes de la reduccion, que es como lo reportan los encoders integrados de Falcon/Kraken. El bridge multiplica por gearRatio del actuador que comparte joint.",
+  "$comment_encoders": "countsPerRevolution is measured on the MOTOR SHAFT, before the reduction, which is how the integrated encoders of Falcon/Kraken report it. The bridge multiplies by the gearRatio of the actuator that shares the joint.",
   "encoders": [
     { "name": "fl_drive_enc", "joint": "fl_drive_joint", "countsPerRevolution": 2048, "hal": { "kind": "encoder", "index": 0 } },
     { "name": "fl_steer_abs", "joint": "fl_steer_joint", "countsPerRevolution": 4096, "absolute": true, "hal": { "kind": "encoder", "index": 1 } },
@@ -33,7 +33,7 @@
     { "name": "br_steer_abs", "joint": "br_steer_joint", "countsPerRevolution": 4096, "absolute": true, "hal": { "kind": "encoder", "index": 7 } }
   ],
 
-  "$comment_imu": "El link tiene que existir en el SDF y llevar un <sensor type=\"imu\">. simDevice es el nombre EXACTO con el que WPILib registra el dispositivo; si no coincide, el codigo del robot lee ceros y no hay error en ningun lado.",
+  "$comment_imu": "The link has to exist in the SDF and carry a <sensor type=\"imu\">. simDevice is the EXACT name WPILib registers the device under; if it does not match, the robot code reads zeros and there is no error anywhere.",
   "imu": {
     "name": "gyro",
     "link": "chassis",

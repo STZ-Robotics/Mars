@@ -1,51 +1,50 @@
-# Entorno de compilación y ejecución del motor de simulación.
+# Build and runtime environment of the simulation engine.
 #
-# Gazebo NO se clona dentro del repositorio: se declara aquí y conda lo instala
-# como binarios en el prefijo del entorno. Este archivo es a `sim/` lo que
-# `package.json` es al front y `Cargo.toml` a src-tauri.
+# Gazebo is NOT cloned into the repository: it is declared here and conda
+# installs it as binaries in the environment's prefix. This file is to `sim/`
+# what `package.json` is to the frontend and `Cargo.toml` to src-tauri.
 #
 #   conda env create -f sim/environment.yml
 #   conda activate mars-sim
 #
-# OJO con los nombres: en Jetty conda-forge dejó de sufijar el número de
-# versión al paquete. Es `gz-sim 10.*`, NO `gz-sim10` (ese esquema murió en
-# Ionic). Buscar con `conda search -c conda-forge gz-sim` y filtrar por
-# versión, porque conda ordena las versiones como texto y "10.5.0" aparece
-# ANTES que "9.5.0" en el listado.
+# CAREFUL with the names: in Jetty conda-forge stopped suffixing the version
+# number onto the package. It is `gz-sim 10.*`, NOT `gz-sim10` (that scheme
+# died in Ionic). Search with `conda search -c conda-forge gz-sim` and filter
+# by version, because conda sorts versions as text and "10.5.0" shows up
+# BEFORE "9.5.0" in the listing.
 name: mars-sim
 
 channels:
   - conda-forge
 
 dependencies:
-  # --- Núcleo de Gazebo Jetty -------------------------------------------
-  # gz-sim arrastra por dependencia a gz-common, gz-math, gz-plugin, gz-utils
-  # y gz-fuel-tools. Se listan aparte solo los que usamos directamente desde
-  # nuestro código, para que una actualización de gz-sim no nos cambie una API
-  # por debajo sin que nos enteremos.
-  - gz-sim 10.*          # ECS + servidor de simulación (Jetty)
-  - gz-transport 15.*    # bus IPC: por aquí habla el bridge
-  - gz-msgs 12.*         # los protobuf que viajan por transport
+  # --- Gazebo Jetty core --------------------------------------------------
+  # gz-sim pulls in gz-common, gz-math, gz-plugin, gz-utils and gz-fuel-tools
+  # as dependencies. Only the ones our code uses directly are listed
+  # separately, so a gz-sim update cannot change an API under us without us
+  # noticing.
+  - gz-sim 10.*          # ECS + simulation server (Jetty)
+  - gz-transport 15.*    # IPC bus: the bridge talks through it
+  - gz-msgs 12.*         # the protobufs that travel over transport
   - gz-physics 9.*       # DART / Bullet-Featherstone / TPE
-  - sdformat 16.*        # descripción de mundos y robots
+  - sdformat 16.*        # world and robot description
 
-  # NO se instala el metapaquete `gz-jetty`: arrastraría gz-launch y gz-tools,
-  # que no usamos (el supervisor de procesos es Tauri y el CLI `gz` solo sirve
-  # en desarrollo).
+  # The `gz-jetty` metapackage is NOT installed: it would pull in gz-launch and
+  # gz-tools, which we do not use (the process supervisor is Tauri and the
+  # `gz` CLI is only useful during development).
   #
-  # Ojo: gz-gui, gz-rendering y gz-sensors NO se pueden evitar. El paquete
-  # conda de gz-sim los declara como dependencias duras, así que OGRE2 entra
-  # al entorno quiera o no. La distinción es de tiempo de EJECUCIÓN: nuestro
-  # servidor no carga esos plugins, y por eso sigue siendo headless. Si algún
-  # día hace falta recortar el tamaño del entorno distribuible, hay que
-  # compilar gz-sim de fuente con los componentes gui/rendering/sensors
-  # desactivados.
+  # Careful: gz-gui, gz-rendering and gz-sensors CANNOT be avoided. gz-sim's
+  # conda package declares them as hard dependencies, so OGRE2 enters the
+  # environment whether we like it or not. The distinction is at RUN time: our
+  # server does not load those plugins, and that is why it stays headless. If
+  # one day the shipped environment's size has to be trimmed, gz-sim has to be
+  # built from source with the gui/rendering/sensors components disabled.
 
-  # --- Cadena de compilación --------------------------------------------
-  # El compilador de C++ no se declara aquí a propósito. En Windows los
-  # paquetes de conda-forge están construidos con MSVC, así que hay que usar
-  # el MSVC del sistema (Visual Studio Build Tools con el workload de C++);
-  # meter `cxx-compiler` pelea con él más de lo que ayuda.
+  # --- Build chain --------------------------------------------------------
+  # The C++ compiler is not declared here on purpose. On Windows the
+  # conda-forge packages are built with MSVC, so the system's MSVC has to be
+  # used (Visual Studio Build Tools with the C++ workload); adding
+  # `cxx-compiler` fights it more than it helps.
   - cmake >=3.22
   - ninja
   - pkg-config

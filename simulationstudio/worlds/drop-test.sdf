@@ -1,11 +1,11 @@
 <?xml version="1.0" ?>
 <!--
-  Mundo de verificación: una caja cayendo.
-  
-  Existe porque empty.sdf solo tiene cuerpos estáticos, y un suscriptor que
-  recibe poses constantes no distingue "el transporte funciona" de "el motor
-  está en pausa". Aquí la Z de la caja tiene que bajar, y eso solo pasa si la
-  física corrió Y el mensaje viajó.
+  Verification world: a falling box.
+
+  It exists because empty.sdf only has static bodies, and a subscriber that
+  receives constant poses cannot tell "the transport works" from "the engine
+  is paused". Here the box's Z has to go down, and that only happens if the
+  physics ran AND the message traveled.
 -->
 <sdf version="1.11">
   <world name="mars">
@@ -39,9 +39,9 @@
       </link>
     </model>
 
-    <!-- Cubo de 20 cm y 2 kg soltado desde 3 m. Con gravedad -9.8 tarda unos
-         780 ms en tocar el suelo, tiempo de sobra para que un suscriptor vea
-         la Z bajar antes del impacto. -->
+    <!-- A 20 cm, 2 kg cube dropped from 3 m. With gravity -9.8 it takes
+         about 780 ms to hit the floor, plenty of time for a subscriber to see
+         Z go down before the impact. -->
     <model name="box">
       <pose>0 0 3 0 0 0</pose>
       <link name="link">

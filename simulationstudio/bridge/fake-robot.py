@@ -1,25 +1,26 @@
 #!/usr/bin/env python3
-"""Codigo de robot de mentira: hace el papel del glue del perfil `vendor`.
+"""Fake robot code: plays the part of the `vendor` profile's glue.
 
-    python simulationstudio/bridge/fake-robot.py <robot-map.json> [segundos]
+    python simulationstudio/bridge/fake-robot.py <robot-map.json> [seconds]
 
-Ocupa el lugar del `simulationPeriodic` de un robot real:
+It stands in for a real robot's `simulationPeriodic`:
 
-  1. levanta el servidor NT4, como hace ntcore dentro del codigo del robot;
-  2. publica el duty que "el vendor le esta aplicando" a cada motor;
-  3. lee de vuelta posicion, velocidad y yaw que devuelve la fisica.
+  1. brings up the NT4 server, as ntcore does inside the robot code;
+  2. publishes the duty "the vendor is applying" to each motor;
+  3. reads back the position, velocity and yaw the physics returns.
 
-Y despues verifica que el circulo se cerro. Ese circulo es lo unico que este
-arnes prueba y lo unico que no se puede probar por partes:
+And then it verifies the circle closed. That circle is the only thing this
+harness tests and the only thing that cannot be tested in pieces:
 
-    robot -> bridge -> motor -> fisica -> motor -> bridge -> robot
+    robot -> bridge -> engine -> physics -> engine -> bridge -> robot
 
-En un swerve, las direcciones van en modo `position`: el arnes les manda un
-angulo y el MOTOR cierra el lazo, igual que un TalonFX. Comprobar que el modulo
-llega al angulo pedido y se queda ahi es lo que verifica que la consigna viaja,
-que las unidades son las que dice el contrato y que el lazo del motor funciona.
+On a swerve, the steering goes in `position` mode: the harness sends it an
+angle and the ENGINE closes the loop, just like a TalonFX. Checking that the
+module reaches the requested angle and stays there is what verifies that the
+setpoint travels, that the units are the ones the contract says and that the
+engine's loop works.
 
-Requiere:  pip install pyntcore
+Requires:  pip install pyntcore
 """
 import json
 import math
@@ -29,210 +30,211 @@ import time
 
 import ntcore
 
-# Los prefijos son parte del contrato; viven en [[glue]] de topics.toml.
-SALIDA = "/MARS/Glue/out"
-ENTRADA = "/MARS/Glue/in"
+# The prefixes are part of the contract; they live in [[glue]] of topics.toml.
+OUT = "/MARS/Glue/out"
+IN = "/MARS/Glue/in"
 
-# Las direcciones en modo `position` NO llevan lazo aqui: se les manda un angulo
-# y el motor cierra el lazo a la tasa de la fisica, igual que un TalonFX con
-# Motion Magic. Esta es la diferencia entre este arnes y el intento anterior,
-# que trataba de sujetarlas con duty desde aqui y no podia: una direccion 12.8:1
-# con Kraken tiene 90 N*m sobre 0.008 kg*m^2, y ningun lazo sobre la red -- ni a
-# 50 Hz ni a 250 -- tiene autoridad sobre eso.
+# Steering in `position` mode has NO loop here: it is sent an angle and the
+# engine closes the loop at the physics rate, like a TalonFX with Motion
+# Magic. This is the difference between this harness and the previous attempt,
+# which tried to hold it with duty from here and could not: a 12.8:1 steering
+# stage on a Kraken has 90 N*m across 0.008 kg*m^2, and no loop over the
+# network -- neither at 50 Hz nor at 250 -- has authority over that.
 #
-# Consigna mientras se conduce: modulos al frente.
-ANGULO_DIRECCION_RAD = 0.0
+# Setpoint while driving: modules facing forward.
+STEER_ANGLE_RAD = 0.0
 
-# Despues se les pide girar a este angulo, con el robot quieto. Sujetar el cero
-# ya prueba bastante -- las direcciones sufren una perturbacion real cuando el
-# robot acelera -- pero solo pedirles un angulo DISTINTO prueba que la consigna
-# viaja de verdad y que las unidades son las que dice el contrato. Un lazo que
-# ignorara la consigna y sujetara siempre el cero pasaria la primera prueba.
-ANGULO_OBJETIVO_RAD = 0.6           # 34 grados
-TOLERANCIA_OBJETIVO_RAD = 0.05      # 3 grados
+# Afterwards they are asked to turn to this angle, with the robot still.
+# Holding zero already tests quite a bit -- the steering takes a real
+# disturbance when the robot accelerates -- but only asking for a DIFFERENT
+# angle proves the setpoint really travels and that the units are the ones the
+# contract says. A loop that ignored the setpoint and always held zero would
+# pass the first test.
+TARGET_ANGLE_RAD = 0.6           # 34 degrees
+TARGET_TOLERANCE_RAD = 0.05      # 3 degrees
 
-# Cuanto puede desviarse una direccion y seguir considerandose sujeta.
-TOLERANCIA_DIRECCION_RAD = 0.35
+# How far a steering module can deviate and still count as held.
+STEER_TOLERANCE_RAD = 0.35
 
-# El robot conduce recto, asi que el yaw no deberia moverse mucho. Margen
-# amplio: las ruedas patinan al arrancar a plena potencia.
+# The robot drives straight, so the yaw should not move much. A wide margin:
+# the wheels slip when launching at full power.
 YAW_MAX_DEG = 25.0
 
-# 20 ms, el ciclo de un robot de WPILib. Se puede bajar con MARS_PERIODO para
-# distinguir "el lazo es lento" de "el modelo esta mal".
-PERIODO_S = float(os.environ.get("MARS_PERIODO", "0.02"))
+# 20 ms, a WPILib robot's cycle. It can be lowered with MARS_PERIOD to tell
+# "the loop is slow" from "the model is wrong".
+PERIOD_S = float(os.environ.get("MARS_PERIOD", "0.02"))
 
 
-def main(ruta_mapa: str, duracion_s: float) -> int:
-    mapa = json.load(open(ruta_mapa, encoding="utf-8"))
-    if mapa["profile"] != "vendor":
-        print(f"FALLA: este arnes es del perfil vendor, no de {mapa['profile']!r}",
+def main(map_path: str, duration_s: float) -> int:
+    robot_map = json.load(open(map_path, encoding="utf-8"))
+    if robot_map["profile"] != "vendor":
+        print(f"FAIL: this harness is for the vendor profile, not {robot_map['profile']!r}",
               file=sys.stderr)
         return 1
 
-    # Las direcciones se controlan en posicion y las tracciones a potencia
-    # abierta. Se distinguen por el nombre del joint, que es lo que el robot-map
-    # ya usa como convencion.
-    direcciones = [a for a in mapa["actuators"] if "steer" in a["name"]]
-    tracciones = [a for a in mapa["actuators"] if a not in direcciones]
-    print(f"[robot] {mapa['robot']}: {len(tracciones)} tracciones,"
-          f" {len(direcciones)} direcciones")
+    # Steering is position-controlled and drive is open-loop power. They are
+    # told apart by the joint name, which is the convention the robot map
+    # already uses.
+    steering = [a for a in robot_map["actuators"] if "steer" in a["name"]]
+    drives = [a for a in robot_map["actuators"] if a not in steering]
+    print(f"[robot] {robot_map['robot']}: {len(drives)} drive,"
+          f" {len(steering)} steering")
 
-    # Comprobar el puerto ANTES de arrancar. `startServer` sobre un puerto
-    # ocupado no falla ni avisa: se queda callado, los clientes se conectan al
-    # OTRO servidor --- normalmente el codigo del robot de verdad --- y no ven
-    # ninguno de estos topicos. El sintoma aparece a metros de la causa.
+    # Check the port BEFORE starting. `startServer` on a busy port neither
+    # fails nor warns: it stays quiet, the clients connect to the OTHER server
+    # --- usually the real robot code --- and see none of these topics. The
+    # symptom shows up miles from the cause.
     import socket
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         if s.connect_ex(("127.0.0.1", 5810)) == 0:
             print(
-                "FALLA: ya hay un servidor NT4 en el puerto 5810."
-                + "\n       Casi seguro es tu codigo del robot (simulateJava)."
-                + "\n       Este arnes HACE de codigo del robot, asi que no pueden"
-                + "\n       correr los dos: cerra uno.",
+                "FAIL: there is already an NT4 server on port 5810."
+                + "\n      It is almost certainly your robot code (simulateJava)."
+                + "\n      This harness PLAYS the robot code, so the two cannot"
+                + "\n      run together: close one.",
                 file=sys.stderr,
             )
             return 1
 
     inst = ntcore.NetworkTableInstance.getDefault()
     inst.startServer()
-    print("[robot] servidor NT4 escuchando")
+    print("[robot] NT4 server listening")
 
-    nombres = [a["name"] for a in mapa["actuators"]]
-    reduccion = {a["name"]: a.get("gearRatio", 1.0) for a in mapa["actuators"]}
+    names = [a["name"] for a in robot_map["actuators"]]
+    ratio = {a["name"]: a.get("gearRatio", 1.0) for a in robot_map["actuators"]}
 
-    # --- lo que el glue PUBLICA (lo que el vendor aplica a cada motor) ----
-    habilitado = inst.getBooleanTopic(f"{SALIDA}/enabled").publish()
-    duty = {n: inst.getDoubleTopic(f"{SALIDA}/{n}/duty").publish() for n in nombres}
-    setpoint = {n: inst.getDoubleTopic(f"{SALIDA}/{n}/setpoint").publish() for n in nombres}
+    # --- what the glue PUBLISHES (what the vendor applies to each motor) ----
+    enabled = inst.getBooleanTopic(f"{OUT}/enabled").publish()
+    duty = {n: inst.getDoubleTopic(f"{OUT}/{n}/duty").publish() for n in names}
+    setpoint = {n: inst.getDoubleTopic(f"{OUT}/{n}/setpoint").publish() for n in names}
 
-    # --- lo que el glue LEE (lo que la fisica devuelve) -------------------
-    pos = {n: inst.getDoubleTopic(f"{ENTRADA}/{n}/position").subscribe(0.0) for n in nombres}
-    vel = {n: inst.getDoubleTopic(f"{ENTRADA}/{n}/velocity").subscribe(0.0) for n in nombres}
-    yaw = inst.getDoubleTopic(f"{ENTRADA}/gyro/yaw").subscribe(0.0)
+    # --- what the glue READS (what the physics returns) ---------------------
+    pos = {n: inst.getDoubleTopic(f"{IN}/{n}/position").subscribe(0.0) for n in names}
+    vel = {n: inst.getDoubleTopic(f"{IN}/{n}/velocity").subscribe(0.0) for n in names}
+    yaw = inst.getDoubleTopic(f"{IN}/gyro/yaw").subscribe(0.0)
 
-    def angulo_modulo(nombre: str) -> float:
-        """Posicion del modulo en radianes, deshaciendo la reduccion.
+    def module_angle(name: str) -> float:
+        """The module's position in radians, undoing the reduction.
 
-        El contrato entrega las posiciones en el eje del MOTOR; el lazo de
-        direccion razona en el angulo del modulo, que es lo fisico.
+        The contract delivers positions on the MOTOR's shaft; the steering
+        loop reasons about the module's angle, which is the physical one.
         """
-        return pos[nombre].get() / reduccion[nombre]
+        return pos[name].get() / ratio[name]
 
-    # Deshabilitado primero, a proposito: si algo se moviera aqui seria que el
-    # motor ignora el estado de partido. Un robot con el DS apagado rueda libre.
+    # Disabled first, on purpose: if anything moved here the engine would be
+    # ignoring the match state. A robot with the DS off rolls free.
     #
-    # Las direcciones reciben su consigna ya aqui, para que al habilitar el
-    # motor no arranque persiguiendo un objetivo que nadie le dio.
-    habilitado.set(False)
-    for a in tracciones:
+    # The steering gets its setpoint right here, so when enabled the engine
+    # does not start chasing a target nobody gave it.
+    enabled.set(False)
+    for a in drives:
         duty[a["name"]].set(1.0)
-    for a in direcciones:
+    for a in steering:
         setpoint[a["name"]].set(0.0)
     time.sleep(2.0)
-    pos_quieto = {n: pos[n].get() for n in nombres}
-    vel_quieto = max(abs(vel[n].get()) for n in nombres)
-    print(f"[robot] deshabilitado con duty 1.0: velocidad maxima {vel_quieto:.3f} rad/s")
+    pos_still = {n: pos[n].get() for n in names}
+    vel_still = max(abs(vel[n].get()) for n in names)
+    print(f"[robot] disabled with duty 1.0: max velocity {vel_still:.3f} rad/s")
 
-    # --- habilitar y conducir --------------------------------------------
-    habilitado.set(True)
-    print(f"[robot] habilitado, conduciendo {duracion_s:.0f} s")
-    fin = time.time() + duracion_s
+    # --- enable and drive ----------------------------------------------------
+    enabled.set(True)
+    print(f"[robot] enabled, driving for {duration_s:.0f} s")
+    end = time.time() + duration_s
     vel_max = 0.0
-    desvio_max = 0.0
-    ultimo_debug = 0.0
-    while time.time() < fin:
-        for a in tracciones:
+    deviation_max = 0.0
+    last_debug = 0.0
+    while time.time() < end:
+        for a in drives:
             duty[a["name"]].set(1.0)
-        # A las direcciones se les manda la CONSIGNA, en radianes del motor.
-        # Que el modulo llegue y se quede es trabajo del motor.
-        for a in direcciones:
+        # The steering is sent the SETPOINT, in motor radians. The module
+        # getting there and staying is the engine's job.
+        for a in steering:
             n = a["name"]
-            setpoint[n].set(ANGULO_DIRECCION_RAD * reduccion[n])
-            desvio_max = max(desvio_max, abs(angulo_modulo(n) - ANGULO_DIRECCION_RAD))
+            setpoint[n].set(STEER_ANGLE_RAD * ratio[n])
+            deviation_max = max(deviation_max, abs(module_angle(n) - STEER_ANGLE_RAD))
 
-        time.sleep(PERIODO_S)
-        vel_max = max(vel_max, max(abs(vel[a["name"]].get()) for a in tracciones))
+        time.sleep(PERIOD_S)
+        vel_max = max(vel_max, max(abs(vel[a["name"]].get()) for a in drives))
 
-        if os.environ.get("MARS_DEBUG") and direcciones:
-            ahora = time.time()
-            if ahora - ultimo_debug > 0.5:
-                ultimo_debug = ahora
-                n = direcciones[0]["name"]
-                print(f"[dbg] {n}: ang={math.degrees(angulo_modulo(n)):+8.1f} deg"
-                      f"  vel={vel[n].get() / reduccion[n]:+7.2f} rad/s"
+        if os.environ.get("MARS_DEBUG") and steering:
+            now = time.time()
+            if now - last_debug > 0.5:
+                last_debug = now
+                n = steering[0]["name"]
+                print(f"[dbg] {n}: ang={math.degrees(module_angle(n)):+8.1f} deg"
+                      f"  vel={vel[n].get() / ratio[n]:+7.2f} rad/s"
                       f"  duty={duty[n].get() if hasattr(duty[n], 'get') else float('nan'):+.3f}"
                       f"  yaw={yaw.get():+7.1f}")
 
-    pos_final = {n: pos[n].get() for n in nombres}
+    pos_final = {n: pos[n].get() for n in names}
     yaw_final = yaw.get()
 
-    # --- apuntar a un angulo distinto -------------------------------------
-    # Con la traccion parada, para que el unico movimiento sea el de las
-    # direcciones y el resultado no dependa de la dinamica del chasis.
-    angulos_alcanzados = {}
-    if direcciones:
-        for a in tracciones:
+    # --- point at a different angle -----------------------------------------
+    # With the drive stopped, so the only motion is the steering's and the
+    # result does not depend on the chassis' dynamics.
+    reached = {}
+    if steering:
+        for a in drives:
             duty[a["name"]].set(0.0)
-        for a in direcciones:
-            setpoint[a["name"]].set(ANGULO_OBJETIVO_RAD * reduccion[a["name"]])
-        print(f"[robot] apuntando a {math.degrees(ANGULO_OBJETIVO_RAD):.0f} grados")
+        for a in steering:
+            setpoint[a["name"]].set(TARGET_ANGLE_RAD * ratio[a["name"]])
+        print(f"[robot] pointing at {math.degrees(TARGET_ANGLE_RAD):.0f} degrees")
         time.sleep(2.0)
-        angulos_alcanzados = {a["name"]: angulo_modulo(a["name"]) for a in direcciones}
+        reached = {a["name"]: module_angle(a["name"]) for a in steering}
 
-    habilitado.set(False)
+    enabled.set(False)
     time.sleep(0.3)
 
-    fallos = []
+    failures = []
 
-    # --- el estado de partido se respeta ---------------------------------
-    if vel_quieto > 1.0:
-        fallos.append(f"deshabilitado giraba a {vel_quieto:.2f} rad/s:"
-                      " el motor ignora /mars/cmd/match")
+    # --- the match state is respected ---------------------------------------
+    if vel_still > 1.0:
+        failures.append(f"disabled, it was turning at {vel_still:.2f} rad/s:"
+                        " the engine ignores /mars/cmd/match")
 
-    # --- el circulo se cerro ---------------------------------------------
-    print(f"[robot] velocidad maxima de traccion: {vel_max:.1f} rad/s (eje del motor)")
+    # --- the circle closed ---------------------------------------------------
+    print(f"[robot] max drive velocity: {vel_max:.1f} rad/s (motor shaft)")
     if vel_max < 10.0:
-        fallos.append(f"las ruedas apenas giraron ({vel_max:.2f} rad/s): el duty"
-                      " no llego al motor, o su estado no volvio")
+        failures.append(f"the wheels barely turned ({vel_max:.2f} rad/s): the duty"
+                        " did not reach the engine, or its state did not come back")
 
-    for a in tracciones:
+    for a in drives:
         n = a["name"]
-        avance = pos_final[n] - pos_quieto[n]
-        vueltas = avance / (2 * math.pi)
-        print(f"[robot] {n}: {vueltas:+.1f} vueltas de motor (reduccion {reduccion[n]})")
-        if avance <= 0.0:
-            fallos.append(f"{n} no avanzo ({avance:+.3f} rad)")
+        travel = pos_final[n] - pos_still[n]
+        turns = travel / (2 * math.pi)
+        print(f"[robot] {n}: {turns:+.1f} motor turns (reduction {ratio[n]})")
+        if travel <= 0.0:
+            failures.append(f"{n} did not advance ({travel:+.3f} rad)")
 
-    # --- el lazo de posicion sujeto ---------------------------------------
-    if direcciones:
-        print(f"[robot] desvio maximo de direccion: {math.degrees(desvio_max):.1f} grados")
-        if desvio_max > TOLERANCIA_DIRECCION_RAD:
-            fallos.append(
-                f"el lazo de direccion no sujeto: {math.degrees(desvio_max):.1f}"
-                " grados de desvio. La realimentacion de posicion llega mal, o"
-                " en otras unidades"
+    # --- the position loop held ----------------------------------------------
+    if steering:
+        print(f"[robot] max steering deviation: {math.degrees(deviation_max):.1f} degrees")
+        if deviation_max > STEER_TOLERANCE_RAD:
+            failures.append(
+                f"the steering loop did not hold: {math.degrees(deviation_max):.1f}"
+                " degrees of deviation. The position feedback arrives wrong, or"
+                " in other units"
             )
 
-    for n, ang in angulos_alcanzados.items():
-        error = ang - ANGULO_OBJETIVO_RAD
-        print(f"[robot] {n}: llego a {math.degrees(ang):+.1f} grados"
-              f" ({math.degrees(error):+.1f} de error)")
-        if abs(error) > TOLERANCIA_OBJETIVO_RAD:
-            fallos.append(
-                f"{n} no alcanzo la consigna: {math.degrees(ang):+.1f} grados"
-                f" en vez de {math.degrees(ANGULO_OBJETIVO_RAD):.0f}"
+    for n, ang in reached.items():
+        error = ang - TARGET_ANGLE_RAD
+        print(f"[robot] {n}: reached {math.degrees(ang):+.1f} degrees"
+              f" ({math.degrees(error):+.1f} error)")
+        if abs(error) > TARGET_TOLERANCE_RAD:
+            failures.append(
+                f"{n} did not reach the setpoint: {math.degrees(ang):+.1f} degrees"
+                f" instead of {math.degrees(TARGET_ANGLE_RAD):.0f}"
             )
 
-    print(f"[robot] yaw = {yaw_final:.1f} grados")
+    print(f"[robot] yaw = {yaw_final:.1f} degrees")
     if abs(yaw_final) > YAW_MAX_DEG:
-        fallos.append(f"el robot giro {yaw_final:.1f} grados conduciendo recto")
+        failures.append(f"the robot turned {yaw_final:.1f} degrees driving straight")
 
-    for f in fallos:
-        print(f"FALLA: {f}", file=sys.stderr)
-    if fallos:
+    for f in failures:
+        print(f"FAIL: {f}", file=sys.stderr)
+    if failures:
         return 1
-    print("[robot] OK: el circulo robot -> bridge -> fisica -> bridge -> robot cerro")
+    print("[robot] OK: the circle robot -> bridge -> physics -> bridge -> robot closed")
     return 0
 
 
@@ -240,9 +242,9 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         print(__doc__, file=sys.stderr)
         sys.exit(2)
-    codigo = main(sys.argv[1], float(sys.argv[2]) if len(sys.argv) > 2 else 4.0)
-    # os._exit: ntcore deja hilos de C++ corriendo y su teardown durante la
-    # finalizacion del interprete devuelve un codigo que no es el nuestro.
+    code = main(sys.argv[1], float(sys.argv[2]) if len(sys.argv) > 2 else 4.0)
+    # os._exit: ntcore leaves C++ threads running and their teardown during
+    # interpreter finalization returns an exit code that is not ours.
     sys.stdout.flush()
     sys.stderr.flush()
-    os._exit(codigo)
+    os._exit(code)

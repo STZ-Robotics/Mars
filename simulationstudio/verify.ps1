@@ -1,13 +1,12 @@
-﻿# Verificacion end-to-end de la simulacion.
+﻿# End-to-end verification of the simulation.
 #
 #   .\simulationstudio\verify.ps1
 #
-# Corre las capas en orden de costo creciente: el contrato (instantaneo), la
-# compilacion del motor y del bridge, y el lazo real con fisica de verdad.
-# Apto para CI.
+# Runs the layers in increasing order of cost: the contract (instant), building
+# the engine and the bridge, and the real loop with real physics. Fit for CI.
 $ErrorActionPreference = "Stop"
-# Igual que build.ps1: la carpeta es la que contiene este script, se llame
-# simulationstudio/ (repositorio) o sim/ (instalacion).
+# Same as build.ps1: the folder is the one holding this script, whether it is
+# called simulationstudio/ (repository) or sim/ (installation).
 $sim = $PSScriptRoot
 $repo = Split-Path -Parent $sim
 
@@ -16,47 +15,47 @@ foreach ($root in @("$env:USERPROFILE\miniforge3", "$env:LOCALAPPDATA\miniforge3
   $c = Join-Path $root "envs\mars-sim"
   if (Test-Path (Join-Path $c "Library\lib\cmake\gz-sim")) { $condaEnv = $c; break }
 }
-if (-not $condaEnv) { throw "falta el entorno 'mars-sim' (conda env create -f simulationstudio\environment.yml)" }
+if (-not $condaEnv) { throw "the 'mars-sim' environment is missing (conda env create -f simulationstudio\environment.yml)" }
 
 function Step($n, $msg) { Write-Host "`n[$n] $msg" -ForegroundColor Cyan }
 
-# --- 1. El contrato ---------------------------------------------------
-Step 1 "contrato del protocolo"
+# --- 1. The contract ---------------------------------------------------
+Step 1 "protocol contract"
 $ErrorActionPreference = "Continue"
 & "$condaEnv\python.exe" "$sim\protocol\check.py"
-if ($LASTEXITCODE -ne 0) { throw "el contrato es inconsistente" }
+if ($LASTEXITCODE -ne 0) { throw "the contract is inconsistent" }
 
-# --- 2. El motor ------------------------------------------------------
-Step 2 "compilando el motor y sus systems"
+# --- 2. The engine -----------------------------------------------------
+Step 2 "building the engine and its systems"
 & "$sim\build.ps1"
 foreach ($f in @("mars-sim-server.exe", "MarsLink.dll")) {
-  if (-not (Test-Path "$sim\build\$f")) { throw "no se genero $f" }
+  if (-not (Test-Path "$sim\build\$f")) { throw "$f was not produced" }
 }
 
-# --- 3. El bridge -----------------------------------------------------
-Step 3 "compilando el bridge"
-# gz-transport-sys encuentra las libs de C++ por pkg-config.
+# --- 3. The bridge -----------------------------------------------------
+Step 3 "building the bridge"
+# gz-transport-sys finds the C++ libs through pkg-config.
 $env:PKG_CONFIG_PATH = "$condaEnv\Library\lib\pkgconfig"
 $env:PATH = "$condaEnv\Library\bin;" + (($env:PATH -split ';' | Where-Object { $_ -and $_ -notmatch 'msys64' }) -join ';')
 Push-Location "$sim\bridge"
 try {
   cargo build --quiet --bins
-  if ($LASTEXITCODE -ne 0) { throw "cargo build fallo" }
-  # Cubren el transform de coordenadas y los layouts de struct, que son puros
-  # y no necesitan ni motor ni red.
+  if ($LASTEXITCODE -ne 0) { throw "cargo build failed" }
+  # They cover the coordinate transform and the struct layouts, which are
+  # pure and need neither an engine nor a network.
   cargo test --quiet --lib
-  if ($LASTEXITCODE -ne 0) { throw "los tests del bridge fallaron" }
+  if ($LASTEXITCODE -ne 0) { throw "the bridge's tests failed" }
 } finally { Pop-Location }
 
-# --- 4. El lazo -------------------------------------------------------
-Step 4 "lazo completo: comandos -> fisica -> telemetria"
-# gz-sim busca los systems propios aqui.
+# --- 4. The loop -------------------------------------------------------
+Step 4 "full loop: commands -> physics -> telemetry"
+# gz-sim looks for our own systems here.
 $env:GZ_SIM_SYSTEM_PLUGIN_PATH = "$sim\build"
 $srv = Start-Process -FilePath "$sim\build\mars-sim-server.exe" `
   -ArgumentList "worlds\testbot.sdf","run" -WorkingDirectory $sim -PassThru `
   -RedirectStandardOutput "$sim\build\srv.log" -RedirectStandardError "$sim\build\srv.err"
-# Leer .Handle no es decorativo: Start-Process -PassThru no cachea el handle
-# del proceso, y sin handle cacheado ExitCode queda inaccesible para siempre.
+# Reading .Handle is not decorative: Start-Process -PassThru does not cache the
+# process handle, and without a cached handle ExitCode is unreachable forever.
 $null = $srv.Handle
 Start-Sleep -Seconds 1
 
@@ -67,14 +66,14 @@ $drv = Start-Process -FilePath "$sim\bridge\target\debug\drive-test.exe" `
 $null = $drv.Handle
 
 $exited = $drv.WaitForExit(90000)
-# WaitForExit con timeout devuelve true pero deja ExitCode sin poblar.
+# WaitForExit with a timeout returns true but leaves ExitCode unpopulated.
 if ($exited) { $drv.WaitForExit() }
 $code = if ($exited) { $drv.ExitCode } else { -1 }
 Stop-Process -Id $srv.Id -Force -ErrorAction SilentlyContinue
 if (-not $exited) { Stop-Process -Id $drv.Id -Force -ErrorAction SilentlyContinue }
-# Esperar de verdad a que muera: Stop-Process no bloquea, y un motor del paso 4
-# que siga vivo publicaria en los mismos topicos que el del paso 5. Dos
-# publicadores en /mars/state/pose no dan error, dan poses que se pisan.
+# Really wait for it to die: Stop-Process does not block, and a step 4 engine
+# still alive would publish on the same topics as step 5's. Two publishers on
+# /mars/state/pose give no error, they give poses that overwrite each other.
 $srv.WaitForExit(10000) | Out-Null
 
 Get-Content $log -Encoding UTF8 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "    $_" }
@@ -82,18 +81,18 @@ if ($code -ne 0) {
   Get-Content "$sim\build\drive.err" -Encoding UTF8 -ErrorAction SilentlyContinue |
     Where-Object { $_ -notmatch "DynamicFactory" } |
     ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
-  throw "el lazo fallo (drive-test exit $code)"
+  throw "the loop failed (drive-test exit $code)"
 }
 
-# --- 5. NT4 -----------------------------------------------------------
-Step 5 "bridge -> NT4, contra el ntcore de WPILib"
-# nt-probe hace de SERVIDOR NT4, que es el papel que en simulacion ocupa el
-# codigo del robot. Usa la implementacion de referencia a proposito: un test
-# escrito por nosotros podria compartir el mismo malentendido del formato de
-# cable que el bridge, ntcore no.
+# --- 5. NT4 ------------------------------------------------------------
+Step 5 "bridge -> NT4, against WPILib's ntcore"
+# nt-probe acts as the NT4 SERVER, which is the role the robot code plays in
+# simulation. It uses the reference implementation on purpose: a test written
+# by us could share the bridge's misunderstanding of the wire format, ntcore
+# cannot.
 & "$condaEnv\python.exe" -c "import ntcore" 2>$null
 if ($LASTEXITCODE -ne 0) {
-  Write-Host "    omitido: falta pyntcore (pip install pyntcore)" -ForegroundColor Yellow
+  Write-Host "    skipped: pyntcore is missing (pip install pyntcore)" -ForegroundColor Yellow
 } else {
   $ntLog = "$sim\build\nt.log"
   $ntProbe = Start-Process -FilePath "$condaEnv\python.exe" `
@@ -113,8 +112,8 @@ if ($LASTEXITCODE -ne 0) {
     -RedirectStandardOutput "$sim\build\br.log" -RedirectStandardError "$sim\build\br.err"
   $null = $bridge.Handle
 
-  # Conducir en paralelo: una pose estatica no distingue "el bridge funciona"
-  # de "el bridge publico una vez y se quedo pegado".
+  # Drive in parallel: a static pose cannot tell "the bridge works" from "the
+  # bridge published once and got stuck".
   Start-Sleep -Seconds 2
   $drv2 = Start-Process -FilePath "$sim\bridge\target\debug\drive-test.exe" `
     -WorkingDirectory "$sim\bridge" -PassThru `
@@ -127,22 +126,22 @@ if ($LASTEXITCODE -ne 0) {
   foreach ($p in @($drv2, $bridge, $srv2, $ntProbe)) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
 
   Get-Content $ntLog -Encoding UTF8 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "    $_" }
-  Write-Host "    (probe: salio=$ntOk codigo=$ntCode)" -ForegroundColor DarkGray
+  Write-Host "    (probe: exited=$ntOk code=$ntCode)" -ForegroundColor DarkGray
   if ($ntCode -ne 0) {
     Get-Content "$sim\build\nt.err" -Encoding UTF8 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
     Get-Content "$sim\build\br.err" -Encoding UTF8 -ErrorAction SilentlyContinue |
       Where-Object { $_ -notmatch "DynamicFactory" } | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
-    throw "el bridge fallo contra NT4 (probe exit $ntCode)"
+    throw "the bridge failed against NT4 (probe exit $ntCode)"
   }
 }
 
 
-# --- 6. El glue del perfil vendor -------------------------------------
-Step 6 "lazo de hardware: codigo del robot <-> motor"
-# fake-robot hace de codigo del robot: levanta el servidor NT4, publica el duty
-# que el vendor aplicaria a cada motor y lee de vuelta lo que devuelve la
-# fisica. Es el unico test que cierra el circulo entero; las partes por
-# separado ya pasaron en los pasos anteriores.
+# --- 6. The vendor profile's glue ---------------------------------------
+Step 6 "hardware loop: robot code <-> engine"
+# fake-robot plays the robot code: it brings up the NT4 server, publishes the
+# duty the vendor would apply to each motor and reads back what the physics
+# returns. It is the only test that closes the whole circle; the pieces on
+# their own already passed in the previous steps.
 $robLog = "$sim\build\rob.log"
 $rob = Start-Process -FilePath "$condaEnv\python.exe" `
   -ArgumentList "$sim\bridge\fake-robot.py","$sim\models\testbot\robot-map.json","5" `
@@ -170,17 +169,16 @@ foreach ($p in @($br2, $srv3, $rob)) { Stop-Process -Id $p.Id -Force -ErrorActio
 Get-Content $robLog -Encoding UTF8 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "    $_" }
 if ($robCode -ne 0) {
   Get-Content "$sim\build\rob.err" -Encoding UTF8 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
-  throw "el lazo de hardware fallo (fake-robot exit $robCode)"
+  throw "the hardware loop failed (fake-robot exit $robCode)"
 }
 
 
-# --- 7. El swerve con control de posicion -----------------------------
-Step 7 "swerve: el motor cierra el lazo de posicion"
-# El paso 6 prueba el modo duty en un robot de 4 tracciones. Este prueba el
-# modo posicion, que es lo que un motor CAN hace de verdad: el codigo del robot
-# manda un angulo y el motor lo persigue a la tasa de la fisica. Sin esto las
-# direcciones de un swerve no se sujetan --- 90 N*m sobre 0.008 kg*m2 no los
-# gobierna ningun lazo sobre la red.
+# --- 7. The swerve under position control --------------------------------
+Step 7 "swerve: the engine closes the position loop"
+# Step 6 tests duty mode on a 4-wheel-drive robot. This one tests position
+# mode, which is what a CAN motor really does: the robot code sends an angle
+# and the engine chases it at the physics rate. Without it a swerve's steering
+# is not held --- no loop over the network governs 90 N*m across 0.008 kg*m2.
 $robLog2 = "$sim\build\rob2.log"
 $rob2 = Start-Process -FilePath "$condaEnv\python.exe" `
   -ArgumentList "$sim\bridge\fake-robot.py","$sim\models\swerve\robot-map.json","4" `
@@ -208,35 +206,36 @@ foreach ($p in @($br3, $srv4, $rob2)) { Stop-Process -Id $p.Id -Force -ErrorActi
 Get-Content $robLog2 -Encoding UTF8 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "    $_" }
 if ($rob2Code -ne 0) {
   Get-Content "$sim\build\rob2.err" -Encoding UTF8 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
-  throw "el swerve fallo (fake-robot exit $rob2Code)"
+  throw "the swerve failed (fake-robot exit $rob2Code)"
 }
 
 
-# --- 8. Simulation Studio: el supervisor y el launcher ----------------
-Step 8 "Simulation Studio: arranca la simulacion y la para limpio"
-# El Studio es la aplicacion APARTE que gobierna la simulacion; mars-desktop
-# solo tiene un boton que la abre. Aqui se prueba su supervisor en modo
-# headless: que encuentre sim/ y el entorno conda, que levante motor y bridge
-# con el entorno correcto, que se mantengan en pie sin codigo de robot, y que
-# al parar no quede nada vivo. Lo ultimo importa mas de lo que parece: un motor
-# huerfano publica en los mismos topicos que el siguiente y las poses se pisan.
+# --- 8. Simulation Studio: the supervisor and the launcher ---------------
+Step 8 "Simulation Studio: starts the simulation and stops it cleanly"
+# The Studio is the SEPARATE application that governs the simulation;
+# mars-desktop only has a button that opens it. Here its supervisor is tested
+# in headless mode: that it finds sim/ and the conda environment, that it
+# brings up engine and bridge with the right environment, that they stay up
+# without robot code, and that nothing is left alive after stopping. The last
+# one matters more than it looks: an orphaned engine publishes on the same
+# topics as the next one and the poses overwrite each other.
 Push-Location "$sim\app"
 try {
   cargo build --quiet
-  if ($LASTEXITCODE -ne 0) { throw "no compila MARS Sim" }
+  if ($LASTEXITCODE -ne 0) { throw "MARS Sim does not build" }
 } finally { Pop-Location }
 
 & "$sim\app\target\debug\mars-sim-app.exe" --headless 6 2>&1 |
   Where-Object { $_ -notmatch "DynamicFactory" } | ForEach-Object { Write-Host "    $_" }
 $appCode = $LASTEXITCODE
-if ($appCode -ne 0) { throw "MARS Sim fallo (exit $appCode)" }
+if ($appCode -ne 0) { throw "MARS Sim failed (exit $appCode)" }
 
-# Y que mars-desktop sepa encontrarla: el boton del Sidebar depende de eso.
+# And that mars-desktop knows how to find it: the Sidebar's button depends on it.
 Push-Location "$repo\desktop\src-tauri"
 try {
   cargo test --quiet --bin mars-desktop simlauncher
-  if ($LASTEXITCODE -ne 0) { throw "el launcher de mars-desktop no encuentra MARS Sim" }
+  if ($LASTEXITCODE -ne 0) { throw "mars-desktop's launcher does not find MARS Sim" }
 } finally { Pop-Location }
-  Write-Host "    launcher de mars-desktop: encuentra MARS Sim" -ForegroundColor DarkGray
+  Write-Host "    mars-desktop launcher: finds MARS Sim" -ForegroundColor DarkGray
 
-Write-Host "`nTODO OK: 8 capas, del contrato a la app de simulacion." -ForegroundColor Green
+Write-Host "`nALL OK: 8 layers, from the contract to the simulation app." -ForegroundColor Green

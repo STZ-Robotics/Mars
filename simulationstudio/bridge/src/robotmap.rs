@@ -1,12 +1,12 @@
-//! Lectura del robot-map.
+//! Reading the robot map.
 //!
-//! Es la única entrada por robot: el manifiesto del protocolo es fijo y se
-//! compila adentro, pero el mapa cambia con cada chasis, así que se pasa por
-//! línea de comandos y se lee en caliente.
+//! It is the only per-robot input: the protocol manifest is fixed and
+//! compiled in, but the map changes with every chassis, so it is passed on
+//! the command line and read at run time.
 //!
-//! El esquema está documentado en sim/protocol/robot-map.example.json y lo
-//! valida sim/protocol/check.py, que comprueba cosas que aquí no se pueden ver
-//! -- como que el orden de actuadores coincida con el del SDF.
+//! The schema is documented in sim/protocol/robot-map.example.json and
+//! validated by sim/protocol/check.py, which checks things that cannot be seen
+//! from here -- like the actuator order matching the SDF's.
 
 use std::path::Path;
 
@@ -18,30 +18,30 @@ pub struct RobotMap {
     pub protocol: String,
     pub robot: String,
     pub world: String,
-    /// Nombre del modelo dentro del mundo.
+    /// Name of the model inside the world.
     pub model: String,
     pub profile: String,
-    /// Link que representa el cuerpo del robot; es el que se publica como pose.
-    /// Por defecto `chassis`, que es como lo nombran los mundos del repo.
-    #[serde(default = "base_link_por_defecto")]
+    /// Link that represents the robot's body; it is the one published as the
+    /// pose. Defaults to `chassis`, which is how the repository's worlds name it.
+    #[serde(default = "default_base_link")]
     pub base_link: String,
     pub actuators: Vec<Actuator>,
     #[serde(default)]
     pub encoders: Vec<Encoder>,
 }
 
-fn base_link_por_defecto() -> String {
+fn default_base_link() -> String {
     "chassis".to_string()
 }
 
-/// Como interpreta el motor el comando de este actuador. Tiene que coincidir con
-/// el atributo `control` del <actuator> en el SDF; check.py lo verifica.
+/// How the engine interprets this actuator's command. It has to match the
+/// `control` attribute of the <actuator> in the SDF; check.py verifies it.
 #[derive(Debug, Deserialize, PartialEq, Eq, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 pub enum Control {
-    /// Duty crudo -1..1. Lo que aplica un motor sin lazo propio.
+    /// Raw duty -1..1. What a motor without its own loop applies.
     Duty,
-    /// Consigna de posicion; el motor cierra el lazo. Lo que hace un TalonFX.
+    /// Position setpoint; the engine closes the loop. What a TalonFX does.
     Position,
 }
 
@@ -57,7 +57,7 @@ pub struct Actuator {
     pub joint: String,
     #[serde(default)]
     pub inverted: bool,
-    #[serde(rename = "gearRatio", default = "uno")]
+    #[serde(rename = "gearRatio", default = "one")]
     pub gear_ratio: f64,
     #[serde(default)]
     pub control: Control,
@@ -67,41 +67,41 @@ pub struct Actuator {
 pub struct Encoder {
     pub name: String,
     pub joint: String,
-    #[serde(rename = "countsPerRevolution", default = "uno")]
+    #[serde(rename = "countsPerRevolution", default = "one")]
     pub counts_per_revolution: f64,
 }
 
-fn uno() -> f64 {
+fn one() -> f64 {
     1.0
 }
 
 impl RobotMap {
     pub fn load(path: &Path) -> Result<Self> {
-        let texto = std::fs::read_to_string(path)
+        let text = std::fs::read_to_string(path)
             .with_context(|| format!("could not read {}", path.display()))?;
-        let mapa: RobotMap = serde_json::from_str(&texto)
+        let map: RobotMap = serde_json::from_str(&text)
             .with_context(|| format!("{} is not in the expected format", path.display()))?;
 
-        // El handshake de verdad va por /mars/meta/hello contra el motor, pero
-        // esto atrapa antes el caso más común: un robot-map viejo quedado de
-        // una versión anterior del protocolo.
-        if mapa.protocol != crate::protocol::PROTOCOL_VERSION {
+        // The real handshake goes through /mars/meta/hello against the engine,
+        // but this catches the most common case earlier: an old robot map left
+        // over from a previous version of the protocol.
+        if map.protocol != crate::protocol::PROTOCOL_VERSION {
             bail!(
-                "{}: protocolo {} pero el bridge habla {}",
+                "{}: protocol {} but the bridge speaks {}",
                 path.display(),
-                mapa.protocol,
+                map.protocol,
                 crate::protocol::PROTOCOL_VERSION
             );
         }
-        if mapa.world != crate::protocol::WORLD {
+        if map.world != crate::protocol::WORLD {
             bail!(
-                "{}: mundo '{}' pero el manifiesto dice '{}'",
+                "{}: world '{}' but the manifest says '{}'",
                 path.display(),
-                mapa.world,
+                map.world,
                 crate::protocol::WORLD
             );
         }
 
-        Ok(mapa)
+        Ok(map)
     }
 }

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Verifica que el contrato del protocolo sea consistente consigo mismo.
+"""Verifies that the protocol contract is consistent with itself.
 
     python sim/protocol/check.py [robot-map.json ...]
 
-Sin argumentos valida el manifiesto y todos los robot-map del repositorio.
-Existe porque un contrato que se contradice es peor que no tener contrato: los
-dos lados creen estar de acuerdo. Correrlo en CI antes de compilar cualquiera
-de los dos.
+With no arguments it validates the manifest and every robot map in the
+repository. It exists because a contract that contradicts itself is worse
+than no contract: both sides believe they agree. Run it in CI before building
+either of them.
 
-Necesita Python 3.11+ por tomllib. El del entorno mars-sim sirve.
+Needs Python 3.11+ for tomllib. The mars-sim environment's one works.
 """
 import io
 import json
@@ -24,99 +24,99 @@ REQUIRED_KEYS = {"topic", "type", "dir", "desc"}
 
 
 def check_manifest(manifest, readme, fails):
-    """El manifiesto y el README no pueden decir cosas distintas."""
+    """The manifest and the README cannot say different things."""
     version = manifest["protocol_version"]
     declared = {t["topic"] for g in GROUPS for t in manifest[g]}
 
-    # El README es documentación, el manifiesto es la verdad. Si el README cita
-    # un tópico que no existe, alguien lo renombró en un solo lado.
+    # The README is documentation, the manifest is the truth. If the README
+    # cites a topic that does not exist, someone renamed it on one side only.
     for cited in set(re.findall(r"`(/(?:mars|MARS|SmartDashboard)/[^`]+)`", readme)):
         if cited not in declared:
-            fails.append(f"README cita {cited}, que no está en topics.toml")
+            fails.append(f"README cites {cited}, which is not in topics.toml")
     if f"**{version}**" not in readme:
-        fails.append(f"README no declara la versión {version} del manifiesto")
+        fails.append(f"README does not declare the manifest's version {version}")
 
     for group in GROUPS:
         for entry in manifest[group]:
             topic = entry.get("topic", "?")
             missing = REQUIRED_KEYS - set(entry)
             if missing:
-                fails.append(f"[[{group}]] {topic}: falta {sorted(missing)}")
+                fails.append(f"[[{group}]] {topic}: missing {sorted(missing)}")
             if entry.get("dir") not in ("in", "out"):
-                fails.append(f"{topic}: dir inválido {entry.get('dir')!r}")
-            # Los tópicos estándar de gz-sim llevan el nombre del mundo
-            # embebido. Si el del manifiesto y el del tópico se separan, el
-            # bridge se suscribe a un nombre que nadie publica y no hay error,
-            # solo silencio hasta que vence el timeout de discovery.
-            en_topico = re.match(r"/world/([^/]+)/", topic)
-            if en_topico and en_topico.group(1) != manifest["world"]:
+                fails.append(f"{topic}: invalid dir {entry.get('dir')!r}")
+            # gz-sim's standard topics carry the world name embedded. If the
+            # manifest's and the topic's drift apart, the bridge subscribes to
+            # a name nobody publishes and there is no error, only silence
+            # until discovery times out.
+            in_topic = re.match(r"/world/([^/]+)/", topic)
+            if in_topic and in_topic.group(1) != manifest["world"]:
                 fails.append(
-                    f"{topic}: lleva el mundo '{en_topico.group(1)}',"
-                    f" el manifiesto dice '{manifest['world']}'"
+                    f"{topic}: carries the world '{in_topic.group(1)}',"
+                    f" the manifest says '{manifest['world']}'"
                 )
 
     return declared
 
 
 def check_worlds(manifest, fails):
-    """El nombre del mundo en el SDF es parte del contrato.
+    """The world name in the SDF is part of the contract.
 
-    Los tópicos estándar de gz-sim lo llevan embebido (/world/<w>/pose/info).
-    Si no coincide, el bridge se suscribe a un tópico que nadie publica y no
-    hay error en ningún lado, solo un timeout de discovery.
+    gz-sim's standard topics carry it embedded (/world/<w>/pose/info). If it
+    does not match, the bridge subscribes to a topic nobody publishes and there
+    is no error anywhere, only a discovery timeout.
     """
     sdfs = sorted((SIM / "worlds").glob("*.sdf"))
     if not sdfs:
-        fails.append(f"no hay ningún .sdf en {SIM / 'worlds'}")
+        fails.append(f"there is no .sdf in {SIM / 'worlds'}")
     for sdf in sdfs:
         text = io.open(sdf, encoding="utf-8").read()
         names = re.findall(r'<world\s+name="([^"]+)"', text)
         if not names:
-            fails.append(f"{sdf.name}: no declara ningún <world name=...>")
+            fails.append(f"{sdf.name}: declares no <world name=...>")
         for n in names:
             if n != manifest["world"]:
                 fails.append(
-                    f"{sdf.name}: mundo '{n}' != manifiesto '{manifest['world']}'"
+                    f"{sdf.name}: world '{n}' != manifest '{manifest['world']}'"
                 )
 
-        # Las dimensiones de la cancha las necesitan los dos lados: el SDF para
-        # el plano del suelo y el bridge para trasladar del marco de Gazebo al
-        # de WPILib. Si divergen las poses salen desplazadas por la mitad de la
-        # diferencia, sin ningun error en ninguna parte.
-        campo = manifest["field"]
+        # Both sides need the field's dimensions: the SDF for the ground plane
+        # and the bridge to translate from Gazebo's frame to WPILib's. If they
+        # diverge the poses come out shifted by half the difference, without
+        # any error anywhere.
+        field = manifest["field"]
         for size in re.findall(r"<plane>.*?<size>([^<]+)</size>.*?</plane>", text, re.S):
             try:
-                largo, ancho = (float(v) for v in size.split())
+                length, width = (float(v) for v in size.split())
             except ValueError:
-                fails.append(f"{sdf.name}: <size> del plano no son dos numeros: {size!r}")
+                fails.append(f"{sdf.name}: the plane's <size> is not two numbers: {size!r}")
                 continue
-            if abs(largo - campo["length_m"]) > 1e-6 or abs(ancho - campo["width_m"]) > 1e-6:
+            if abs(length - field["length_m"]) > 1e-6 or abs(width - field["width_m"]) > 1e-6:
                 fails.append(
-                    f"{sdf.name}: plano {largo}x{ancho} != manifiesto "
-                    f"{campo['length_m']}x{campo['width_m']}"
+                    f"{sdf.name}: plane {length}x{width} != manifest "
+                    f"{field['length_m']}x{field['width_m']}"
                 )
 
 
 def check_actuator_order(rm, tag, fails):
-    """Lo más frágil del contrato: el ORDEN de los actuadores.
+    """The most fragile part of the contract: the ORDER of the actuators.
 
-    En el SDF es el orden de los <actuator> del <plugin>; en el robot-map, el
-    orden de la lista. Ese índice es la posición dentro del campo `normalized`
-    de gz.msgs.Actuators, así que si divergen el robot recibe los comandos
-    cruzados -- la rueda izquierda con el valor de la derecha -- sin un solo
-    error en ningún lado.
+    In the SDF it is the order of the <plugin>'s <actuator>s; in the robot
+    map, the order of the list. That index is the position inside
+    gz.msgs.Actuators' `normalized` field, so if they diverge the robot gets
+    its commands crossed -- the left wheel with the right one's value --
+    without a single error anywhere.
     """
     if not rm.get("sdf"):
         return
     sdf_path = SIM / rm["sdf"]
     if not sdf_path.exists():
-        fails.append(f"{tag}: sdf {rm['sdf']} no existe")
+        fails.append(f"{tag}: sdf {rm['sdf']} does not exist")
         return
 
     text = io.open(sdf_path, encoding="utf-8").read()
     plugin = re.search(r'<plugin[^>]*name="mars::MarsLink".*?</plugin>', text, re.S)
     if not plugin:
-        fails.append(f"{tag}: {rm['sdf']} no declara el plugin mars::MarsLink")
+        fails.append(f"{tag}: {rm['sdf']} does not declare the mars::MarsLink plugin")
         return
 
     entries = re.findall(r"<actuator\s+([^>]*?)/>", plugin.group(0))
@@ -130,37 +130,38 @@ def check_actuator_order(rm, tag, fails):
     map_joints = [a["joint"] for a in rm["actuators"]]
     if sdf_joints != map_joints:
         fails.append(
-            f"{tag}: el orden de actuadores no coincide"
+            f"{tag}: the actuator order does not match"
             f" | sdf={sdf_joints} | map={map_joints}"
         )
         return
 
-    # `inverted` vive en los dos lados y tiene que decir lo mismo, o el robot
-    # gira sobre sí mismo cuando se le pide avanzar.
+    # `inverted` lives on both sides and has to say the same thing, or the
+    # robot spins in place when asked to go forward.
     map_inverted = [bool(a.get("inverted", False)) for a in rm["actuators"]]
     if sdf_inverted != map_inverted:
         fails.append(
-            f"{tag}: 'inverted' no coincide"
+            f"{tag}: 'inverted' does not match"
             f" | sdf={sdf_inverted} | map={map_inverted}"
         )
 
-    # El MODO DE CONTROL también vive en los dos lados, y divergir es peor que
-    # `inverted`: el bridge llena el campo de `gz.msgs.Actuators` que dice el
-    # robot-map, y el motor lee el que dice el SDF. Si no coinciden, el motor
-    # lee un arreglo de ceros y el actuador se queda quieto sin un solo error.
+    # The CONTROL MODE also lives on both sides, and diverging is worse than
+    # `inverted`: the bridge fills the gz.msgs.Actuators field the robot map
+    # says, and the engine reads the one the SDF says. If they do not match,
+    # the engine reads an array of zeros and the actuator stays still without
+    # a single error.
     sdf_control = []
     for attrs in entries:
-        modo = re.search(r'control="([^"]+)"', attrs)
-        sdf_control.append(modo.group(1) if modo else "duty")
+        mode = re.search(r'control="([^"]+)"', attrs)
+        sdf_control.append(mode.group(1) if mode else "duty")
     map_control = [a.get("control", "duty") for a in rm["actuators"]]
     if sdf_control != map_control:
         fails.append(
-            f"{tag}: el modo de control no coincide"
+            f"{tag}: the control mode does not match"
             f" | sdf={sdf_control} | map={map_control}"
         )
     for m in map_control:
         if m not in ("duty", "position"):
-            fails.append(f"{tag}: modo de control invalido {m!r}")
+            fails.append(f"{tag}: invalid control mode {m!r}")
 
 
 def check_robot_map(path, manifest, fails):
@@ -169,36 +170,36 @@ def check_robot_map(path, manifest, fails):
 
     if rm["protocol"] != manifest["protocol_version"]:
         fails.append(
-            f"{tag}: protocol {rm['protocol']} != manifiesto"
+            f"{tag}: protocol {rm['protocol']} != manifest"
             f" {manifest['protocol_version']}"
         )
     if rm["world"] != manifest["world"]:
-        fails.append(f"{tag}: world {rm['world']} != manifiesto {manifest['world']}")
+        fails.append(f"{tag}: world {rm['world']} != manifest {manifest['world']}")
     if rm["profile"] not in ("hal", "vendor"):
-        fails.append(f"{tag}: profile inválido {rm['profile']!r}")
+        fails.append(f"{tag}: invalid profile {rm['profile']!r}")
 
-    # Cada encoder saca su gearRatio del actuador que comparte joint. Sin ese
-    # actuador el bridge no puede convertir cuentas a metros.
+    # Each encoder takes its gearRatio from the actuator that shares its
+    # joint. Without that actuator the bridge cannot convert counts to meters.
     joints = {a["joint"] for a in rm["actuators"]}
     for e in rm["encoders"]:
         if e["joint"] not in joints:
-            fails.append(f"{tag}: encoder {e['name']} apunta a {e['joint']}, sin actuador")
+            fails.append(f"{tag}: encoder {e['name']} points at {e['joint']}, with no actuator")
 
-    # Dos dispositivos en el mismo canal HAL: el segundo pisa al primero y el
-    # síntoma aparece a metros de la causa.
-    for label, items in (("actuadores", rm["actuators"]), ("encoders", rm["encoders"])):
+    # Two devices on the same HAL channel: the second overwrites the first and
+    # the symptom shows up miles from the cause.
+    for label, items in (("actuators", rm["actuators"]), ("encoders", rm["encoders"])):
         seen = {}
         for i in items:
             key = json.dumps(i["hal"], sort_keys=True)
             if key in seen:
                 fails.append(
-                    f"{tag}: {label} {seen[key]} y {i['name']} comparten canal {key}"
+                    f"{tag}: {label} {seen[key]} and {i['name']} share channel {key}"
                 )
             seen[key] = i["name"]
 
     names = [i["name"] for i in rm["actuators"] + rm["encoders"]]
     if len(names) != len(set(names)):
-        fails.append(f"{tag}: nombres duplicados entre actuadores y encoders")
+        fails.append(f"{tag}: duplicate names between actuators and encoders")
 
     check_actuator_order(rm, tag, fails)
 
@@ -217,7 +218,7 @@ def check(robot_maps):
 
 
 def default_maps():
-    """Todos los robot-map del repo, para que agregar uno no lo deje sin validar."""
+    """Every robot map in the repository, so adding one does not leave it unchecked."""
     found = [HERE / "robot-map.example.json"]
     found += sorted((SIM / "models").rglob("robot-map*.json"))
     return [str(p) for p in found]
@@ -227,7 +228,7 @@ if __name__ == "__main__":
     maps = sys.argv[1:] or default_maps()
     fails, n = check(maps)
     for f in fails:
-        print(f"FALLA: {f}", file=sys.stderr)
+        print(f"FAIL: {f}", file=sys.stderr)
     if fails:
         sys.exit(1)
-    print(f"protocolo consistente: {n} tópicos, {len(maps)} robot-map(s)")
+    print(f"protocol consistent: {n} topics, {len(maps)} robot map(s)")

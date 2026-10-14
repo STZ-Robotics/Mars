@@ -1,16 +1,16 @@
-//! Mide el rebote real de un FUEL contra el suelo.
+//! Measures a FUEL's real bounce off the floor.
 //!
-//! Existe porque el coeficiente de restitución de `models/fuel/model.sdf` es
-//! el único número del modelo que no sale del manual de juego, y porque no
-//! estaba dicho en ningún sitio que el motor de física lo respete: un
-//! `<bounce>` que el solver ignora en silencio produce una pelota que cae y se
-//! queda muerta, con el SDF diciendo lo contrario.
+//! It exists because the restitution coefficient in `models/fuel/model.sdf`
+//! is the only number in the model that does not come from the game manual,
+//! and because nothing said anywhere that the physics engine honors it: a
+//! `<bounce>` the solver silently ignores produces a ball that drops and stays
+//! dead, with the SDF saying otherwise.
 //!
-//! Se suscribe a las poses del mundo, sigue la Z de cada FUEL y anota la
-//! altura de la que cae y la del primer rebote. De ahí sale el coeficiente
-//! medido: `e = sqrt(h_rebote / h_caída)`.
+//! It subscribes to the world's poses, follows each FUEL's Z and notes the
+//! height it drops from and the height of the first bounce. The measured
+//! coefficient comes from that: `e = sqrt(h_bounce / h_drop)`.
 //!
-//! Uso, con el motor corriendo aparte:
+//! Usage, with the engine running separately:
 //!   mars-sim-server worlds/fuel-drop.sdf run
 //!   cargo run --bin fuel-bounce
 
@@ -21,31 +21,31 @@ use anyhow::{anyhow, Result};
 use gz_msgs::pose_v::Pose_V;
 use gz_transport::Node;
 
-/// Lo publica el SceneBroadcaster con la pose de todo lo que hay en el mundo.
+/// Published by the SceneBroadcaster with the pose of everything in the world.
 const T_POSES: &str = "/world/mars/pose/info";
 
-/// Cuánto observar. Con caídas desde 2.5 m, 6 s cubre la bajada y el primer
-/// rebote entero con margen.
-const OBSERVAR: Duration = Duration::from_secs(6);
+/// How long to watch. With drops from 2.5 m, 6 s covers the fall and the
+/// whole first bounce with margin.
+const WATCH: Duration = Duration::from_secs(6);
 
-/// Radio del FUEL: la Z que publica gz es la del centro, no la del punto de
-/// contacto, así que la altura sobre el suelo es Z menos el radio.
-const RADIO: f64 = 0.075;
+/// FUEL radius: the Z gz publishes is the center's, not the contact point's,
+/// so the height above the floor is Z minus the radius.
+const RADIUS: f64 = 0.075;
 
-/// Por debajo de esto no se considera que haya despegado del suelo. Los
-/// micro-rebotes de una pelota ya asentada no son un rebote.
-const MINIMO_REBOTE: f64 = 0.005;
+/// Below this it does not count as having left the floor. The micro-bounces
+/// of a ball that has already settled are not a bounce.
+const MIN_BOUNCE: f64 = 0.005;
 
 #[derive(Default)]
-struct Traza {
-    z_inicial: f64,
+struct Trace {
+    z_start: f64,
     z_min: f64,
-    toco: bool,
-    /// Altura del primer rebote, en metros sobre el suelo.
-    apice: f64,
-    /// Se cierra cuando la pelota vuelve a bajar tras el primer rebote.
-    cerrado: bool,
-    z_previa: f64,
+    landed: bool,
+    /// Height of the first bounce, in meters above the floor.
+    apex: f64,
+    /// Closed when the ball comes back down after the first bounce.
+    closed: bool,
+    z_prev: f64,
 }
 
 fn main() -> Result<()> {
@@ -53,12 +53,12 @@ fn main() -> Result<()> {
     let poses = node
         .subscribe_channel::<Pose_V>(T_POSES, 1)
         .ok_or_else(|| anyhow!("could not subscribe to {T_POSES}"))?;
-    println!("[bounce] subscribed to {T_POSES}, watching for {OBSERVAR:?}");
+    println!("[bounce] subscribed to {T_POSES}, watching for {WATCH:?}");
 
-    let mut trazas: HashMap<String, Traza> = HashMap::new();
-    let arranque = Instant::now();
+    let mut traces: HashMap<String, Trace> = HashMap::new();
+    let start = Instant::now();
 
-    while arranque.elapsed() < OBSERVAR {
+    while start.elapsed() < WATCH {
         let Ok(msg) = poses.recv_timeout(Duration::from_millis(500)) else {
             continue;
         };
@@ -69,54 +69,54 @@ fn main() -> Result<()> {
             let Some(pos) = p.position.as_ref() else { continue };
             let z = pos.z;
 
-            let t = trazas.entry(p.name.clone()).or_insert_with(|| Traza {
-                z_inicial: z,
+            let t = traces.entry(p.name.clone()).or_insert_with(|| Trace {
+                z_start: z,
                 z_min: z,
-                z_previa: z,
+                z_prev: z,
                 ..Default::default()
             });
-            if t.cerrado {
+            if t.closed {
                 continue;
             }
 
-            let altura = (z - RADIO).max(0.0);
+            let height = (z - RADIUS).max(0.0);
 
-            if !t.toco {
-                // Bajando: se busca el punto más bajo, que es el impacto.
+            if !t.landed {
+                // Falling: look for the lowest point, which is the impact.
                 if z < t.z_min {
                     t.z_min = z;
-                } else if t.z_previa <= t.z_min + 1e-6 && z > t.z_previa {
-                    // Empezó a subir: el impacto ya ocurrió.
-                    t.toco = true;
+                } else if t.z_prev <= t.z_min + 1e-6 && z > t.z_prev {
+                    // It started going up: the impact already happened.
+                    t.landed = true;
                 }
-            } else if altura > t.apice {
-                t.apice = altura;
-            } else if t.apice > MINIMO_REBOTE && altura < t.apice - 1e-4 {
-                // Ya volvió a bajar: el primer rebote está completo.
-                t.cerrado = true;
+            } else if height > t.apex {
+                t.apex = height;
+            } else if t.apex > MIN_BOUNCE && height < t.apex - 1e-4 {
+                // It came back down: the first bounce is complete.
+                t.closed = true;
             }
-            t.z_previa = z;
+            t.z_prev = z;
         }
     }
 
-    if trazas.is_empty() {
+    if traces.is_empty() {
         println!("[bounce] no FUEL seen. Is the engine running with worlds/fuel-drop.sdf?");
         return Ok(());
     }
 
     println!();
     println!("  {:<18} {:>10} {:>10} {:>10}", "model", "drop (m)", "bounce (m)", "e");
-    let mut nombres: Vec<&String> = trazas.keys().collect();
-    nombres.sort();
-    for n in nombres {
-        let t = &trazas[n];
-        let caida = (t.z_inicial - RADIO).max(0.0);
-        let e = if caida > 1e-6 {
-            (t.apice / caida).sqrt()
+    let mut names: Vec<&String> = traces.keys().collect();
+    names.sort();
+    for n in names {
+        let t = &traces[n];
+        let drop = (t.z_start - RADIUS).max(0.0);
+        let e = if drop > 1e-6 {
+            (t.apex / drop).sqrt()
         } else {
             0.0
         };
-        println!("  {n:<18} {caida:>10.3} {:>10.3} {e:>10.3}", t.apice);
+        println!("  {n:<18} {drop:>10.3} {:>10.3} {e:>10.3}", t.apex);
     }
     println!();
     println!("  e = sqrt(bounce / drop). If every e is 0.000 the engine is ignoring");

@@ -1,5 +1,5 @@
 {
-  "$comment": "Mapa del robot de pruebas: skid-steer de cuatro ruedas motrices, sin direccion. Es el que usa sim/verify.ps1 para probar el lazo completo. Para el mapa de un swerve real ver sim/protocol/robot-map.example.json.",
+  "$comment": "Map of the test robot: a four-wheel-drive skid-steer, with no steering. It is the one sim/verify.ps1 uses to test the full loop. For a real swerve's map see sim/protocol/robot-map.example.json.",
 
   "protocol": "0.1.0",
   "robot": "testbot",
@@ -7,9 +7,9 @@
   "model": "robot",
   "profile": "vendor",
 
-  "$comment_profile": "vendor: los motores son CAN y el lazo de hardware va por el glue sobre NT4. Es el perfil que se usa de verdad; el perfil hal (HALSim WebSocket) todavia no esta implementado.",
+  "$comment_profile": "vendor: the motors are CAN and the hardware loop goes through the glue over NT4. It is the profile actually in use; the hal profile (HALSim WebSocket) is not implemented yet.",
 
-  "$comment_sdf": "Apunta al SDF que implementa este mapa. check.py lo usa para verificar que el orden de los <actuator> del <plugin> coincida con el orden de la lista de abajo: ese orden ES el indice dentro de gz.msgs.Actuators.normalized, y si divergen el robot recibe los comandos cruzados sin ningun error.",
+  "$comment_sdf": "Points at the SDF that implements this map. check.py uses it to verify that the order of the <plugin>'s <actuator>s matches the order of the list below: that order IS the index inside gz.msgs.Actuators.normalized, and if they diverge the robot gets its commands crossed without any error.",
   "sdf": "worlds/testbot.sdf",
 
   "actuators": [
@@ -26,6 +26,6 @@
     { "name": "br_enc", "joint": "br_drive_joint", "countsPerRevolution": 2048, "hal": { "kind": "encoder", "index": 3 } }
   ],
 
-  "$comment_imu": "El testbot no lleva IMU todavia: el chasis no declara ningun <sensor type=\"imu\">. Se agrega cuando el lazo de actuadores este cerrado.",
+  "$comment_imu": "The testbot has no IMU yet: the chassis declares no <sensor type=\"imu\">. It gets added once the actuator loop is closed.",
   "imu": null
 }

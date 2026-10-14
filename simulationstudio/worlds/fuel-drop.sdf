@@ -1,30 +1,33 @@
 <?xml version="1.0" ?>
 <!--
-  Calibracion del rebote del FUEL.
+  FUEL bounce calibration.
 
-  Existe porque el coeficiente de restitucion de models/fuel/model.sdf es el
-  unico numero del modelo que NO sale del manual: el manual da diametro y masa,
-  pero nada sobre como rebota una pelota de espuma de alta densidad contra
-  alfombra FRC. Esta puesto en 0.35 como punto de partida y hay que medirlo.
+  It exists because the restitution coefficient in models/fuel/model.sdf is
+  the only number in the model that does NOT come from the manual: the manual
+  gives diameter and mass, but nothing about how a high-density foam ball
+  bounces on FRC carpet. It was set to 0.35 as a starting point and has to be
+  measured. (Measuring it showed this gz-physics build ignores <bounce>
+  entirely; see models/fuel/README.md. The friction ramp below is still the
+  calibration bench for mu.)
 
-  COMO SE USA
-  -----------
-  1. En la vida real: solta un FUEL desde 1.00 m sobre alfombra de FRC y mira
-     a que altura vuelve el primer rebote.
-  2. Corre este mundo y mira el primer rebote de la pelota de la izquierda
-     (tambien cae desde 1.00 m).
-  3. Si no coinciden, el coeficiente que buscas es  e = sqrt(h_rebote / 1.00).
-     Cambialo en models/fuel/model.sdf y repeti.
+  HOW TO USE IT
+  -------------
+  1. In real life: drop a FUEL from 1.00 m onto FRC carpet and see how high
+     the first bounce comes back.
+  2. Run this world and watch the first bounce of the leftmost ball (it also
+     drops from 1.00 m).
+  3. If they do not match, the coefficient you want is  e = sqrt(h_bounce / 1.00).
+     Change it in models/fuel/model.sdf and repeat.
 
-  Las tres pelotas caen desde alturas distintas a proposito: la restitucion de
-  un material real BAJA con la velocidad de impacto, asi que un valor que
-  clava el rebote desde 1 m puede quedarse corto desde 2.5 m. Si las tres no
-  cuadran con el mismo numero, elegi el que corresponda a las velocidades que
-  te importan --- casi siempre las de un tiro, no las de una caida libre.
+  The three balls drop from different heights on purpose: a real material's
+  restitution DROPS with impact velocity, so a value that nails the bounce
+  from 1 m may fall short from 2.5 m. If the three do not fit the same number,
+  pick the one that matches the velocities you care about --- almost always a
+  shot's, not a free fall's.
 
-  La cuarta rueda por una rampa: es la que dice si la FRICCION esta bien. Con
-  mu correcto rueda; con mu demasiado bajo se desliza y llega abajo girando
-  menos de lo que deberia.
+  The fourth one rolls down a ramp: it is the one that says whether the
+  FRICTION is right. With the right mu it rolls; with a mu that is too low it
+  slides and reaches the bottom spinning less than it should.
 -->
 <sdf version="1.11">
   <world name="mars">
@@ -56,8 +59,8 @@
       <direction>-0.5 0.1 -0.9</direction>
     </light>
 
-    <!-- Alfombra FRC, con el mismo mu que los mundos de partido: calibrar
-         contra un suelo distinto del que se usa despues no sirve de nada. -->
+    <!-- FRC carpet, with the same mu as the match worlds: calibrating
+         against a different floor from the one used afterwards is useless. -->
     <model name="ground_plane">
       <static>true</static>
       <link name="link">
@@ -68,11 +71,11 @@
           </surface>
         </collision>
         <visual name="visual">
-          <!-- La alfombra se dibuja del tamano de la cancha aunque aqui solo
-               se use un rincon: protocol/check.py exige que el <size> de todo
-               plano coincida con el manifiesto, porque un plano mas chico en
-               un mundo de partido significa poses desplazadas en NT sin ningun
-               error visible. El de colision es infinito y no lo mira nadie. -->
+          <!-- The carpet is drawn at the field's size even though only a corner
+               is used here: protocol/check.py requires every plane's <size>
+               to match the manifest, because a smaller plane in a match world
+               means shifted poses in NT without any visible error. The
+               collision one is infinite and nobody looks at it. -->
           <geometry><plane><normal>0 0 1</normal><size>16.54 8.21</size></plane></geometry>
           <material>
             <ambient>0.16 0.17 0.19 1</ambient>
@@ -82,8 +85,8 @@
       </link>
     </model>
 
-    <!-- Regla vertical: marcas cada 10 cm hasta 1 m, para leer la altura del
-         rebote a ojo en la ventana sin tener que instrumentar nada. -->
+    <!-- Vertical ruler: marks every 10 cm up to 1 m, to read the bounce
+         height by eye in the window without instrumenting anything. -->
     <model name="ruler">
       <static>true</static>
       <pose>-1.0 0.35 0 0 0 0</pose>
@@ -106,16 +109,16 @@
       </link>
     </model>
 
-    <!-- La de referencia: 1.00 m, la misma altura que se mide a mano. -->
+    <!-- The reference one: 1.00 m, the same height measured by hand. -->
     <include>
       <uri>model://fuel</uri>
       <name>fuel_drop_1m</name>
       <pose>-1.0 0 1.0 0 0 0</pose>
     </include>
 
-    <!-- Media altura y dos veces y media: la restitucion real cae con la
-         velocidad de impacto, y con tres puntos se ve si un solo coeficiente
-         alcanza para el rango que importa. -->
+    <!-- Half height and two and a half times: real restitution falls with
+         impact velocity, and with three points you can see whether a single
+         coefficient covers the range that matters. -->
     <include>
       <uri>model://fuel</uri>
       <name>fuel_drop_050</name>
@@ -127,7 +130,7 @@
       <pose>0.2 0 2.5 0 0 0</pose>
     </include>
 
-    <!-- Rampa de 20 grados para la friccion: rodar o deslizar. -->
+    <!-- A 20 degree ramp for friction: roll or slide. -->
     <model name="ramp">
       <static>true</static>
       <pose>1.6 0 0.18 0 -0.349 0</pose>

@@ -1,17 +1,17 @@
-// Servidor de simulación de MARS.
+// MARS simulation server.
 //
-// Prueba de vida de la fase 0: levanta un mundo de Gazebo sin interfaz y lo
-// deja corriendo. Todavía no habla con nadie; lo único que demuestra es que
-// el entorno compila y enlaza contra Gazebo Jetty.
+// Phase 0's proof of life: brings up a Gazebo world with no interface and
+// leaves it running. It still talks to nobody; all it proves is that the
+// environment builds and links against Gazebo Jetty.
 //
-// Uso:
-//   mars-sim-server [mundo.sdf] [iteraciones | run]
+// Usage:
+//   mars-sim-server [world.sdf] [iterations | run]
 //
-// Sin segundo argumento corre indefinido y arranca EN PAUSA, que es el modo
-// real: es el bridge quien decide cuándo empieza el partido. Con un número
-// corre esos pasos y sale, que es como se verifica que la física avanza. Con
-// `run` corre indefinido y sin pausa, que es lo que hace falta para que un
-// suscriptor externo tenga algo que leer.
+// Without a second argument it runs forever and starts PAUSED, which is the
+// real mode: the bridge is the one that decides when the match starts. With a
+// number it runs that many steps and exits, which is how the physics is
+// verified to advance. With `run` it runs forever and unpaused, which is what
+// an external subscriber needs to have something to read.
 
 #include <cstdlib>
 #include <iostream>
@@ -32,7 +32,7 @@ int main(int argc, char **argv)
     const std::string mode = argv[2];
     if (mode == "run")
     {
-      paused = false;  // iterations queda en 0: indefinido
+      paused = false;  // iterations stays at 0: unbounded
     }
     else
     {
@@ -47,18 +47,18 @@ int main(int argc, char **argv)
     }
   }
 
-  // Por defecto gz-sim solo muestra errores. Con MARS_VERBOSE=4 salen tambien
-  // los gzmsg de los systems, que es la unica forma de ver si un plugin se
-  // cargo: si el filename del <plugin> esta mal, gz-sim lo ignora en silencio.
+  // By default gz-sim only shows errors. With MARS_VERBOSE=4 the systems'
+  // gzmsg come out too, which is the only way to see whether a plugin loaded:
+  // if the <plugin>'s filename is wrong, gz-sim silently ignores it.
   if (const char *v = std::getenv("MARS_VERBOSE"))
     gz::common::Console::SetVerbosity(std::atoi(v));
 
   gz::sim::ServerConfig config;
   config.SetSdfFile(worldFile);
 
-  // Sin GUI y sin rendering: la visualización es MARS, que recibe el estado
-  // del mundo por NT4 y lo dibuja en su Field3D. Este proceso solo resuelve
-  // física.
+  // No GUI and no rendering: the visualization is MARS, which receives the
+  // world's state over NT4 and draws it in its Field3D. This process only
+  // solves physics.
   config.SetHeadlessRendering(true);
 
   std::cout << "[mars-sim] world: " << worldFile << "\n"
