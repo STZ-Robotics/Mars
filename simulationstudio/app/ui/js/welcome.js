@@ -1,79 +1,79 @@
-// El portal de bienvenida.
+// The welcome portal.
 //
-// Un diálogo de arranque como los de las suites de escritorio de hace veinte
-// años: banda de marca a la izquierda, listas densas de accesos a la derecha,
-// y un "Show this window at startup" abajo del todo que de verdad se recuerda.
-// Nada de hero a pantalla completa ni tarjetas grandes --- esto es el índice
-// de una herramienta, no la landing de un producto, y el resto de la app
-// (igual que mars-desktop) ya habla ese idioma.
+// A startup dialog like the ones in desktop suites from twenty years ago: a
+// brand band on the left, dense lists of shortcuts on the right, and a "Show
+// this window at startup" at the very bottom that is actually remembered. No
+// full-screen hero and no big cards --- this is a tool's index, not a
+// product's landing page, and the rest of the app (like mars-desktop) already
+// speaks that language.
 
 import { MSS_PROTOCOL_VERSION, MSS_VERSION } from "./constants.js";
-import { el, estado, guardarPrefs, icono } from "./core.js";
-import { navegar } from "./shell.js";
-import { boton, modal } from "./ui.js";
-import { importarMundo, nuevoMundo } from "./pages/worlds.js";
+import { el, icon, savePrefs, state } from "./core.js";
+import { navigate } from "./shell.js";
+import { button, modal } from "./ui.js";
+import { importWorld, newWorld } from "./pages/worlds.js";
 
-let abierta = false;
+let isOpen = false;
 
 /**
- * Abre el portal. `forzado` lo abre aunque el usuario haya desmarcado la
- * casilla --- es como se llega desde el menú Help.
+ * Opens the portal. `force` opens it even if the user unticked the box ---
+ * it is how you get here from the Help menu.
  */
-export function abrirBienvenida({ forzado = false } = {}) {
-  if (abierta) return;
-  if (!forzado && estado.prefs.mostrarBienvenida === false) return;
-  abierta = true;
+export function openWelcome({ force = false } = {}) {
+  if (isOpen) return;
+  if (!force && state.prefs.showWelcome === false) return;
+  isOpen = true;
 
-  const cerrarY = (accion) => () => {
-    dialogo.cerrar?.();
-    accion();
+  const closeThen = (action) => () => {
+    dialog.close?.();
+    action();
   };
 
-  const recientes = (estado.prefs.recientes ?? [])
-    .map((ruta) => estado.mundos.find((m) => m.ruta === ruta))
+  const recent = (state.prefs.recent ?? [])
+    .map((path) => state.worlds.find((m) => m.path === path))
     .filter(Boolean)
     .slice(0, 5);
 
-  const listas = el(
+  const lists = el(
     "div.welcome-lists",
 
-    seccion("Start", "play.svg", [
-      ["add.svg", "New world", "Create one from a template", cerrarY(() => nuevoMundo())],
-      ["import-model.svg", "Import world", "Copy an existing .sdf into the project", cerrarY(() => importarMundo())],
-      ["scene.svg", "World Library", `${estado.mundos.length} world${estado.mundos.length === 1 ? "" : "s"} in this project`, cerrarY(() => navegar("worlds"))],
-      ["robot.svg", "Robot Library", `${estado.robots.length} robot map${estado.robots.length === 1 ? "" : "s"}`, cerrarY(() => navegar("robots"))],
-      ["play.svg", "Launch simulation", "Pick a world and a robot, then start", cerrarY(() => navegar("launch"))],
+    section("Start", "play.svg", [
+      ["add.svg", "New world", "Create one from a template", closeThen(() => newWorld())],
+      ["import-model.svg", "Import world", "Copy an existing .sdf into the project", closeThen(() => importWorld())],
+      ["scene.svg", "World Library", `${state.worlds.length} world${state.worlds.length === 1 ? "" : "s"} in this project`, closeThen(() => navigate("worlds"))],
+      ["robot.svg", "Robot Library", `${state.robots.length} robot map${state.robots.length === 1 ? "" : "s"}`, closeThen(() => navigate("robots"))],
+      ["play.svg", "Launch simulation", "Pick a world and a robot, then start", closeThen(() => navigate("launch"))],
     ]),
 
-    recientes.length
-      ? seccion(
+    recent.length
+      ? section(
           "Recent worlds",
           "open-folder.svg",
-          recientes.map((m) => [
+          recent.map((m) => [
             "scene.svg",
-            m.archivo,
-            m.gestionado ? "managed" : "external",
-            cerrarY(() => navegar("editor", { ruta: m.ruta })),
+            m.file,
+            m.managed ? "managed" : "external",
+            closeThen(() => navigate("editor", { path: m.path })),
           ])
         )
       : null,
 
-    seccion("Learn", "help.svg", [
-      ["import-model.svg", "Model import guide", "Bring your own SDF model into the simulation", cerrarY(() => navegar("guide"))],
-      ["network.svg", "Protocol reference", "How engine, bridge and robot code talk", cerrarY(() => navegar("protocol"))],
-      ["help.svg", "Help topics", "Every explanation in the app, in one place", cerrarY(() => navegar("help"))],
-      ["watchdog.svg", "Diagnostics", "Check that everything needed to run is installed", cerrarY(() => navegar("diagnostics"))],
-      ["samples.svg", "About", "Versions, credits and what runs underneath", cerrarY(() => navegar("about"))],
+    section("Learn", "help.svg", [
+      ["import-model.svg", "Model import guide", "Bring your own SDF model into the simulation", closeThen(() => navigate("guide"))],
+      ["network.svg", "Protocol reference", "How engine, bridge and robot code talk", closeThen(() => navigate("protocol"))],
+      ["help.svg", "Help topics", "Every explanation in the app, in one place", closeThen(() => navigate("help"))],
+      ["watchdog.svg", "Diagnostics", "Check that everything needed to run is installed", closeThen(() => navigate("diagnostics"))],
+      ["samples.svg", "About", "Versions, credits and what runs underneath", closeThen(() => navigate("about"))],
     ])
   );
 
-  const casilla = el("input", {
+  const showAtStartup = el("input", {
     type: "checkbox",
-    checked: estado.prefs.mostrarBienvenida !== false,
-    onchange: (e) => guardarPrefs({ mostrarBienvenida: e.target.checked }),
+    checked: state.prefs.showWelcome !== false,
+    onchange: (e) => savePrefs({ showWelcome: e.target.checked }),
   });
 
-  const cuerpo = el(
+  const body = el(
     "div.modal-body",
     { style: { padding: "0", display: "flex", flexDirection: "column", minHeight: "0" } },
     el(
@@ -87,17 +87,17 @@ export function abrirBienvenida({ forzado = false } = {}) {
         ),
         el("div.tagline", "Physics simulation and world authoring for the MARS robot framework."),
         el("div.build", `STUDIO ${MSS_VERSION} · PROTOCOL ${MSS_PROTOCOL_VERSION}`),
-        // Tres líneas de qué hay dentro. La banda de marca quedaba con un hueco
-        // grande entre la versión y el crédito de Gazebo, y un vacío en una
-        // pantalla de bienvenida se lee como una pantalla sin terminar.
+        // Three lines on what is inside. The brand band had a big gap between
+        // the version and the Gazebo credit, and an empty space on a welcome
+        // screen reads as an unfinished screen.
         el(
           "div.brand-facts",
           ...[
             ["scene.svg", "Author worlds", "Physics, ground, walls, lighting and props — no XML required."],
             ["import-model.svg", "Import anything", "Bring in an existing .sdf, meshes and all."],
             ["robot.svg", "Run and watch", "Supervises the engine, the 3D window and the NT4 bridge."],
-          ].map(([svg, titulo, texto]) =>
-            el("div.fact", icono(svg, 15), el("div", el("b", titulo), el("span", texto)))
+          ].map(([svg, title, text]) =>
+            el("div.fact", icon(svg, 15), el("div", el("b", title), el("span", text)))
           )
         ),
         el(
@@ -123,35 +123,35 @@ export function abrirBienvenida({ forzado = false } = {}) {
               "that are not obvious and that cost a day each when you find them yourself."
           )
         ),
-        listas
+        lists
       )
     ),
     el(
       "div.welcome-foot",
-      el("label", casilla, "Show this window at startup"),
-      boton("Get started", { variante: "primary", svg: "play.svg", onclick: () => dialogo.cerrar() })
+      el("label", showAtStartup, "Show this window at startup"),
+      button("Get started", { variant: "primary", svg: "play.svg", onclick: () => dialog.close() })
     )
   );
 
-  const dialogo = modal({
-    titulo: "Welcome — MARS Simulation Studio",
+  const dialog = modal({
+    title: "Welcome — MARS Simulation Studio",
     svg: "home.svg",
-    clase: "welcome",
-    cuerpo,
-    alCerrar: () => {
-      abierta = false;
+    className: "welcome",
+    body,
+    onClose: () => {
+      isOpen = false;
     },
   });
 }
 
-function seccion(titulo, svg, filas) {
+function section(title, svg, rows) {
   return el(
     "div.bevel",
-    el("div.bevel-title", icono(svg), el("span.label", titulo)),
+    el("div.bevel-title", icon(svg), el("span.label", title)),
     el(
       "div",
-      ...filas.map(([icon, nombre, desc, accion]) =>
-        el("div.list-row", { onclick: accion }, icono(icon, 15), el("span", nombre), el("span.desc", desc))
+      ...rows.map(([rowIcon, name, desc, action]) =>
+        el("div.list-row", { onclick: action }, icon(rowIcon, 15), el("span", name), el("span.desc", desc))
       )
     )
   );

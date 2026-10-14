@@ -1,90 +1,91 @@
-// Las plantillas de mundo y los valores por defecto.
+// World templates and default values.
 //
-// El spec que se manda al backend tiene que coincidir CAMPO POR CAMPO con
-// `estudio::MundoSpec`. Un nombre que no coincida no da error en ningún lado
-// hasta que serde falla en tiempo de ejecución, con la ventana ya abierta y el
-// usuario dándole a Save --- el mismo riesgo que el test
-// `la_ui_y_config_hablan_el_mismo_json` cubre para el arranque.
+// The spec sent to the backend has to match `studio::WorldSpec` FIELD BY
+// FIELD. A name that does not match is not an error anywhere until serde
+// fails at run time, with the window already open and the user pressing Save
+// --- the same risk the test `the_ui_and_worldspec_speak_the_same_json`
+// covers, with a literal copy of `defaultSpec()` below.
 
-/** La cancha FRC, y el mismo número que declara `protocol/topics.toml`. */
-export const CAMPO_FRC = { largo: 16.54, ancho: 8.21 };
+/** The FRC field, the same number `protocol/topics.toml` declares. */
+export const FRC_FIELD = { length: 16.54, width: 8.21 };
 
-/** Radio del FUEL, de `models/fuel/model.sdf`. */
-export const FUEL_RADIO = 0.075;
+/** FUEL radius, from `models/fuel/model.sdf`. */
+export const FUEL_RADIUS = 0.075;
 
 /**
- * La misma rejilla que siembra `estudio::generar_fuel`, para poder enseñar la
- * cuenta antes de guardar. Devuelve `{cols, filas, porCapa, capas}`.
+ * The same grid `studio::worldgen::generate_fuel` seeds, so the count can be
+ * shown before saving. Returns `{cols, rows, perLayer, layers}`.
  *
- * Es una copia deliberada de la fórmula de Rust, igual que `FUEL_RADIO`: el
- * generador es la verdad y esto solo la anticipa. Si divergen, lo que se ve en
- * el editor deja de describir lo que sale al SDF --- por eso el test
- * `las_fuel_no_nacen_solapadas` vive del lado que manda.
+ * It is a deliberate copy of the Rust formula, like `FUEL_RADIUS`: the
+ * generator is the truth and this only anticipates it. If they diverge, what
+ * the editor shows stops describing what goes out to the SDF --- which is why
+ * the test `the_grid_is_the_one_the_editor_shows` pins numbers that came
+ * from running both.
  */
-export function rejillaFuel(n, area) {
-  if (!n || n < 1) return { cols: 0, filas: 0, porCapa: 0, capas: 0 };
+export function fuelGrid(n, area) {
+  if (!n || n < 1) return { cols: 0, rows: 0, perLayer: 0, layers: 0 };
 
-  const pasoMin = 2 * FUEL_RADIO + 0.02;
-  const utilX = Math.max(area[0] - 2 * FUEL_RADIO, 0);
-  const utilY = Math.max(area[1] - 2 * FUEL_RADIO, 0);
-  const colsMax = Math.floor(utilX / pasoMin) + 1;
-  const filasMax = Math.floor(utilY / pasoMin) + 1;
+  const minPitch = 2 * FUEL_RADIUS + 0.02;
+  const usableX = Math.max(area[0] - 2 * FUEL_RADIUS, 0);
+  const usableY = Math.max(area[1] - 2 * FUEL_RADIUS, 0);
+  const maxCols = Math.floor(usableX / minPitch) + 1;
+  const maxRows = Math.floor(usableY / minPitch) + 1;
 
-  const proporcion = area[1] > 0 ? area[0] / area[1] : 1;
-  const cols = Math.min(Math.max(Math.round(Math.sqrt(n * proporcion)), 1), colsMax);
-  const filas = Math.min(Math.max(Math.ceil(n / cols), 1), filasMax);
-  const porCapa = cols * filas;
-  return { cols, filas, porCapa, capas: Math.ceil(n / porCapa) };
+  const aspect = area[1] > 0 ? area[0] / area[1] : 1;
+  const cols = Math.min(Math.max(Math.round(Math.sqrt(n * aspect)), 1), maxCols);
+  const rows = Math.min(Math.max(Math.ceil(n / cols), 1), maxRows);
+  const perLayer = cols * rows;
+  return { cols, rows, perLayer, layers: Math.ceil(n / perLayer) };
 }
 
-export function specPorDefecto(archivo = "new-world") {
+export function defaultSpec(file = "new-world") {
   return {
-    archivo,
-    descripcion: "",
+    file,
+    description: "",
 
-    // 250 Hz: cinco pasos de física por ciclo de 20 ms de WPILib.
-    paso: 0.004,
+    // 250 Hz: five physics steps per 20 ms WPILib cycle.
+    step: 0.004,
     rtf: 1.0,
-    motor_fisica: "dart",
-    gravedad: -9.8,
+    physics_engine: "dart",
+    gravity: -9.8,
 
-    suelo: true,
-    friccion: 0.9,
-    friccion2: 0.9,
-    cancha_largo: CAMPO_FRC.largo,
-    cancha_ancho: CAMPO_FRC.ancho,
-    color_suelo: [0.32, 0.33, 0.36, 1],
+    ground: true,
+    friction: 0.9,
+    friction2: 0.9,
+    field_length: FRC_FIELD.length,
+    field_width: FRC_FIELD.width,
+    ground_color: [0.32, 0.33, 0.36, 1],
 
-    // Sin cancha por defecto: hay que instalar una primero (Field Library).
-    campo: "",
-    // El glTF viene Y-arriba y Gazebo es Z-arriba: 90 grados de roll.
-    campo_pose: [0, 0, 0, Math.PI / 2, 0, 0],
-    campo_escala: 1,
+    // No field by default: one has to be installed first (Field Library).
+    field_mesh: "",
+    // The glTF comes Y-up and Gazebo is Z-up: 90 degrees of roll.
+    field_pose: [0, 0, 0, Math.PI / 2, 0, 0],
+    field_scale: 1,
 
-    // FUEL con física. Las 456 que trae la malla de la cancha son decorado
-    // horneado en el glTF: sin colisión y sin masa, así que este número no
-    // tiene nada que ver con ellas. 0 = ninguna.
+    // FUEL with physics. The 456 the field mesh carries are scenery baked
+    // into the glTF: no collision and no mass, so this number has nothing to
+    // do with them. 0 = none.
     fuel: 0,
-    // La NEUTRAL ZONE del manual de REBUILT (6.3.4.1): 206.0 x 72.0 in.
+    // The NEUTRAL ZONE from the REBUILT manual (6.3.4.1): 206.0 x 72.0 in.
     fuel_area: [5.23, 1.83],
-    fuel_centro: [0, 0],
-    fuel_altura: 0,
+    fuel_center: [0, 0],
+    fuel_height: 0,
 
-    muros: true,
-    muro_alto: 0.5,
-    muro_grosor: 0.1,
+    walls: true,
+    wall_height: 0.5,
+    wall_thickness: 0.1,
 
-    sol: true,
-    sombras: true,
-    sol_direccion: [-0.5, 0.1, -0.9],
-    sol_intensidad: 0.8,
-    ambiente: 0.4,
-    fondo: [0.7, 0.75, 0.8],
+    sun: true,
+    shadows: true,
+    sun_direction: [-0.5, 0.1, -0.9],
+    sun_intensity: 0.8,
+    ambient: 0.4,
+    background: [0.7, 0.75, 0.8],
 
-    comandos_usuario: true,
-    sensores: false,
+    user_commands: true,
+    sensors: false,
     imu_system: false,
-    plugins_extra: [],
+    extra_plugins: [],
 
     robot_uri: "",
     robot_pose: [0, 0, 0.1, 0, 0, 0],
@@ -94,97 +95,98 @@ export function specPorDefecto(archivo = "new-world") {
 }
 
 /**
- * Las plantillas del diálogo "New world". Cada una es un delta sobre el spec
- * por defecto, no un spec entero: así un campo nuevo no hay que añadirlo en
- * cuatro sitios.
+ * The templates of the "New world" dialog. Each one is a delta over the
+ * default spec, not a whole spec: that way a new field does not have to be
+ * added in four places.
  */
-export const PLANTILLAS = [
+export const TEMPLATES = [
   {
     id: "frc",
-    nombre: "FRC field",
+    name: "FRC field",
     svg: "scene.svg",
-    resumen: "Carpet-sized ground with perimeter walls. The normal starting point.",
+    summary: "Carpet-sized ground with perimeter walls. The normal starting point.",
     delta: {},
   },
   {
     id: "frc-3d",
-    nombre: "FRC field with 3D model",
+    name: "FRC field with 3D model",
     svg: "field3d.svg",
-    resumen: "The walled field plus the real FRC mesh as a visual. Needs a field installed.",
-    // Más ambiente porque la malla oficial es oscura: con 0.4 se ve plomiza.
-    delta: { ambiente: 0.75 },
-    pideCampo: true,
+    summary: "The walled field plus the real FRC mesh as a visual. Needs a field installed.",
+    // More ambient because the official mesh is dark: at 0.4 it looks leaden.
+    delta: { ambient: 0.75 },
+    wantsField: true,
   },
   {
     id: "frc-fuel",
-    nombre: "FRC field with FUEL",
+    name: "FRC field with FUEL",
     svg: "game-piece.svg",
-    resumen: "The walled field plus 24 FUEL with physics, staged across the neutral zone.",
-    // 24 es lo que cabe holgado en una sola capa de la NEUTRAL ZONE y no
-    // castiga el real-time factor. Subirlo es un número en el editor.
-    delta: { ambiente: 0.75, fuel: 24 },
-    pideCampo: true,
+    summary: "The walled field plus 24 FUEL with physics, staged across the neutral zone.",
+    // 24 is what fits comfortably in a single layer of the NEUTRAL ZONE and
+    // does not punish the real-time factor. Raising it is a number in the
+    // editor.
+    delta: { ambient: 0.75, fuel: 24 },
+    wantsField: true,
   },
   {
     id: "open",
-    nombre: "Open field",
+    name: "Open field",
     svg: "grid.svg",
-    resumen: "Same ground, no walls — the robot can drive off the edge and keep going.",
-    delta: { muros: false },
+    summary: "Same ground, no walls — the robot can drive off the edge and keep going.",
+    delta: { walls: false },
   },
   {
     id: "bench",
-    nombre: "Test bench",
+    name: "Test bench",
     svg: "measure.svg",
-    resumen: "Small 6 × 6 m floor for testing a single mechanism, with the IMU system on.",
-    delta: { cancha_largo: 6, cancha_ancho: 6, muros: true, muro_alto: 0.3, imu_system: true },
+    summary: "Small 6 × 6 m floor for testing a single mechanism, with the IMU system on.",
+    delta: { field_length: 6, field_width: 6, walls: true, wall_height: 0.3, imu_system: true },
   },
   {
     id: "zerog",
-    nombre: "Zero gravity",
+    name: "Zero gravity",
     svg: "axes.svg",
-    resumen: "No gravity. Isolates a mechanism's own dynamics from its weight while debugging.",
-    delta: { gravedad: 0, muros: false },
+    summary: "No gravity. Isolates a mechanism's own dynamics from its weight while debugging.",
+    delta: { gravity: 0, walls: false },
   },
   {
     id: "empty",
-    nombre: "Empty world",
+    name: "Empty world",
     svg: "model-file.svg",
-    resumen: "Physics, lighting and nothing else. For a world you will build up by hand.",
-    delta: { suelo: false, muros: false, comandos_usuario: false },
+    summary: "Physics, lighting and nothing else. For a world you will build up by hand.",
+    delta: { ground: false, walls: false, user_commands: false },
   },
 ];
 
 /**
- * `campoPorDefecto` es la ruta de la primera cancha instalada, si hay alguna;
- * solo la usan las plantillas que la piden.
+ * `defaultField` is the path of the first installed field, if there is one;
+ * only the templates that ask for it use it.
  */
-export function specDePlantilla(id, archivo, campoPorDefecto = "") {
-  const p = PLANTILLAS.find((x) => x.id === id) ?? PLANTILLAS[0];
-  const spec = { ...specPorDefecto(archivo), ...p.delta, archivo };
-  if (p.pideCampo && campoPorDefecto) spec.campo = campoPorDefecto;
+export function specFromTemplate(id, file, defaultField = "") {
+  const p = TEMPLATES.find((x) => x.id === id) ?? TEMPLATES[0];
+  const spec = { ...defaultSpec(file), ...p.delta, file };
+  if (p.wantsField && defaultField) spec.field_mesh = defaultField;
   return spec;
 }
 
-/** Los props que ofrece el botón "Add prop", ya dimensionados. */
-export const PROPS_PREDEFINIDOS = [
-  { etiqueta: "Box", forma: "box", tamano: [0.3, 0.3, 0.3], masa: 2, color: [0.8, 0.5, 0.2, 1] },
-  { etiqueta: "Crate (0.5 m)", forma: "box", tamano: [0.5, 0.5, 0.5], masa: 6, color: [0.62, 0.45, 0.25, 1] },
-  { etiqueta: "Cylinder", forma: "cylinder", tamano: [0.15, 0.4, 0], masa: 1.5, color: [0.25, 0.45, 0.8, 1] },
-  { etiqueta: "Ball", forma: "sphere", tamano: [0.12, 0, 0], masa: 0.27, color: [0.85, 0.35, 0.2, 1] },
-  { etiqueta: "Wall segment", forma: "box", tamano: [2, 0.1, 0.6], masa: 0, color: [0.3, 0.3, 0.34, 1], estatico: true },
-  { etiqueta: "Mesh (.dae/.stl)", forma: "mesh", tamano: [1, 1, 1], masa: 1, color: [0.6, 0.6, 0.65, 1] },
+/** The props the "Add prop" button offers, already sized. */
+export const PRESET_PROPS = [
+  { label: "Box", shape: "box", size: [0.3, 0.3, 0.3], mass: 2, color: [0.8, 0.5, 0.2, 1] },
+  { label: "Crate (0.5 m)", shape: "box", size: [0.5, 0.5, 0.5], mass: 6, color: [0.62, 0.45, 0.25, 1] },
+  { label: "Cylinder", shape: "cylinder", size: [0.15, 0.4, 0], mass: 1.5, color: [0.25, 0.45, 0.8, 1] },
+  { label: "Ball", shape: "sphere", size: [0.12, 0, 0], mass: 0.27, color: [0.85, 0.35, 0.2, 1] },
+  { label: "Wall segment", shape: "box", size: [2, 0.1, 0.6], mass: 0, color: [0.3, 0.3, 0.34, 1], static: true },
+  { label: "Mesh (.dae/.stl)", shape: "mesh", size: [1, 1, 1], mass: 1, color: [0.6, 0.6, 0.65, 1] },
 ];
 
-export function nuevoProp(base, n) {
+export function newProp(base, n) {
   return {
-    nombre: `${base.forma}_${n}`,
-    forma: base.forma,
-    tamano: [...base.tamano],
-    masa: base.masa,
-    estatico: Boolean(base.estatico),
-    pose: [1, 0, base.forma === "sphere" ? base.tamano[0] : (base.tamano[2] || base.tamano[1]) / 2, 0, 0, 0],
+    name: `${base.shape}_${n}`,
+    shape: base.shape,
+    size: [...base.size],
+    mass: base.mass,
+    static: Boolean(base.static),
+    pose: [1, 0, base.shape === "sphere" ? base.size[0] : (base.size[2] || base.size[1]) / 2, 0, 0, 0],
     color: [...base.color],
-    malla: "",
+    mesh: "",
   };
 }

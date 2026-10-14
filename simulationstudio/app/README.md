@@ -1,164 +1,184 @@
 # MARS Simulation Studio
 
-La aplicación de simulación. Es un producto **aparte** de mars-desktop.
+The simulation application. It is a **separate** product from mars-desktop.
 
 ```
-cargo build          # o ..\verify.ps1, que la compila y la prueba
+cargo build          # or ..\verify.ps1, which builds and tests it
 cargo run
 ```
 
-## Por qué es una app aparte
+## Why it is a separate app
 
-mars-desktop lleva un solo botón —  *Simulation Studio*, en el grupo Connection
-del Sidebar — y ese botón lanza este ejecutable. Nada de Gazebo entra en el
-dashboard.
+mars-desktop carries a single button — *Simulation Studio*, in the Sidebar's
+Connection group — and that button launches this executable. Nothing from
+Gazebo goes into the dashboard.
 
-La razón es de riesgo, no de gusto. La simulación arrastra el entorno conda
-entero: Gazebo, sus plugins y sus dependencias. Ese peso no tiene por qué
-viajar en el bundle de la app que el equipo usa **en competencia**, y la
-simulación puede colgarse, actualizarse o reinstalarse sin tocarla.
+The reason is risk, not taste. The simulation drags in the whole conda
+environment: Gazebo, its plugins and its dependencies. That weight has no
+business travelling in the bundle of the app the team uses **at competition**,
+and the simulation can hang, be updated or be reinstalled without touching it.
 
-El proceso se lanza y se suelta. Cerrar mars-desktop no cierra la simulación:
-son dos ciclos de vida distintos y eso es deliberado.
+The process is launched and let go. Closing mars-desktop does not close the
+simulation: they are two different life cycles and that is deliberate.
 
-## Qué hace
+## What it does
 
-Dos cosas, y están en dos módulos distintos porque son dos riesgos distintos.
+Two things, and they live in two different modules because they are two
+different risks.
 
-**Correr la simulación** (`src/supervisor.rs`). Supervisa los tres procesos: el
-motor (`mars-sim-server`), la ventana del mundo (`mars-sim-gui`) y el bridge
-(`mars-bridge`). Ninguno se puede lanzar "a secas" —  necesitan el entorno conda
-en el PATH para sus DLLs, las rutas de los plugins de gz-sim y gz-gui, la de los
-RenderSystem de OGRE, y el directorio de trabajo correcto para que las rutas de
-los mundos resuelvan.
+**Running the simulation** (`src/supervisor.rs`). It supervises the three
+processes: the engine (`mars-sim-server`), the world window (`mars-sim-gui`)
+and the bridge (`mars-bridge`). None of them can be launched "bare" — they need
+the conda environment on the PATH for their DLLs, the gz-sim and gz-gui plugin
+paths, OGRE's RenderSystem path, and the right working directory so the
+worlds' paths resolve.
 
-**Escribir lo que la simulación come** (`src/estudio.rs`). Los mundos, los props
-que hay en ellos, y la lectura de los robot-map. Un fallo escribiendo un SDF no
-tiene por qué poder tocar el código que mata procesos, así que no comparten
-módulo.
+**Writing what the simulation consumes** (`src/studio/`). The worlds, the props
+in them, and reading the robot maps. A failure writing an SDF has no business
+being able to touch the code that kills processes, so they do not share a
+module.
 
-## Qué NO hace
+| `src/studio/` | what |
+|---|---|
+| `paths.rs` | resolving UI paths against `sim/` without escaping it |
+| `library.rs` | the world and robot libraries |
+| `fields.rs` | the 3D FRC fields, and the material patch below |
+| `worldgen.rs` | `WorldSpec` and the SDF it generates, FUEL seeding included |
+| `worlds.rs` | saving, duplicating, importing and deleting worlds |
+| `generators.rs` | worlds written by a script (`worlds/gen_<name>.py --options`) |
+| `files.rs` | raw text files, the file browser and preferences |
 
-**No dibuja el robot.** Eso lo hace la ventana de Gazebo, que muestra la física,
-y mars-desktop, que recibe las poses por NT4 igual que de un robot real.
-Duplicar el visor aquí sería mantener dos.
+## What it does NOT do
 
-## Mundos gestionados y mundos externos
+**It does not draw the robot.** The Gazebo window does that, showing the
+physics, and so does mars-desktop, which receives the poses over NT4 exactly as
+from a real robot. Duplicating the viewer here would mean maintaining two.
 
-Un mundo creado desde el Studio se guarda **dos veces**: el `.sdf` que come
-Gazebo y un `.studio.json` al lado con las propiedades que lo generaron. Ese
-JSON es lo que permite reabrir el árbol de propiedades y reescribir el SDF sin
-perder nada.
+## Managed worlds and external worlds
 
-Un `.sdf` sin su JSON es un mundo **externo**: se corre, se lee y se edita como
-XML, pero el árbol de propiedades no lo toca. Regenerar un SDF escrito a mano a
-partir de lo poco que un regex puede sacar de él destruiría trabajo ajeno en
-silencio, que es peor que no ofrecer el botón.
+A world created from the Studio is saved **twice**: the `.sdf` Gazebo consumes
+and a `.studio.json` next to it with the properties that produced it. That JSON
+is what makes it possible to reopen the property tree and rewrite the SDF
+without losing anything.
 
-El `<world name>` que genera siempre es `mars`. No es un valor por defecto: es
-contrato. Los tópicos estándar de gz-sim lo llevan embebido
-(`/world/mars/clock`) y `sim/protocol/check.py` rechaza cualquier SDF de
-`worlds/` que declare otro.
+An `.sdf` without its JSON is an **external** world: it is run, read and edited
+as XML, but the property tree does not touch it. Regenerating a hand-written
+SDF from the little a regex can pull out of it would silently destroy someone
+else's work, which is worse than not offering the button.
 
-## La cancha FRC
+The `<world name>` it generates is always `mars`. It is not a default: it is a
+contract. gz-sim's standard topics carry it embedded (`/world/mars/clock`) and
+`sim/protocol/check.py` rejects any SDF in `worlds/` that declares another.
 
-`sim/fields/<nombre>/` guarda una cancha en formato de AdvantageScope
-(`config.json` + `model.glb`), el mismo que consume el Field 3D de
-mars-desktop. La pagina **Field Library** encuentra sola las que el dashboard
-tenga instaladas en `%APPDATA%/MARS/assets3d/` y las copia al proyecto.
+> **The `.studio.json` field names were renamed into English.** Files written
+> by an older Studio (`paso`, `cancha_largo`, ...) still open: every renamed
+> field keeps its old name as a `serde(alias)`, and the file is rewritten with
+> the new names the next time it is saved. `old_studio_json_still_reads` in
+> `src/studio/worldgen.rs` is the tripwire.
 
-Entra al mundo como **visual y nada mas**. La cancha 2026 son ~2.9 M
-triangulos: como colision pondria al solver a resolver contacto malla-malla y
-el real-time factor se hundiria. La fisica la siguen dando el plano del suelo y
-los muros, asi que el robot atraviesa los elementos de campo --- son decorado.
+## The FRC field
 
-Instalar tambien **prepara la malla**: los modelos oficiales declaran casi
-todos sus materiales como metalicos, y un metal bajo un renderizador PBR sin
-mapa de entorno refleja negro. La cancha cargaba, la fisica iba, y en pantalla
-habia una mancha negra con forma de cancha. `aplanar_metales` pone el factor
-metalico a cero, que es el mismo arreglo que hace AdvantageScope forzando
+`sim/fields/<name>/` holds a field in AdvantageScope's format (`config.json` +
+`model.glb`), the same one mars-desktop's 3D Field consumes. The **Field
+Library** page finds on its own the ones the dashboard has installed in
+`%APPDATA%/MARS/assets3d/` and copies them into the project.
+
+It goes into the world as **a visual and nothing more**. The 2026 field is
+~2.9 M triangles: as collision it would have the solver resolve mesh-mesh
+contact and the real-time factor would sink. The physics still comes from the
+ground plane and the walls, so the robot drives through field elements ---
+they are scenery.
+
+Installing also **prepares the mesh**: the official models declare almost all
+of their materials as metallic, and a metal under a PBR renderer with no
+environment map reflects black. The field loaded, the physics ran, and on
+screen there was a field-shaped black blot. `flatten_metals` sets the metallic
+factor to zero, which is the same fix AdvantageScope makes by forcing
 `MeshPhongMaterial`.
 
-> El parche es **a nivel de bytes, conservando la longitud**. Reserializar el
-> JSON del glTF deja un archivo valido que **cuelga la ventana de Gazebo**
-> (probado: mas de ocho minutos sin abrir contra los treinta segundos del
-> original). Sustituir el numero por otro de la misma longitud no mueve un solo
-> offset del archivo.
+> The patch is **at the byte level, keeping the length**. Reserializing the
+> glTF's JSON leaves a valid file that **hangs the Gazebo window** (tested: more
+> than eight minutes without opening against the original's thirty seconds).
+> Replacing the number with another of the same length does not move a single
+> offset in the file.
 
-**El origen es el CENTRO.** El robot arranca en `0,0` de Gazebo, que es el
-centro de la cancha; el origen de esquina que usa WPILib lo produce el bridge
-sumando media cancha (`../bridge/src/field.rs`). Por eso la malla va en
-`0 0 0` y no desplazada: moverla para que su esquina caiga en el origen
-descuadraria media cancha todas las poses, sin ningun error.
+**The origin is the CENTER.** The robot starts at Gazebo's `0,0`, which is the
+center of the field; the corner origin WPILib uses is produced by the bridge
+adding half a field (`../bridge/src/field.rs`). That is why the mesh goes at
+`0 0 0` and not shifted: moving it so its corner lands on the origin would
+offset every pose by half a field, without any error.
 
-## La interfaz
+## The interface
 
-Sigue sin bundler y sin framework: `ui/` son módulos ES que el navegador resuelve
-solo, así que `cargo build` es todo el build que hay. Lo que sí hay ahora es
-estructura —  `css/tokens.css` es copia literal de la paleta de mars-desktop, y
-`js/ui.js` reimplementa como funciones los mismos componentes (Panel,
-PropertyRow, AlertBanner, StatusBadge) que allá son React. Los dos productos
-tienen que verse como el mismo programa.
+Still no bundler and no framework: `ui/` is ES modules the browser resolves on
+its own, so `cargo build` is all the build there is. What there is now is
+structure — `css/tokens.css` is a literal copy of mars-desktop's palette, and
+`js/ui.js` reimplements as functions the same components (Panel, PropertyRow,
+AlertBanner, StatusBadge) that are React over there. The two products have to
+look like the same program.
 
-Cada control que necesita explicación lleva un `?` al lado; los textos viven en
-`js/help.js` y se leen enteros en la página **Help Topics**.
+Every control that needs explaining carries a `?` next to it; the texts live in
+`js/help.js` and can be read whole on the **Help Topics** page.
 
-> **La UI se empotra en el binario.** `tauri-build` solo vigila
-> `tauri.conf.json`, así que sin el `rerun-if-changed` que emite nuestro
-> `build.rs` sobre `ui/`, editar un `.js` y recompilar no recompila nada: cargo
-> dice "Finished", la app abre con la versión anterior y el cambio no aparece,
-> sin ningún error.
+> **The UI is embedded in the binary.** `tauri-build` only watches
+> `tauri.conf.json`, so without the `rerun-if-changed` our `build.rs` emits over
+> `ui/`, editing a `.js` and rebuilding rebuilds nothing: cargo says
+> "Finished", the app opens with the previous version and the change does not
+> show up, without any error.
 
-### Matar de verdad
+### Killing for real
 
-En Windows **matar al padre no mata a los hijos**. Si esta app se cierra sin
-pasar por `detener`, quedan un motor y un bridge vivos ocupando los tópicos de
-gz-transport, y el siguiente arranque descubre dos motores publicando en
-`/mars/state/pose`: las poses se pisan sin ningún error.
+On Windows **killing the parent does not kill the children**. If this app
+closes without going through `stop`, an engine and a bridge stay alive holding
+the gz-transport topics, and the next start finds two engines publishing on
+`/mars/state/pose`: the poses overwrite each other without any error.
 
-Por eso se mata en tres sitios —  en `detener`, en `Drop`, y en el evento de
-cierre de ventana. Los tres hacen falta y ninguno cubre a los otros.
+That is why it kills in three places — in `stop`, in `Drop`, and in the
+window's close event. All three are needed and none covers the others.
 
-**Límite conocido:** si la app muere de golpe (matada desde el administrador de
-tareas, o un crash del proceso), ninguno de los tres corre y los huérfanos
-quedan. La salida robusta sería un Job Object de Windows; no está.
+**Known limit:** if the app dies abruptly (killed from Task Manager, or a
+process crash), none of the three runs and the orphans stay. The robust way out
+would be a Windows Job Object; it is not there.
 
-### Detección de caídas
+### Crash detection
 
-`estado()` llama a `try_wait` en cada hijo. Sin eso la UI diría "Running" para
-siempre después de un crash, que es la peor forma de fallar: silenciosa. Cuando
-uno de los dos se muere, se para el otro —  no tiene con quién hablar.
+`status()` calls `try_wait` on each child. Without it the UI would say
+"Running" forever after a crash, which is the worst way to fail: silently.
+When one of the two dies, the other is stopped — it has nobody to talk to.
 
-## Modo headless
+## Headless mode
 
 ```
-mars-sim-app --headless [segundos]
+mars-sim-app --headless [seconds]
 ```
 
-Arranca, espera y para, con código de salida. Existe para que el supervisor sea
-verificable en CI, donde no hay pantalla. Es el paso 8 de `simulationstudio/verify.ps1`.
+Starts, waits and stops, with an exit code. It exists so the supervisor can be
+verified in CI, where there is no screen. It is step 8 of
+`simulationstudio/verify.ps1`. Set `MARS_WITH_WINDOW=1` to include the 3D
+window and test the full path of the Start button.
 
-Comprueba además que después de `detener` no quede ningún proceso vivo, que es
-lo que distingue "pedimos que pararan" de "pararon".
+It also checks that no process is left alive after `stop`, which is what
+tells "we asked them to stop" from "they stopped".
 
-## Dónde busca las cosas
+## Where it looks for things
 
-| Qué | Orden de búsqueda |
+| What | Search order |
 |---|---|
-| `sim/` | `MARS_SIM_DIR`, luego subiendo desde el ejecutable y desde el directorio actual |
-| entorno conda | `MARS_CONDA_ENV`, `CONDA_PREFIX`, luego `~/miniforge3/envs/mars-sim` y equivalentes |
+| `sim/` | `MARS_SIM_DIR`, then going up from the executable and from the current directory |
+| conda environment | `MARS_CONDA_ENV`, `CONDA_PREFIX`, then `~/miniforge3/envs/mars-sim` and equivalents |
 
-El ejecutable se consulta antes que el directorio actual porque es lo único
-fiable cuando la app la lanza otro proceso —  que es justo lo que hace el botón
-de mars-desktop.
+The executable is checked before the current directory because it is the only
+reliable thing when another process launches the app — which is exactly what
+mars-desktop's button does.
 
-La página **Diagnostics** comprueba todo esto una cosa a la vez y dice cómo
-arreglar lo que falte: casi todos los fallos de esta app son de instalación y
-ninguno se explica solo.
+The **Diagnostics** page checks all of this one thing at a time and says how
+to fix whatever is missing: almost every failure of this app is an
+installation one and none explains itself.
 
-## Estado local
+## Local state
 
-`sim/build/studio-prefs.json` guarda lo que la UI recuerda entre sesiones —
-última página, mundo y robot elegidos, host NT4, mundos recientes y si el portal
-de bienvenida se abre al arrancar. Va en `build/` porque es local, no algo que
-vaya al repositorio.
+`sim/build/studio-prefs.json` holds what the UI remembers between sessions —
+last page, chosen world and robot, NT4 host, recent worlds and whether the
+welcome portal opens at startup. It goes in `build/` because it is local, not
+something that goes into the repository. Keys written by an older Studio are
+carried over on read (`migratePrefs` in `ui/js/core.js`).

@@ -1,32 +1,31 @@
 use std::path::Path;
 
 fn main() {
-    // La UI se EMPOTRA en el binario en tiempo de compilación (lo hace
-    // `tauri::generate_context!` con el `frontendDist` de tauri.conf.json), y
-    // `tauri-build` solo emite rerun-if-changed para tauri.conf.json y
-    // capabilities/. Sin esto, editar un .js o un .css y volver a compilar no
-    // recompila nada: cargo dice "Finished", la app abre con la versión
-    // anterior y el cambio simplemente no aparece, sin ningún error. Se pierde
-    // media hora buscando el bug en el código que sí estaba bien.
+    // The UI is EMBEDDED in the binary at compile time (done by
+    // `tauri::generate_context!` from tauri.conf.json's `frontendDist`), and
+    // `tauri-build` only emits rerun-if-changed for tauri.conf.json and
+    // capabilities/. Without this, editing a .js or a .css and building again
+    // recompiles nothing: cargo says "Finished", the app opens with the
+    // previous version and the change simply does not show up, without any
+    // error. Half an hour goes into hunting the bug in code that was fine.
     //
-    // No hay watcher que valga: hay que enumerar los archivos.
-    vigilar(Path::new("ui"));
+    // No watcher helps here: the files have to be listed.
+    watch(Path::new("ui"));
 
     tauri_build::build()
 }
 
-fn vigilar(dir: &Path) {
-    // Un directorio vigilado también dispara la recompilación cuando aparece o
-    // desaparece un archivo dentro, que es lo que cubre el caso de añadir una
-    // página nueva.
+fn watch(dir: &Path) {
+    // A watched directory also triggers a rebuild when a file inside it
+    // appears or disappears, which covers the case of adding a new page.
     println!("cargo:rerun-if-changed={}", dir.display());
-    let Ok(entradas) = std::fs::read_dir(dir) else {
+    let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
-    for e in entradas.flatten() {
+    for e in entries.flatten() {
         let p = e.path();
         if p.is_dir() {
-            vigilar(&p);
+            watch(&p);
         } else {
             println!("cargo:rerun-if-changed={}", p.display());
         }

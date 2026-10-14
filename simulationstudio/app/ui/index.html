@@ -5,11 +5,11 @@
 <title>MARS Simulation Studio</title>
 
 <!--
-  Sin framework y sin bundler, a propósito (ver app/README.md). Lo que sí hay
-  ahora son módulos ES: la app pasó de cuatro controles a un editor de mundos
-  entero, y mantener eso en un único archivo era peor que la alternativa. El
-  navegador resuelve los imports por sí solo, así que sigue sin haber build
-  step: `cargo build` y ya.
+  No framework and no bundler, on purpose (see app/README.md). What there is
+  now is ES modules: the app went from four controls to a whole world editor,
+  and keeping that in a single file was worse than the alternative. The
+  browser resolves the imports on its own, so there is still no build step:
+  `cargo build` and that is it.
 -->
 <link rel="stylesheet" href="css/tokens.css" />
 <link rel="stylesheet" href="css/app.css" />
@@ -17,13 +17,13 @@
 
 <body>
   <!--
-    La pantalla de carga vive en el HTML y no en un módulo a propósito: se
-    pinta con la primera pasada del navegador, antes de que ningún script se
-    haya evaluado. El esqueleto está aquí; los pasos los rellena js/splash.js
-    conforme ocurren de verdad.
+    The loading screen lives in the HTML and not in a module on purpose: it is
+    painted on the browser's first pass, before any script has been
+    evaluated. The skeleton is here; js/splash.js fills in the steps as they
+    really happen.
 
-    Es también donde se muestra un fallo de arranque, que es el único caso en
-    el que no hay ninguna otra superficie donde escribir.
+    It is also where a startup failure is shown, which is the one case where
+    there is no other surface to write on.
   -->
   <div id="splash">
     <div class="splash-card">

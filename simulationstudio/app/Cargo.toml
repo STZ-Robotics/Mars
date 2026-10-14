@@ -1,17 +1,18 @@
-# MARS Simulation Studio: la aplicacion de simulacion, aparte de mars-desktop.
+# MARS Simulation Studio: the simulation application, separate from mars-desktop.
 #
-# No comparte workspace con la app ni con el bridge a proposito. Es un producto
-# distinto, con su propio ciclo de vida: la simulacion se puede reinstalar o
-# romper sin tocar el dashboard que el equipo usa en competencia.
+# It does not share a workspace with the dashboard or with the bridge, on
+# purpose. It is a different product, with its own life cycle: the simulation
+# can be reinstalled or broken without touching the dashboard the team uses at
+# competition.
 #
-# No lleva toolchain de node. Su UI es un panel de control de una sola pagina
-# estatica en ui/, asi que se compila con cargo y nada mas. El dashboard con
-# graficas y campo 3D ya existe --- es mars-desktop, y recibe los datos de esta
-# simulacion por NT4 igual que de un robot real.
+# It carries no node toolchain. Its UI is a single-page static control panel
+# in ui/, so it builds with cargo and nothing else. The dashboard with charts
+# and a 3D field already exists --- it is mars-desktop, and it receives this
+# simulation's data over NT4 exactly as from a real robot.
 [package]
 name = "mars-sim-app"
-# Acompana a MSS_VERSION de ui/js/constants.js: esta es la que acaba en el
-# ejecutable y en el instalador; aquella, la que se ve en la interfaz.
+# Goes with MSS_VERSION in ui/js/constants.js: this one ends up in the
+# executable and the installer; that one is what the interface shows.
 version = "0.9.5"
 edition = "2021"
 

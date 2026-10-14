@@ -1,19 +1,19 @@
 /* =========================================================================
    MARS FRAMEWORK — COLOR PALETTE (LIGHT MODE)
 
-   Copia literal de la paleta de mars-desktop (desktop/src/styles/global.css). Los dos
-   productos tienen que verse como el mismo programa: chrome claro y gris
-   neutro, como AdvantageScope, RViz y MATLAB, con el color reservado para
-   iconos de función y datos en vivo.
+   A literal copy of mars-desktop's palette (desktop/src/styles/global.css).
+   The two products have to look like the same program: a light, neutral grey
+   chrome, like AdvantageScope, RViz and MATLAB, with color reserved for
+   function icons and live data.
 
-   Si un token cambia allá, cambia aquí. Está duplicado a propósito: esta app
-   no comparte toolchain de node con el dashboard, así que no hay forma de
-   importar el archivo — y una copia con esta nota puesta es más honesta que
-   un build step nuevo para 150 líneas de CSS.
+   If a token changes there, it changes here. It is duplicated on purpose:
+   this app shares no node toolchain with the dashboard, so there is no way to
+   import the file — and a copy with this note on it is more honest than a
+   new build step for 150 lines of CSS.
    ========================================================================= */
 
 :root {
-  /* Fondos */
+  /* Backgrounds */
   --bg-app: #ececee;
   --bg-page: #ffffff;
   --bg-panel: #f7f7f8;
@@ -22,23 +22,23 @@
   --bg-input: #ffffff;
   --bg-dark: #eeeeef;
 
-  /* Texto */
+  /* Text */
   --text-primary: #1c1c1f;
   --text-secondary: #52525b;
   --text-muted: #68686f;
   --text-light: #6f6f76;
 
-  /* Bordes */
+  /* Borders */
   --border-light: #e8e8ea;
   --border-main: #d4d4d8;
   --border-dark: #b8b8bf;
 
-  /* Marca */
+  /* Brand */
   --mars-red: #a83c3c;
   --mars-accent: #4a5fd9;
   --mars-grey: #6b6b70;
 
-  /* Estados */
+  /* States */
   --status-success: #1f7a1f;
   --status-error: #c21c1c;
   --status-warning: #a1690a;
@@ -51,7 +51,7 @@
   --status-warning-border: rgba(161, 105, 10, 0.32);
   --status-success-bg: rgba(31, 122, 31, 0.1);
 
-  /* Tipos de dato */
+  /* Data types */
   --type-numeric: var(--status-sim);
   --type-boolean: var(--mars-red);
   --type-string: #8a5a08;
@@ -63,7 +63,7 @@
   --text-header-title: #1c1c1f;
   --text-header-subtitle: #6e6e74;
 
-  /* Iconos por categoría (wayfinding, >=3:1 sobre el chrome) */
+  /* Icons by category (wayfinding, >=3:1 against the chrome) */
   --icon-cat-file: #1e4fc9;
   --icon-cat-tools: #0f766e;
   --icon-cat-modules: #8a5a08;
@@ -71,12 +71,12 @@
   --icon-toolbar: #4a4a50;
   --toolbar-active-bg: rgba(74, 95, 217, 0.12);
 
-  /* Paneles acoplados estilo QDockWidget */
+  /* QDockWidget-style docked panels */
   --bg-panel-header: #dcdce0;
   --bg-panel-header-hover: #d0d0d5;
   --bg-sidebar: #ececef;
 
-  /* Árbol estilo QTreeWidget (el "Displays" de RViz) */
+  /* QTreeWidget-style tree (RViz's "Displays") */
   --tree-row-height: 22px;
   --icon-tree: #55565c;
   --tree-hover-bg: #e0e0e4;
@@ -84,33 +84,33 @@
   --tree-selection-fg: #ffffff;
   --tree-body-bg: #ffffff;
 
-  /* Botones clásicos (Add/Rename/Remove de los paneles de RViz) */
+  /* Classic buttons (the Add/Rename/Remove of RViz's panels) */
   --btn-classic-bg: #e9e9ec;
   --btn-classic-bg-hover: #f4f4f6;
   --btn-classic-bg-active: #dcdce0;
   --btn-classic-border: #adadb4;
   --btn-classic-text-disabled: #a3a3a8;
 
-  /* Grid de fondo */
+  /* Background grid */
   --grid-line: rgba(0, 0, 0, 0.055);
   --grid-line-major: rgba(0, 0, 0, 0.13);
 
-  /* Barra de menú: la única franja oscura del chrome */
+  /* Menu bar: the only dark strip in the chrome */
   --bg-menubar-dark: #33343a;
   --bg-menubar-dark-hover: #4a4b53;
   --bg-menubar-dark-active: #2f6fdb;
   --text-menubar: #ececed;
   --text-menubar-dim: #a0a1a8;
 
-  /* Biseles estilo Qt/Win clásico */
+  /* Classic Qt/Win bevels */
   --bevel-light: #ffffff;
   --bevel-dark: #9c9ca4;
 
-  /* Sombras */
+  /* Shadows */
   --shadow-soft: rgba(0, 0, 0, 0.1);
   --shadow-modal: rgba(0, 0, 0, 0.35);
 
-  /* Tipografía */
+  /* Typography */
   --font-ui: "Segoe UI", Arial, sans-serif;
   --font-mono: ui-monospace, Consolas, "Cascadia Mono", monospace;
 }

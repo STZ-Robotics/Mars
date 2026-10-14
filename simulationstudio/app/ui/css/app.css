@@ -1,11 +1,11 @@
 /* =========================================================================
-   El chrome de MARS Simulation Studio.
+   The chrome of MARS Simulation Studio.
 
-   Los mismos componentes que mars-desktop tiene en React, aquí como clases
-   CSS: barra de menú oscura, sidebar con árbol estilo QTreeWidget, paneles
-   acoplados con barra de título, filas de propiedades label/valor y barra de
-   estado. La app no lleva bundler, así que las "props" son atributos data-* y
-   el "componente" es una función que devuelve un nodo (ver js/ui.js).
+   The same components mars-desktop has in React, here as CSS classes: a dark
+   menu bar, a sidebar with a QTreeWidget-style tree, docked panels with a
+   title bar, label/value property rows and a status bar. The app carries no
+   bundler, so the "props" are data-* attributes and the "component" is a
+   function that returns a node (see js/ui.js).
    ========================================================================= */
 
 * { box-sizing: border-box; margin: 0; padding: 0; font-family: var(--font-ui); }
@@ -21,7 +21,7 @@ body {
   user-select: none;
 }
 
-/* El texto seleccionable es la excepción: logs, XML, JSON y rutas se copian. */
+/* Selectable text is the exception: logs, XML, JSON and paths get copied. */
 pre, code, input, textarea, .selectable { -webkit-user-select: text; user-select: text; }
 
 .app-root { width: 100vw; height: 100vh; display: flex; flex-direction: column; }
@@ -31,7 +31,7 @@ pre, code, input, textarea, .selectable { -webkit-user-select: text; user-select
 ::-webkit-scrollbar-thumb { background: #c3c3c9; border: 3px solid var(--bg-panel); border-radius: 6px; }
 ::-webkit-scrollbar-thumb:hover { background: #a9a9b1; }
 
-/* --- barra de menú ------------------------------------------------------ */
+/* --- menu bar ----------------------------------------------------------- */
 
 .menubar {
   height: 30px; flex-shrink: 0;
@@ -40,8 +40,8 @@ pre, code, input, textarea, .selectable { -webkit-user-select: text; user-select
   border-bottom: 1px solid #14151a;
   position: relative; z-index: 100;
 }
-/* La marca MSS es un cuadrado sin texto, asi que el nombre va escrito al lado:
-   un icono solo no identifica el programa en una barra de menu. */
+/* The MSS mark is a square with no text, so the name is written next to it:
+   an icon alone does not identify the program in a menu bar. */
 .menubar-logo { display: flex; align-items: center; gap: 7px; padding: 0 12px 0 9px; flex-shrink: 0; }
 .menubar-logo img { height: 16px; width: 16px; object-fit: contain; display: block; }
 .menubar-logo span {
@@ -58,9 +58,9 @@ pre, code, input, textarea, .selectable { -webkit-user-select: text; user-select
 .menu-label:hover { background: var(--bg-menubar-dark-hover); }
 .menu.open > .menu-label { background: var(--bg-menubar-dark-active); }
 
-/* El popup vive siempre en el DOM y se muestra solo con la clase `open` en su
-   menú: construirlo y destruirlo en cada click perdería los listeners que ya
-   tiene puestos. */
+/* The popup always lives in the DOM and is shown only by the `open` class on
+   its menu: building and destroying it on every click would lose the
+   listeners it already has. */
 .menu-popup { display: none; }
 .menu.open > .menu-popup {
   display: block;
@@ -88,14 +88,14 @@ pre, code, input, textarea, .selectable { -webkit-user-select: text; user-select
 }
 .menubar-drag { flex: 1; height: 100%; }
 .menubar-right { display: flex; align-items: center; gap: 9px; padding: 0 12px; flex-shrink: 0; }
-/* La ruta de sim/ puede ser larguísima; se corta por la izquierda, que es la
-   parte que no distingue una instalación de otra. */
+/* The sim/ path can be very long; it is cut on the left, which is the part
+   that does not tell one installation from another. */
 .menubar-right .path {
   font-size: 10.5px; color: var(--text-menubar-dim); font-family: var(--font-mono);
   max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl;
 }
 
-/* --- cuerpo ------------------------------------------------------------- */
+/* --- body --------------------------------------------------------------- */
 
 .body { flex: 1; display: flex; min-height: 0; }
 
@@ -150,15 +150,15 @@ pre, code, input, textarea, .selectable { -webkit-user-select: text; user-select
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
 @media (max-width: 1080px) { .grid-2 { grid-template-columns: 1fr; } }
 
-/* Un hijo de grid o de flex tiene `min-width: auto` por defecto, o sea que su
-   ancho mínimo es el de su contenido sin partir. Con filas de propiedades que
-   llevan `white-space: nowrap`, eso ensancha la columna hasta sacar la página
-   fuera de la ventana --- y como nada tiene overflow-x, el desbordamiento se ve
-   como paneles cortados por el borde derecho. */
+/* A grid or flex child has `min-width: auto` by default, i.e. its minimum
+   width is that of its unbroken content. With property rows carrying
+   `white-space: nowrap`, that widens the column until the page runs out of
+   the window --- and since nothing has overflow-x, the overflow shows up as
+   panels cut off by the right edge. */
 .stack > *, .grid-2 > *, .panel, .bevel { min-width: 0; }
 .prop > .name { min-width: 0; }
 
-/* --- panel acoplado (QDockWidget) --------------------------------------- */
+/* --- docked panel (QDockWidget) ----------------------------------------- */
 
 .panel { border: 1px solid var(--border-main); background: var(--bg-page); overflow: hidden; }
 .panel-title {
@@ -173,7 +173,7 @@ pre, code, input, textarea, .selectable { -webkit-user-select: text; user-select
 .panel-body { padding: 10px; }
 .panel-body.flush { padding: 0; }
 
-/* Panel con relieve, para el portal de bienvenida y las cabeceras de guía. */
+/* Raised panel, for the welcome portal and the guide headers. */
 .bevel {
   background: var(--bg-page);
   border-top: 1px solid var(--bevel-light);
@@ -192,7 +192,7 @@ pre, code, input, textarea, .selectable { -webkit-user-select: text; user-select
 .bevel-title span.label { font-size: 11px; font-weight: 700; letter-spacing: .02em; }
 .bevel-title .right { margin-left: auto; display: flex; align-items: center; gap: 5px; }
 
-/* --- filas de propiedades (árbol de RViz) ------------------------------- */
+/* --- property rows (RViz tree) ------------------------------------------ */
 
 .prop {
   display: flex; align-items: stretch; min-height: 24px;
@@ -221,7 +221,7 @@ pre, code, input, textarea, .selectable { -webkit-user-select: text; user-select
   color: var(--text-header-eyebrow);
 }
 
-/* --- controles ---------------------------------------------------------- */
+/* --- controls ----------------------------------------------------------- */
 
 input[type="text"], input[type="number"], select, textarea {
   width: 100%; height: 20px; padding: 1px 6px;
@@ -269,11 +269,11 @@ input[type="color"] { width: 44px; height: 20px; padding: 0 1px; border: 1px sol
 .btn-sm { height: 20px; padding: 0 8px; font-size: 11px; }
 .btn-icon { width: 22px; height: 20px; padding: 0; }
 
-/* --- botón de ayuda ----------------------------------------------------- */
+/* --- help button -------------------------------------------------------- */
 
-/* El "?" que aparece junto a cada título de panel y a cada grupo de
-   propiedades. Es la superficie de ayuda de toda la app: si algo del programa
-   necesita explicación, lleva uno. */
+/* The "?" that appears next to every panel title and every property group.
+   It is the help surface of the whole app: if something in the program needs
+   explaining, it carries one. */
 .help-btn {
   width: 15px; height: 15px; flex-shrink: 0;
   display: inline-flex; align-items: center; justify-content: center;
@@ -304,7 +304,7 @@ input[type="color"] { width: 44px; height: 20px; padding: 0 1px; border: 1px sol
 .help-pop .head button { margin-left: auto; }
 .help-pop .doc { padding: 10px 12px 12px; }
 
-/* Cuerpo de texto largo: ayuda, guías y referencia comparten estas reglas. */
+/* Long body text: help, guides and reference share these rules. */
 .doc { font-size: 12px; line-height: 1.65; color: var(--text-secondary); }
 .doc p { margin: 0 0 9px; }
 .doc p:last-child, .doc ul:last-child, .doc ol:last-child { margin-bottom: 0; }
@@ -344,7 +344,7 @@ input[type="color"] { width: 44px; height: 20px; padding: 0 1px; border: 1px sol
 .doc th { background: var(--bg-panel); font-weight: 700; color: var(--text-primary); }
 .doc td code { font-size: 10.5px; }
 
-/* --- avisos ------------------------------------------------------------- */
+/* --- notices ------------------------------------------------------------ */
 
 .alert {
   display: flex; gap: 8px; align-items: flex-start;
@@ -364,7 +364,7 @@ input[type="color"] { width: 44px; height: 20px; padding: 0 1px; border: 1px sol
 }
 .empty-state .hint { font-size: 11px; opacity: .8; margin-top: 6px; font-family: var(--font-mono); }
 
-/* --- listas y tablas ---------------------------------------------------- */
+/* --- lists and tables --------------------------------------------------- */
 
 .list-row {
   display: flex; align-items: center; gap: 8px;
@@ -374,9 +374,9 @@ input[type="color"] { width: 44px; height: 20px; padding: 0 1px; border: 1px sol
 .list-row:hover { background: var(--tree-selection-bg); color: var(--tree-selection-fg); }
 .list-row:hover .desc { color: var(--tree-selection-fg); opacity: .85; }
 .list-row:hover img { filter: brightness(0) invert(1); }
-/* La fila elegida se marca con data-active, no con estilos en linea: asi el
-   texto secundario y el icono se recolorean con ella. Puestos a mano, la
-   descripcion se quedaba en gris apagado sobre el azul de seleccion. */
+/* The chosen row is marked with data-active, not with inline styles: that
+   way the secondary text and the icon recolor with it. Set by hand, the
+   description stayed dull grey on the selection blue. */
 .list-row[data-active="true"] { background: var(--tree-selection-bg); color: var(--tree-selection-fg); }
 .list-row[data-active="true"] .desc { color: var(--tree-selection-fg); opacity: .85; }
 .list-row[data-active="true"] img { filter: brightness(0) invert(1); }
@@ -398,8 +398,8 @@ table.grid tbody tr[data-selectable="true"] { cursor: pointer; }
 table.grid tbody tr[data-selectable="true"]:hover { background: var(--tree-hover-bg); }
 table.grid tbody tr[data-active="true"] { background: var(--tree-selection-bg); color: var(--tree-selection-fg); }
 table.grid tbody tr[data-active="true"] .mono, table.grid tbody tr[data-active="true"] .dim { color: var(--tree-selection-fg); }
-/* Un chip de color sobre el azul de seleccion es ilegible --- el acento azul
-   directamente desaparece. En la fila elegida todos pasan a contorno blanco. */
+/* A colored chip on the selection blue is unreadable --- the blue accent
+   simply disappears. On the chosen row they all turn into a white outline. */
 table.grid tbody tr[data-active="true"] .chip {
   color: var(--tree-selection-fg); background: transparent; border-color: rgba(255, 255, 255, .55);
 }
@@ -424,7 +424,7 @@ table.grid tbody tr[data-active="true"] .chip {
 .dot[data-tone="warn"] { background: var(--status-warning); }
 .dot[data-tone="accent"] { background: var(--mars-accent); }
 
-/* --- pestañas ----------------------------------------------------------- */
+/* --- tabs --------------------------------------------------------------- */
 
 .tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border-main); background: var(--bg-menubar); }
 .tab {
@@ -451,7 +451,7 @@ table.grid tbody tr[data-active="true"] .chip {
 .log .err { color: var(--status-error); }
 .log .warnline { color: var(--status-warning); }
 
-/* --- barra de estado ---------------------------------------------------- */
+/* --- status bar --------------------------------------------------------- */
 
 .statusbar {
   height: 26px; flex-shrink: 0; padding: 0 10px; gap: 14px;
@@ -470,7 +470,7 @@ table.grid tbody tr[data-active="true"] .chip {
 .statusbar .powered { display: flex; align-items: center; gap: 5px; font-size: 9.5px; color: var(--text-light); }
 .statusbar .powered img { height: 16px; width: auto; opacity: .85; }
 
-/* --- modales ------------------------------------------------------------ */
+/* --- modals ------------------------------------------------------------- */
 
 .overlay {
   position: fixed; inset: 0; z-index: 800;
@@ -508,15 +508,15 @@ table.grid tbody tr[data-active="true"] .chip {
 }
 .modal-footer .left { margin-right: auto; display: flex; align-items: center; gap: 8px; }
 
-/* --- portal de bienvenida ---------------------------------------------- */
+/* --- welcome portal ----------------------------------------------------- */
 
-/* Diálogo de bienvenida al estilo de las suites de escritorio de los 2000:
-   banda de marca a la izquierda, lista densa de accesos a la derecha y un
-   "Show this window at startup" abajo del todo. */
+/* A welcome dialog in the style of 2000s desktop suites: a brand band on the
+   left, a dense list of shortcuts on the right and a "Show this window at
+   startup" at the very bottom. */
 .welcome { width: 780px; }
-/* min-height:0 en toda la cadena: sin eso el bloque de listas no puede
-   encogerse, el diálogo crece por debajo de su max-height y el pie --- con el
-   "Show this window at startup" y el botón --- se sale de la ventana. */
+/* min-height:0 along the whole chain: without it the list block cannot
+   shrink, the dialog grows past its max-height and the footer --- with the
+   "Show this window at startup" and the button --- runs out of the window. */
 .welcome-split { display: flex; min-height: 0; flex: 1; }
 .welcome-brand {
   width: 232px; flex-shrink: 0; padding: 20px 18px;
@@ -556,7 +556,7 @@ table.grid tbody tr[data-active="true"] .chip {
 .welcome-foot label { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-secondary); cursor: pointer; }
 .welcome-foot .btn { margin-left: auto; }
 
-/* --- explorador de archivos -------------------------------------------- */
+/* --- file browser ------------------------------------------------------- */
 
 .browser { width: 660px; height: 78vh; }
 .browser-body { display: flex; flex: 1; min-height: 0; }
@@ -571,9 +571,9 @@ table.grid tbody tr[data-active="true"] .chip {
 
 /* --- splash ------------------------------------------------------------- */
 
-/* La lista de pasos no es decoracion: es lo unico que hay cuando el arranque
-   se cuelga o falla, porque hasta que no termina no existe ninguna otra
-   superficie donde escribir. */
+/* The list of steps is not decoration: it is the only thing there is when
+   startup hangs or fails, because until it finishes no other surface exists
+   to write on. */
 #splash {
   position: fixed; inset: 0; z-index: 9999;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px;
@@ -600,8 +600,8 @@ table.grid tbody tr[data-active="true"] .chip {
   height: 6px; border-radius: 3px; overflow: hidden;
   background: var(--bg-panel); border: 1px solid var(--border-main);
 }
-/* Determinada, no indeterminada: una barra que finge un porcentaje miente,
-   pero esta cuenta pasos reales y por eso puede decir cuantos quedan. */
+/* Determinate, not indeterminate: a bar that fakes a percentage lies, but
+   this one counts real steps and so it can say how many are left. */
 .splash-bar span {
   display: block; width: 0; height: 100%;
   background: var(--mars-red); transition: width 220ms ease;

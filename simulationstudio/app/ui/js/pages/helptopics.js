@@ -1,57 +1,57 @@
-// Help Topics: el índice completo de la ayuda contextual.
+// Help Topics: the full index of the contextual help.
 //
-// Los mismos textos que abren los "?" de toda la app, leíbles de corrido. Un
-// sistema de ayuda que solo se puede consultar tocando el control correcto no
-// se puede leer entero, y hay cosas aquí (los perfiles, el reloj, la inercia
-// reflejada) que conviene leer antes de necesitarlas.
+// The same texts the "?" buttons open all over the app, readable straight
+// through. A help system that can only be consulted by touching the right
+// control cannot be read whole, and there are things here (the profiles, the
+// clock, reflected inertia) worth reading before you need them.
 
-import { el, pintar } from "./../core.js";
-import { HELP, pintarTema, temasPorGrupo } from "./../help.js";
-import { boton } from "./../ui.js";
+import { el, fill } from "./../core.js";
+import { HELP, renderTopic, topicsByGroup } from "./../help.js";
+import { button } from "./../ui.js";
 
-export function paginaHelp() {
-  const grupos = temasPorGrupo();
-  let actual = "app.overview";
+export function helpTopicsPage() {
+  const groups = topicsByGroup();
+  let current = "app.overview";
 
-  const indice = el("div", { style: { width: "268px", flexShrink: "0" } });
-  const lector = el("div.panel", { style: { flex: "1", minWidth: "0" } });
+  const index = el("div", { style: { width: "268px", flexShrink: "0" } });
+  const reader = el("div.panel", { style: { flex: "1", minWidth: "0" } });
 
-  function pintarLector() {
-    pintar(
-      lector,
+  function drawReader() {
+    fill(
+      reader,
       el(
         "div.panel-title",
         el("img", { src: "icons/help.svg", width: 14, height: 14, alt: "" }),
-        el("span.label", HELP[actual]?.titulo ?? actual),
-        el("span.right", el("span.mono.dim", actual))
+        el("span.label", HELP[current]?.title ?? current),
+        el("span.right", el("span.mono.dim", current))
       ),
-      el("div.panel-body", pintarTema(el("div"), actual))
+      el("div.panel-body", renderTopic(el("div"), current))
     );
   }
 
-  function pintarIndice() {
-    pintar(
-      indice,
-      ...grupos.map((g) =>
+  function drawIndex() {
+    fill(
+      index,
+      ...groups.map((g) =>
         el(
           "div.bevel",
           { style: { marginBottom: "10px" } },
-          el("div.bevel-title", el("span.label", g.nombre)),
+          el("div.bevel-title", el("span.label", g.name)),
           el(
             "div",
-            ...g.temas.map((t) =>
+            ...g.topics.map((t) =>
               el(
                 "div.list-row",
                 {
-                  data: { active: String(t.id === actual) },
+                  data: { active: String(t.id === current) },
                   onclick: () => {
-                    actual = t.id;
-                    pintarIndice();
-                    pintarLector();
+                    current = t.id;
+                    drawIndex();
+                    drawReader();
                   },
                 },
                 el("img", { src: "icons/help.svg", width: 14, height: 14, alt: "" }),
-                el("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, t.titulo)
+                el("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, t.title)
               )
             )
           )
@@ -60,23 +60,23 @@ export function paginaHelp() {
     );
   }
 
-  pintarIndice();
-  pintarLector();
+  drawIndex();
+  drawReader();
 
   return {
-    titulo: "Help Topics",
+    title: "Help Topics",
     meta: `${Object.keys(HELP).length} topics`,
-    acciones: [
-      boton("Overview", {
+    actions: [
+      button("Overview", {
         svg: "help.svg",
         sm: true,
         onclick: () => {
-          actual = "app.overview";
-          pintarIndice();
-          pintarLector();
+          current = "app.overview";
+          drawIndex();
+          drawReader();
         },
       }),
     ],
-    cuerpo: el("div", { style: { display: "flex", gap: "14px", alignItems: "flex-start" } }, indice, lector),
+    body: el("div", { style: { display: "flex", gap: "14px", alignItems: "flex-start" } }, index, reader),
   };
 }

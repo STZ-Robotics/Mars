@@ -1,32 +1,33 @@
-// Field Library: las canchas 3D disponibles y las que ya están en el proyecto.
+// Field Library: the 3D fields available and the ones already in the project.
 //
-// El formato es el de AdvantageScope --- carpeta con `config.json` y
-// `model.glb` --- que es el mismo que ya consume el Field 3D de mars-desktop.
-// Reusarlo significa que una cancha descargada allí sirve aquí sin convertir
-// nada, y que esta página encuentre sola lo que el dashboard tenga instalado.
+// The format is AdvantageScope's --- a folder with `config.json` and
+// `model.glb` --- which is the same one mars-desktop's 3D Field already
+// consumes. Reusing it means a field downloaded there works here without
+// converting anything, and that this page finds on its own whatever the
+// dashboard has installed.
 
-import { bytes, el, estado, invoke, num, pintar } from "./../core.js";
-import { navegar, refrescarPagina, reportar } from "./../shell.js";
-import { aviso, boton, chip, modal, panel, texto } from "./../ui.js";
+import { bytes, el, fill, invoke, num, state } from "./../core.js";
+import { navigate, refreshPage, report } from "./../shell.js";
+import { button, chip, modal, notice, panel, textInput } from "./../ui.js";
 
-export function paginaFields() {
-  const cuerpo = el("div.stack", el("div.empty-state", "Looking for fields…"));
+export function fieldsPage() {
+  const body = el("div.stack", el("div.empty-state", "Looking for fields…"));
 
-  async function cargar() {
-    let campos;
+  async function load() {
+    let fields;
     try {
-      campos = await invoke("sim_campos");
+      fields = await invoke("sim_fields");
     } catch (e) {
-      return pintar(cuerpo, aviso(e.message));
+      return fill(body, notice(e.message));
     }
-    estado.campos = campos;
+    state.fields = fields;
 
-    const enProyecto = campos.filter((c) => c.instalado);
-    const disponibles = campos.filter((c) => !c.instalado);
+    const inProject = fields.filter((c) => c.installed);
+    const available = fields.filter((c) => !c.installed);
 
-    pintar(
-      cuerpo,
-      enProyecto.length
+    fill(
+      body,
+      inProject.length
         ? panel(
             "In this project",
             { svg: "scene.svg", help: "world.field", flush: true },
@@ -44,22 +45,22 @@ export function paginaFields() {
                   el("th", "")
                 )
               ),
-              el("tbody", ...enProyecto.map((c) => fila(c, true)))
+              el("tbody", ...inProject.map((c) => row(c, true)))
             )
           )
-        : aviso(
+        : notice(
             "No field is installed in this project yet. Install one below, then pick it in the World Editor.",
             "info"
           ),
 
-      disponibles.length
+      available.length
         ? panel(
             "Available from MARS Desktop",
             {
               svg: "packages.svg",
               help: "world.field.install",
               flush: true,
-              acciones: el("span.dim", { style: { fontSize: "10.5px" } }, "%APPDATA%/MARS/assets3d"),
+              actions: el("span.dim", { style: { fontSize: "10.5px" } }, "%APPDATA%/MARS/assets3d"),
             },
             el(
               "table.grid",
@@ -75,7 +76,7 @@ export function paginaFields() {
                   el("th", "")
                 )
               ),
-              el("tbody", ...disponibles.map((c) => fila(c, false)))
+              el("tbody", ...available.map((c) => row(c, false)))
             )
           )
         : null,
@@ -106,65 +107,65 @@ export function paginaFields() {
     );
   }
 
-  function fila(c, instalado) {
+  function row(c, installed) {
     return el(
       "tr",
-      el("td", el("span.row", el("img", { src: "icons/scene.svg", width: 14, height: 14, alt: "" }), c.nombre)),
-      el("td.mono.dim", { title: instalado ? c.ruta : c.origen }, instalado ? c.ruta : c.fuente),
+      el("td", el("span.row", el("img", { src: "icons/scene.svg", width: 14, height: 14, alt: "" }), c.name)),
+      el("td.mono.dim", { title: installed ? c.path : c.origin }, installed ? c.path : c.source),
       el(
         "td.num.mono",
-        c.largo_m > 0 ? `${num(c.largo_m, 2)} × ${num(c.ancho_m, 2)} m` : "—"
+        c.length_m > 0 ? `${num(c.length_m, 2)} × ${num(c.width_m, 2)} m` : "—"
       ),
-      el("td", chip(c.sistema)),
+      el("td", chip(c.coordinate_system)),
       el("td.num.dim", bytes(c.bytes)),
       el(
         "td",
-        instalado
-          ? boton("Use in a world", {
+        installed
+          ? button("Use in a world", {
               sm: true,
               svg: "grid.svg",
-              onclick: () => navegar("editor", { ruta: estado.prefs.mundoSeleccionado ?? estado.prefs.mundo }),
+              onclick: () => navigate("editor", { path: state.prefs.selectedWorld ?? state.prefs.world }),
             })
-          : boton("Install", { sm: true, variante: "primary", svg: "import-model.svg", onclick: () => instalar(c) })
+          : button("Install", { sm: true, variant: "primary", svg: "import-model.svg", onclick: () => install(c) })
       )
     );
   }
 
-  function instalar(c) {
-    const modelo = {
-      nombre: c.nombre
+  function install(c) {
+    const model = {
+      name: c.name
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
         .replace(/^-|-$/g, "") || "field",
     };
     modal({
-      titulo: "Install field",
+      title: "Install field",
       svg: "import-model.svg",
-      ancho: 520,
-      cuerpo: el(
+      width: 520,
+      body: el(
         "div.stack",
-        el("div", el("label.field-label", "Source"), el("div.mono.selectable", { style: { wordBreak: "break-all" } }, c.origen)),
+        el("div", el("label.field-label", "Source"), el("div.mono.selectable", { style: { wordBreak: "break-all" } }, c.origin)),
         el(
           "div",
           el("label.field-label", "Copy into sim/fields/ as"),
-          texto(modelo, "nombre")
+          textInput(model, "name")
         ),
         el("div.doc", {
           html: `<p>Copies ${bytes(c.bytes)} and prepares the mesh so Gazebo can render it. Takes a
                  few seconds.</p>`,
         })
       ),
-      pie: (cerrar) => [
-        boton("Cancel", { onclick: cerrar }),
-        boton("Install", {
-          variante: "primary",
+      footer: (close) => [
+        button("Cancel", { onclick: close }),
+        button("Install", {
+          variant: "primary",
           onclick: async () => {
             try {
-              await invoke("sim_instalar_campo", { origen: c.origen, nombre: modelo.nombre.trim() });
-              cerrar();
-              await cargar();
+              await invoke("sim_install_field", { origin: c.origin, name: model.name.trim() });
+              close();
+              await load();
             } catch (e) {
-              reportar(e);
+              report(e);
             }
           },
         }),
@@ -172,13 +173,13 @@ export function paginaFields() {
     });
   }
 
-  cargar();
+  load();
 
   return {
-    titulo: "Field Library",
+    title: "Field Library",
     meta: "FRC field models for the 3D world",
     help: "world.field",
-    acciones: [boton("Reload", { svg: "republish.svg", sm: true, onclick: () => refrescarPagina() })],
-    cuerpo,
+    actions: [button("Reload", { svg: "republish.svg", sm: true, onclick: () => refreshPage() })],
+    body,
   };
 }

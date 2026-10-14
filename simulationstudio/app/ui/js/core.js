@@ -1,25 +1,25 @@
-// Lo que usa todo lo demás: hablar con el backend, construir nodos y guardar
-// el estado de la sesión.
+// What everything else uses: talking to the backend, building nodes and
+// keeping the session state.
 //
-// La app no lleva bundler ni framework a propósito (ver app/README.md), así
-// que "componente" aquí es una función que devuelve un HTMLElement. Es
-// suficiente: las páginas se repintan enteras cuando su modelo cambia, y lo
-// único que se refresca a 700 ms son tres campos de estado y los logs, que se
-// actualizan por nodo y no por página.
+// The app carries no bundler and no framework on purpose (see app/README.md),
+// so a "component" here is a function that returns an HTMLElement. That is
+// enough: pages are redrawn whole when their model changes, and the only
+// things refreshed every 700 ms are three status fields and the logs, which
+// are updated per node and not per page.
 
-// --- puente con el proceso de la app ------------------------------------
+// --- bridge to the app process -------------------------------------------
 
-// `withGlobalTauri: true` en tauri.conf.json es lo que inyecta esto. Sin
-// bundler no hay otra forma de llegar a los comandos.
-export const tauriListo = Boolean(window.__TAURI__);
-const rawInvoke = tauriListo ? window.__TAURI__.core.invoke : null;
+// `withGlobalTauri: true` in tauri.conf.json is what injects this. Without a
+// bundler there is no other way to reach the commands.
+export const tauriReady = Boolean(window.__TAURI__);
+const rawInvoke = tauriReady ? window.__TAURI__.core.invoke : null;
 
 /**
- * Llama a un comando del backend.
+ * Calls a backend command.
  *
- * Los comandos devuelven `Err(String)` y Tauri lo convierte en un reject con
- * un string: se re-lanza como Error para que un `catch` normal encuentre
- * `.message` donde lo espera.
+ * Commands return `Err(String)` and Tauri turns it into a reject with a
+ * string: it is re-thrown as an Error so a normal `catch` finds `.message`
+ * where it expects it.
  */
 export async function invoke(cmd, args) {
   if (!rawInvoke) throw new Error("The app process is not reachable (withGlobalTauri is off).");
@@ -30,121 +30,159 @@ export async function invoke(cmd, args) {
   }
 }
 
-// --- estado de la sesión -------------------------------------------------
+// --- session state -------------------------------------------------------
 
-export const estado = {
-  opciones: null,       // { mundos, robots, sim_dir, conda_dir, version }
-  mundos: [],           // MundoInfo[]
+export const state = {
+  options: null,        // { worlds, robots, sim_dir, conda_dir, version }
+  worlds: [],           // WorldInfo[]
   robots: [],           // RobotInfo[]
-  campos: [],           // CampoInfo[]
-  prefs: {},            // lo que se guarda en build/studio-prefs.json
-  sim: null,            // último Estado del supervisor
-  pagina: "launch",
-  mundoAbierto: null,   // ruta relativa del mundo abierto en el editor
+  fields: [],           // FieldInfo[]
+  prefs: {},            // what is saved in build/studio-prefs.json
+  sim: null,            // the supervisor's last Status
+  page: "launch",
+  openWorld: null,      // relative path of the world open in the editor
 };
 
-/** Recarga las bibliotecas de mundos y robots desde el disco. */
-export async function recargarBibliotecas() {
-  const [mundos, robots, campos] = await Promise.all([
-    invoke("sim_mundos_detalle"),
-    invoke("sim_robots_detalle"),
-    invoke("sim_campos"),
+/** Reloads the world and robot libraries from disk. */
+export async function reloadLibraries() {
+  const [worlds, robots, fields] = await Promise.all([
+    invoke("sim_worlds"),
+    invoke("sim_robots"),
+    invoke("sim_fields"),
   ]);
-  estado.mundos = mundos;
-  estado.robots = robots;
-  estado.campos = campos;
+  state.worlds = worlds;
+  state.robots = robots;
+  state.fields = fields;
 }
 
 /**
- * Guarda las preferencias. Se llama en cada cambio (son cuatro campos y un
- * archivo diminuto), pero se agrupan por si algo dispara varios seguidos.
+ * Saves the preferences. It is called on every change (they are four fields
+ * and a tiny file), but calls are batched in case something fires several in
+ * a row.
  */
-let pendiente = null;
-export function guardarPrefs(cambios) {
-  Object.assign(estado.prefs, cambios);
-  clearTimeout(pendiente);
-  pendiente = setTimeout(() => {
-    invoke("sim_guardar_prefs", { prefs: estado.prefs }).catch(() => {
-      // Perder una preferencia no justifica interrumpir al usuario.
+let pending = null;
+export function savePrefs(changes) {
+  Object.assign(state.prefs, changes);
+  clearTimeout(pending);
+  pending = setTimeout(() => {
+    invoke("sim_save_prefs", { prefs: state.prefs }).catch(() => {
+      // Losing a preference does not justify interrupting the user.
     });
   }, 180);
 }
 
 /**
- * Anota un mundo como recién usado, para la lista del portal de bienvenida.
- * Se guarda la ruta, no el objeto: el mundo puede haberse borrado entre
- * sesiones y la lista lo comprueba al pintarse.
+ * The keys `studio-prefs.json` used before they were renamed into English,
+ * mapped to the new ones. The file lives on each user's disk, so without this
+ * an update would silently forget their recent worlds and their last
+ * selection. The old key is dropped once it has been carried over.
  */
-export function anotarReciente(ruta) {
-  if (!ruta) return;
-  const previos = (estado.prefs.recientes ?? []).filter((r) => r !== ruta);
-  guardarPrefs({ recientes: [ruta, ...previos].slice(0, 6) });
+const OLD_PREF_KEYS = {
+  ultimaPagina: "lastPage",
+  mundo: "world",
+  mundoSeleccionado: "selectedWorld",
+  robotSeleccionado: "selectedRobot",
+  recientes: "recent",
+  mostrarBienvenida: "showWelcome",
+  consola: "console",
+};
+
+export function migratePrefs(prefs) {
+  const out = { ...prefs };
+  for (const [old, current] of Object.entries(OLD_PREF_KEYS)) {
+    if (old in out) {
+      if (!(current in out)) out[current] = out[old];
+      delete out[old];
+    }
+  }
+  // The Console page's settings are an object of their own, with keys that
+  // were renamed too.
+  const c = out.console;
+  if (c && typeof c === "object") {
+    out.console = {
+      lines: c.lines ?? c.lineas ?? 120,
+      filter: c.filter ?? c.filtro ?? "",
+      frozen: c.frozen ?? c.congelado ?? false,
+    };
+  }
+  return out;
 }
 
-// --- construcción de nodos ----------------------------------------------
+/**
+ * Marks a world as recently used, for the welcome portal's list. The path is
+ * stored, not the object: the world may have been deleted between sessions
+ * and the list checks it when drawn.
+ */
+export function noteRecent(path) {
+  if (!path) return;
+  const previous = (state.prefs.recent ?? []).filter((r) => r !== path);
+  savePrefs({ recent: [path, ...previous].slice(0, 6) });
+}
+
+// --- building nodes --------------------------------------------------------
 
 /**
- * `el("div.panel", { onclick }, hijo, "texto")`.
+ * `el("div.panel", { onclick }, child, "text")`.
  *
- * El selector admite `tag.clase.clase#id`. Las claves del objeto que empiezan
- * por `on` son listeners, `data` y `style` son objetos, y el resto son
- * atributos. Un valor `null`/`undefined`/`false` omite el atributo, que es lo
- * que permite escribir `disabled: cond` sin ramas.
+ * The selector accepts `tag.class.class#id`. Object keys starting with `on`
+ * are listeners, `data` and `style` are objects, and the rest are
+ * attributes. A `null`/`undefined`/`false` value omits the attribute, which
+ * is what allows writing `disabled: cond` without branches.
  */
-export function el(selector, props, ...hijos) {
-  const [tagYClases, id] = selector.split("#");
-  const partes = tagYClases.split(".");
-  const nodo = document.createElement(partes[0] || "div");
-  for (const c of partes.slice(1)) nodo.classList.add(c);
-  if (id) nodo.id = id;
+export function el(selector, props, ...children) {
+  const [tagAndClasses, id] = selector.split("#");
+  const parts = tagAndClasses.split(".");
+  const node = document.createElement(parts[0] || "div");
+  for (const c of parts.slice(1)) node.classList.add(c);
+  if (id) node.id = id;
 
-  // El segundo argumento es props solo si es un objeto plano. Sin esta
-  // comprobacion, `el("span", 1)` trata el 1 como props, `Object.entries(1)`
-  // no da nada y el numero desaparece: una fila que dice "Real-time factor"
-  // con el valor en blanco, sin ningun error.
-  const esProps =
+  // The second argument is props only if it is a plain object. Without this
+  // check, `el("span", 1)` treats the 1 as props, `Object.entries(1)` yields
+  // nothing and the number disappears: a row that says "Real-time factor"
+  // with the value blank, without any error.
+  const isProps =
     props !== null && props !== undefined &&
     typeof props === "object" && !props.nodeType && !Array.isArray(props);
-  if (!esProps) {
-    hijos.unshift(props);
+  if (!isProps) {
+    children.unshift(props);
     props = null;
   }
 
   for (const [k, v] of Object.entries(props || {})) {
     if (v === null || v === undefined || v === false) continue;
-    if (k.startsWith("on") && typeof v === "function") nodo.addEventListener(k.slice(2), v);
-    else if (k === "data") for (const [dk, dv] of Object.entries(v)) nodo.dataset[dk] = dv;
-    else if (k === "style") Object.assign(nodo.style, v);
-    else if (k === "html") nodo.innerHTML = v;
-    else if (k === "value") nodo.value = v;
-    else if (k === "checked") nodo.checked = Boolean(v);
-    else nodo.setAttribute(k, v === true ? "" : v);
+    if (k.startsWith("on") && typeof v === "function") node.addEventListener(k.slice(2), v);
+    else if (k === "data") for (const [dk, dv] of Object.entries(v)) node.dataset[dk] = dv;
+    else if (k === "style") Object.assign(node.style, v);
+    else if (k === "html") node.innerHTML = v;
+    else if (k === "value") node.value = v;
+    else if (k === "checked") node.checked = Boolean(v);
+    else node.setAttribute(k, v === true ? "" : v);
   }
 
-  agregar(nodo, hijos);
-  return nodo;
+  append(node, children);
+  return node;
 }
 
-function agregar(nodo, hijos) {
-  for (const h of hijos.flat(4)) {
+function append(node, children) {
+  for (const h of children.flat(4)) {
     if (h === null || h === undefined || h === false || h === true) continue;
-    nodo.appendChild(h.nodeType ? h : document.createTextNode(String(h)));
+    node.appendChild(h.nodeType ? h : document.createTextNode(String(h)));
   }
 }
 
-/** Vacía un nodo y le pone hijos nuevos. */
-export function pintar(nodo, ...hijos) {
-  nodo.replaceChildren();
-  agregar(nodo, hijos);
-  return nodo;
+/** Empties a node and gives it new children. */
+export function fill(node, ...children) {
+  node.replaceChildren();
+  append(node, children);
+  return node;
 }
 
-/** `<img>` de `ui/icons/`. Los iconos son los mismos SVG que mars-desktop. */
-export function icono(nombre, tam = 14) {
-  return el("img", { src: `icons/${nombre}`, alt: "", "aria-hidden": true, width: tam, height: tam, draggable: "false" });
+/** `<img>` from `ui/icons/`. The icons are the same SVGs as mars-desktop. */
+export function icon(name, size = 14) {
+  return el("img", { src: `icons/${name}`, alt: "", "aria-hidden": true, width: size, height: size, draggable: "false" });
 }
 
-// --- formato -------------------------------------------------------------
+// --- formatting ------------------------------------------------------------
 
 export function bytes(n) {
   if (n < 1024) return `${n} B`;
@@ -152,27 +190,27 @@ export function bytes(n) {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export function num(v, decimales = 3) {
+export function num(v, decimals = 3) {
   if (v === null || v === undefined || Number.isNaN(v)) return "—";
-  return Number(v).toFixed(decimales).replace(/\.?0+$/, "") || "0";
+  return Number(v).toFixed(decimals).replace(/\.?0+$/, "") || "0";
 }
 
-export const grados = (rad) => (rad * 180) / Math.PI;
-export const radianes = (deg) => (deg * Math.PI) / 180;
+export const degrees = (rad) => (rad * 180) / Math.PI;
+export const radians = (deg) => (deg * Math.PI) / 180;
 
-/** `[0.35, 0.35, 0.38]` (0..1, como en SDF) <-> `#5a5a61`. */
-export function rgbAHex(c) {
+/** `[0.35, 0.35, 0.38]` (0..1, as in SDF) <-> `#5a5a61`. */
+export function rgbToHex(c) {
   const b = (x) => Math.max(0, Math.min(255, Math.round(x * 255))).toString(16).padStart(2, "0");
   return `#${b(c[0])}${b(c[1])}${b(c[2])}`;
 }
-export function hexARgb(hex) {
+export function hexToRgb(hex) {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
   if (!m) return [0.5, 0.5, 0.5];
   const n = parseInt(m[1], 16);
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
 }
 
-/** Escapa texto que va a `innerHTML`. Los logs y los SDF traen `<` y `&`. */
-export function escapar(s) {
+/** Escapes text that goes into `innerHTML`. Logs and SDFs carry `<` and `&`. */
+export function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }

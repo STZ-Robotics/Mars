@@ -1,26 +1,26 @@
-//! Arranca y mata los procesos de la simulación.
+//! Starts and kills the simulation's processes.
 //!
-//! Son tres: el motor (`mars-sim-server`), la ventana del mundo
-//! (`mars-sim-gui`) y el bridge (`mars-bridge`). Ninguno se puede lanzar "a
-//! secas": necesitan el entorno de conda en el PATH para encontrar sus DLLs,
-//! las rutas de los plugins de gz-sim y de gz-gui, la de los RenderSystem de
-//! OGRE, y el directorio de trabajo correcto para que las rutas relativas de
-//! los mundos resuelvan. Todo eso vive aquí.
+//! There are three: the engine (`mars-sim-server`), the world window
+//! (`mars-sim-gui`) and the bridge (`mars-bridge`). None of them can be
+//! launched "bare": they need the conda environment on the PATH to find their
+//! DLLs, the gz-sim and gz-gui plugin paths, OGRE's RenderSystem path, and the
+//! right working directory so the worlds' relative paths resolve. All of that
+//! lives here.
 //!
-//! La ventana del mundo es la GUI de Gazebo con nuestra configuración de
-//! paneles. No carga el mundo: se CONECTA al motor por gz-transport, así que
-//! se puede cerrar y volver a abrir sin tocar la física.
+//! The world window is Gazebo's GUI with our panel configuration. It does not
+//! load the world: it CONNECTS to the engine over gz-transport, so it can be
+//! closed and reopened without touching the physics.
 //!
-//! # Matar de verdad
+//! # Killing for real
 //!
-//! En Windows matar al padre NO mata a los hijos. Si esta app se cierra sin
-//! pasar por `detener`, quedan un `mars-sim-server` y un `mars-bridge` vivos
-//! consumiendo CPU y, peor, ocupando los tópicos de gz-transport: el siguiente
-//! arranque descubre dos motores publicando en `/mars/state/pose` y las poses
-//! se pisan sin ningún error.
+//! On Windows killing the parent does NOT kill the children. If this app
+//! closes without going through `stop`, a `mars-sim-server` and a
+//! `mars-bridge` stay alive eating CPU and, worse, holding the gz-transport
+//! topics: the next start finds two engines publishing on `/mars/state/pose`
+//! and the poses overwrite each other without any error.
 //!
-//! Por eso se mata en tres sitios: en `detener`, en `Drop`, y en el evento de
-//! cierre de la ventana. Los tres son necesarios y ninguno cubre al resto.
+//! That is why it kills in three places: in `stop`, in `Drop`, and in the
+//! window's close event. All three are needed and none covers the others.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -29,111 +29,110 @@ use std::time::Instant;
 use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 
-/// Qué simulación arrancar.
+/// Which simulation to start.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    /// Ruta del mundo, relativa a `sim/`. Ej: `worlds/swerve.sdf`.
+    /// Path of the world, relative to `sim/`. E.g. `worlds/swerve.sdf`.
     pub world: String,
-    /// Ruta del robot-map, relativa a `sim/`. Ej: `models/swerve/robot-map.json`.
+    /// Path of the robot map, relative to `sim/`. E.g. `models/swerve/robot-map.json`.
     pub robot_map: String,
-    /// Servidor NT4 al que se conecta el bridge. En simulación de escritorio lo
-    /// levanta el código del robot, casi siempre en localhost.
-    #[serde(default = "host_por_defecto")]
+    /// NT4 server the bridge connects to. In desktop simulation it is brought
+    /// up by the robot code, almost always on localhost.
+    #[serde(default = "default_host")]
     pub nt_host: String,
-    #[serde(default = "puerto_por_defecto")]
+    #[serde(default = "default_port")]
     pub nt_port: u16,
 }
 
-fn host_por_defecto() -> String {
+fn default_host() -> String {
     "127.0.0.1".to_string()
 }
 
-fn puerto_por_defecto() -> u16 {
+fn default_port() -> u16 {
     5810
 }
 
-/// Lo que la UI necesita saber para pintar el panel.
+/// What the UI needs to know to draw the panel.
 #[derive(Debug, Clone, Serialize)]
-pub struct Estado {
-    pub corriendo: bool,
-    pub motor_pid: Option<u32>,
-    pub mundo_pid: Option<u32>,
+pub struct Status {
+    pub running: bool,
+    pub engine_pid: Option<u32>,
+    pub window_pid: Option<u32>,
     pub bridge_pid: Option<u32>,
-    pub segundos: u64,
-    /// Por qué se murió, si se murió solo. `None` mientras corre o si lo
-    /// paramos nosotros.
-    pub caido: Option<String>,
+    pub seconds: u64,
+    /// Why it died, if it died on its own. `None` while it runs or if we
+    /// stopped it ourselves.
+    pub crashed: Option<String>,
 }
 
-/// Una línea de la página Diagnostics.
+/// One row of the Diagnostics page.
 ///
-/// Cada cosa que hace falta para que "Start" funcione se comprueba por
-/// separado y dice cómo arreglarse. Es la alternativa a que el usuario
-/// descubra que falta un binario cuando el motor muere sin decir por qué.
+/// Everything that "Start" needs in order to work is checked separately and
+/// says how to fix itself. It is the alternative to the user finding out a
+/// binary is missing when the engine dies without saying why.
 #[derive(Debug, Clone, Serialize)]
-pub struct Chequeo {
-    pub nombre: String,
+pub struct Check {
+    pub name: String,
     /// `ok` | `warn` | `fail`
-    pub estado: String,
-    pub detalle: String,
-    /// Qué hacer si no está en `ok`. Vacío cuando no hay nada que hacer.
-    pub arreglo: String,
+    pub status: String,
+    pub detail: String,
+    /// What to do if it is not `ok`. Empty when there is nothing to do.
+    pub fix: String,
 }
 
-impl Chequeo {
-    fn nuevo(nombre: &str, ok: bool, detalle: String, arreglo: &str) -> Self {
+impl Check {
+    fn new(name: &str, ok: bool, detail: String, fix: &str) -> Self {
         Self {
-            nombre: nombre.into(),
-            estado: if ok { "ok" } else { "fail" }.into(),
-            detalle,
-            arreglo: if ok { String::new() } else { arreglo.into() },
+            name: name.into(),
+            status: if ok { "ok" } else { "fail" }.into(),
+            detail,
+            fix: if ok { String::new() } else { fix.into() },
         }
     }
 
-    /// Un aviso no impide arrancar: la simulación corre, con menos.
-    fn aviso(nombre: &str, ok: bool, detalle: String, arreglo: &str) -> Self {
-        let mut c = Self::nuevo(nombre, ok, detalle, arreglo);
+    /// A warning does not prevent starting: the simulation runs, with less.
+    fn warning(name: &str, ok: bool, detail: String, fix: &str) -> Self {
+        let mut c = Self::new(name, ok, detail, fix);
         if !ok {
-            c.estado = "warn".into();
+            c.status = "warn".into();
         }
         c
     }
 }
 
-/// Que hacer cuando falta uno de los binarios compilados.
+/// What to do when one of the compiled binaries is missing.
 ///
-/// Dice las dos cosas porque hay dos formas de llegar hasta aqui y el codigo
-/// no puede saber cual es la del usuario: en una instalacion los binarios
-/// VIAJAN dentro de `sim/build/`, no hay fuentes que compilar, y si faltan es
-/// que el paquete salio incompleto --- el arreglo es reinstalar; en el
-/// repositorio se compilan a mano.
-const ARREGLO_BINARIO: &str =
-    "Reinstall MARS, or build it from the repository with sim\\build.ps1";
+/// It says both things because there are two ways to get here and the code
+/// cannot know which one is the user's: in an installation the binaries
+/// TRAVEL inside `sim/build/`, there are no sources to compile, and if they
+/// are missing the package came out incomplete --- the fix is to reinstall; in
+/// the repository they are built by hand.
+const BINARY_FIX: &str = "Reinstall MARS, or build it from the repository with sim\\build.ps1";
 
 pub struct Supervisor {
-    /// El directorio `sim/` del repositorio.
+    /// The repository's `sim/` directory.
     sim_dir: PathBuf,
-    /// El prefijo del entorno conda `mars-sim`.
+    /// The prefix of the `mars-sim` conda environment.
     conda_env: PathBuf,
-    motor: Option<Child>,
-    mundo: Option<Child>,
+    engine: Option<Child>,
+    window: Option<Child>,
     bridge: Option<Child>,
-    arranque: Option<Instant>,
-    caido: Option<String>,
-    /// En CI no hay pantalla: abrir la ventana ahi solo puede fallar.
-    sin_ventana: bool,
+    started: Option<Instant>,
+    crashed: Option<String>,
+    /// In CI there is no screen: opening the window there can only fail.
+    headless: bool,
 }
 
 impl Supervisor {
-    /// Localiza `sim/` y el entorno conda.
+    /// Locates `sim/` and the conda environment.
     ///
-    /// El orden de búsqueda cubre los dos escenarios que importan: desarrollo,
-    /// donde `sim/` está en el repositorio y el ejecutable en `target/debug`, y
-    /// una instalación, donde `sim/` viaja junto al ejecutable.
-    pub fn descubrir() -> Result<Self> {
-        let sim_dir = Self::buscar_sim_dir()
+    /// The search order covers the two scenarios that matter: development,
+    /// where `sim/` is in the repository and the executable in `target/debug`,
+    /// and an installation, where `sim/` travels next to the executable.
+    pub fn discover() -> Result<Self> {
+        let sim_dir = Self::find_sim_dir()
             .context("could not find the sim/ directory. Set MARS_SIM_DIR if it lives elsewhere")?;
-        let conda_env = Self::buscar_conda_env().context(
+        let conda_env = Self::find_conda_env().context(
             "could not find the 'mars-sim' conda environment. \
              Create it with: conda env create -f sim/environment.yml",
         )?;
@@ -141,16 +140,16 @@ impl Supervisor {
         Ok(Self {
             sim_dir,
             conda_env,
-            motor: None,
-            mundo: None,
+            engine: None,
+            window: None,
             bridge: None,
-            arranque: None,
-            caido: None,
-            sin_ventana: false,
+            started: None,
+            crashed: None,
+            headless: false,
         })
     }
 
-    fn buscar_sim_dir() -> Option<PathBuf> {
+    fn find_sim_dir() -> Option<PathBuf> {
         if let Ok(d) = std::env::var("MARS_SIM_DIR") {
             let p = PathBuf::from(d);
             if p.join("worlds").is_dir() {
@@ -158,22 +157,23 @@ impl Supervisor {
             }
         }
 
-        // Desde el ejecutable y desde el directorio actual, subiendo. El
-        // ejecutable primero: es lo único fiable cuando la app se lanza desde
-        // otro sitio, que es justo lo que hace el launcher de mars-desktop.
-        let mut raices = Vec::new();
+        // From the executable and from the current directory, going up. The
+        // executable first: it is the only reliable thing when the app is
+        // launched from somewhere else, which is exactly what mars-desktop's
+        // launcher does.
+        let mut roots = Vec::new();
         if let Ok(exe) = std::env::current_exe() {
-            raices.push(exe);
+            roots.push(exe);
         }
         if let Ok(cwd) = std::env::current_dir() {
-            raices.push(cwd);
+            roots.push(cwd);
         }
 
-        for raiz in raices {
-            for dir in raiz.ancestors() {
-                for candidato in [dir.join("sim"), dir.to_path_buf()] {
-                    if candidato.join("worlds").is_dir() && candidato.join("protocol").is_dir() {
-                        return Some(candidato);
+        for root in roots {
+            for dir in root.ancestors() {
+                for candidate in [dir.join("sim"), dir.to_path_buf()] {
+                    if candidate.join("worlds").is_dir() && candidate.join("protocol").is_dir() {
+                        return Some(candidate);
                     }
                 }
             }
@@ -181,26 +181,26 @@ impl Supervisor {
         None
     }
 
-    fn buscar_conda_env() -> Option<PathBuf> {
-        let mut candidatos = Vec::new();
+    fn find_conda_env() -> Option<PathBuf> {
+        let mut candidates = Vec::new();
         if let Ok(p) = std::env::var("MARS_CONDA_ENV") {
-            candidatos.push(PathBuf::from(p));
+            candidates.push(PathBuf::from(p));
         }
         if let Ok(p) = std::env::var("CONDA_PREFIX") {
-            candidatos.push(PathBuf::from(p));
+            candidates.push(PathBuf::from(p));
         }
         if let Ok(home) = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")) {
-            for raiz in ["miniforge3", "miniconda3", "anaconda3"] {
-                candidatos.push(Path::new(&home).join(raiz).join("envs/mars-sim"));
+            for root in ["miniforge3", "miniconda3", "anaconda3"] {
+                candidates.push(Path::new(&home).join(root).join("envs/mars-sim"));
             }
         }
 
-        candidatos.into_iter().find(|c| Self::libreria_de(c).is_dir())
+        candidates.into_iter().find(|c| Self::lib_dir_of(c).is_dir())
     }
 
-    /// Donde conda pone las DLLs. En Windows cuelgan de `Library/`; en Linux y
-    /// macOS van directo al prefijo.
-    fn libreria_de(env: &Path) -> PathBuf {
+    /// Where conda puts the DLLs. On Windows they hang from `Library/`; on
+    /// Linux and macOS they go straight into the prefix.
+    fn lib_dir_of(env: &Path) -> PathBuf {
         let win = env.join("Library/bin");
         if win.is_dir() {
             win
@@ -209,9 +209,9 @@ impl Supervisor {
         }
     }
 
-    /// Corre sin abrir la ventana 3D. Para CI, donde no hay pantalla.
-    pub fn sin_ventana(&mut self, valor: bool) {
-        self.sin_ventana = valor;
+    /// Runs without opening the 3D window. For CI, where there is no screen.
+    pub fn set_headless(&mut self, value: bool) {
+        self.headless = value;
     }
 
     pub fn sim_dir(&self) -> &Path {
@@ -222,16 +222,16 @@ impl Supervisor {
         &self.conda_env
     }
 
-    /// Los sitios donde puede estar el bridge, en orden de preferencia.
+    /// The places the bridge can be, in order of preference.
     ///
-    /// Son tres porque hay tres formas de tenerlo. En una instalacion viaja ya
-    /// compilado dentro de `build/`, junto al motor y a MarsLink: el usuario
-    /// no tiene cargo ni las fuentes del bridge, asi que ese es el unico sitio
-    /// posible. En el repositorio queda donde lo haya dejado cargo, que es
-    /// `release/` o `debug/` segun con que se haya compilado --- y buscar solo
-    /// en `debug/` es lo que hacia que un `cargo build --release` dejara la
-    /// app diciendo que el bridge no existe.
-    fn rutas_bridge(&self) -> [PathBuf; 3] {
+    /// There are three because there are three ways of having it. In an
+    /// installation it travels already compiled inside `build/`, next to the
+    /// engine and MarsLink: the user has neither cargo nor the bridge's
+    /// sources, so that is the only possible place. In the repository it is
+    /// wherever cargo left it, which is `release/` or `debug/` depending on
+    /// how it was built --- and looking only in `debug/` is what made a
+    /// `cargo build --release` leave the app saying the bridge did not exist.
+    fn bridge_paths(&self) -> [PathBuf; 3] {
         [
             self.sim_dir.join("build/mars-bridge.exe"),
             self.sim_dir.join("bridge/target/release/mars-bridge.exe"),
@@ -239,99 +239,99 @@ impl Supervisor {
         ]
     }
 
-    fn buscar_bridge(&self) -> Option<PathBuf> {
-        self.rutas_bridge().into_iter().find(|p| p.is_file())
+    fn find_bridge(&self) -> Option<PathBuf> {
+        self.bridge_paths().into_iter().find(|p| p.is_file())
     }
 
-    /// Comprueba, una por una, todas las cosas que tienen que estar en su sitio
-    /// para que "Start" funcione.
+    /// Checks, one by one, everything that has to be in place for "Start" to
+    /// work.
     ///
-    /// Existe porque los fallos de esta app son casi todos de instalación --- un
-    /// binario sin compilar, una ruta de plugins que no está --- y ninguno se
-    /// explica solo: el motor muere con un error de Windows que no dice qué DLL
-    /// falta, o la ventana abre gris y el motivo queda en un stderr que nadie
-    /// mira.
-    pub fn diagnostico(&self) -> Vec<Chequeo> {
-        let lib = Self::libreria_de(&self.conda_env);
-        let mundos = self.mundos().len();
+    /// It exists because this app's failures are almost all installation
+    /// ones --- a binary not built, a plugin path that is not there --- and
+    /// none of them explains itself: the engine dies with a Windows error that
+    /// does not say which DLL is missing, or the window opens grey and the
+    /// reason stays in a stderr nobody looks at.
+    pub fn diagnostics(&self) -> Vec<Check> {
+        let lib = Self::lib_dir_of(&self.conda_env);
+        let worlds = self.worlds().len();
         let robots = self.robots().len();
 
-        let binario = |nombre: &str, rel: &str, arreglo: &str, critico: bool| {
+        let binary = |name: &str, rel: &str, fix: &str, critical: bool| {
             let p = self.sim_dir.join(rel);
             let ok = p.is_file();
-            let detalle = if ok {
+            let detail = if ok {
                 p.display().to_string()
             } else {
                 format!("missing: {}", p.display())
             };
-            if critico {
-                Chequeo::nuevo(nombre, ok, detalle, arreglo)
+            if critical {
+                Check::new(name, ok, detail, fix)
             } else {
-                Chequeo::aviso(nombre, ok, detalle, arreglo)
+                Check::warning(name, ok, detail, fix)
             }
         };
 
         vec![
-            Chequeo::nuevo(
+            Check::new(
                 "sim/ directory",
                 self.sim_dir.join("worlds").is_dir(),
                 self.sim_dir.display().to_string(),
                 "Set MARS_SIM_DIR to the sim/ folder of the repository.",
             ),
-            Chequeo::nuevo(
+            Check::new(
                 "Conda environment",
                 lib.is_dir(),
                 self.conda_env.display().to_string(),
                 "Create it with: conda env create -f sim/environment.yml",
             ),
-            binario(
+            binary(
                 "Physics engine (mars-sim-server)",
                 "build/mars-sim-server.exe",
-                ARREGLO_BINARIO,
+                BINARY_FIX,
                 true,
             ),
             {
-                let encontrado = self.buscar_bridge();
-                Chequeo::nuevo(
+                let found = self.find_bridge();
+                Check::new(
                     "Bridge (mars-bridge)",
-                    encontrado.is_some(),
-                    match &encontrado {
+                    found.is_some(),
+                    match &found {
                         Some(p) => p.display().to_string(),
-                        // El que se nombra al faltar es el de la instalacion,
-                        // no el de cargo: es donde tiene que estar en la
-                        // maquina de alguien que no tiene el repositorio.
-                        None => format!("missing: {}", self.rutas_bridge()[0].display()),
+                        // The one named when missing is the installation's,
+                        // not cargo's: it is where it has to be on the
+                        // machine of someone who does not have the repository.
+                        None => format!("missing: {}", self.bridge_paths()[0].display()),
                     },
-                    ARREGLO_BINARIO,
+                    BINARY_FIX,
                 )
             },
-            binario(
+            binary(
                 "World window (mars-sim-gui)",
                 "build/mars-sim-gui.exe",
                 "Reinstall MARS, or build it from the repository with sim\\build.ps1. \
                  Without it the simulation still runs headless.",
                 false,
             ),
-            binario(
+            binary(
                 "Actuator plugin (MarsLink)",
                 "build/MarsLink.dll",
                 "Reinstall MARS, or build it from the repository with sim\\build.ps1. \
                  Without it the world loads with no actuators, silently.",
                 true,
             ),
-            Chequeo::aviso(
+            Check::warning(
                 "OGRE-Next render resources",
                 lib.join("OGRE-Next").is_dir(),
                 lib.join("OGRE-Next").display().to_string(),
                 "Without this path the 3D window opens grey. Reinstall gz-rendering in the conda environment.",
             ),
-            Chequeo::nuevo(
+            Check::new(
                 "Worlds",
-                mundos > 0,
-                format!("{mundos} world(s) in worlds/"),
+                worlds > 0,
+                format!("{worlds} world(s) in worlds/"),
                 "Create one from World Library → New world.",
             ),
-            Chequeo::nuevo(
+            Check::new(
                 "Robot maps",
                 robots > 0,
                 format!("{robots} robot map(s) in models/"),
@@ -340,8 +340,8 @@ impl Supervisor {
         ]
     }
 
-    /// Mundos disponibles, como rutas relativas a `sim/`.
-    pub fn mundos(&self) -> Vec<String> {
+    /// Available worlds, as paths relative to `sim/`.
+    pub fn worlds(&self) -> Vec<String> {
         let mut v: Vec<String> = std::fs::read_dir(self.sim_dir.join("worlds"))
             .into_iter()
             .flatten()
@@ -354,13 +354,13 @@ impl Supervisor {
         v
     }
 
-    /// Robot-maps disponibles, como rutas relativas a `sim/`.
+    /// Available robot maps, as paths relative to `sim/`.
     pub fn robots(&self) -> Vec<String> {
         let mut v = Vec::new();
-        for entrada in std::fs::read_dir(self.sim_dir.join("models")).into_iter().flatten().flatten() {
-            let mapa = entrada.path().join("robot-map.json");
-            if mapa.is_file() {
-                if let Some(dir) = entrada.file_name().into_string().ok() {
+        for entry in std::fs::read_dir(self.sim_dir.join("models")).into_iter().flatten().flatten() {
+            let map = entry.path().join("robot-map.json");
+            if map.is_file() {
+                if let Ok(dir) = entry.file_name().into_string() {
                     v.push(format!("models/{dir}/robot-map.json"));
                 }
             }
@@ -369,36 +369,36 @@ impl Supervisor {
         v
     }
 
-    /// PATH para los hijos: el de conda primero, y sin MSYS2.
+    /// PATH for the children: conda's first, and without MSYS2.
     ///
-    /// Sin `Library/bin` delante, el motor no encuentra las DLLs de Gazebo y
-    /// muere al arrancar con un error de Windows que no dice cuál falta. Y
-    /// MSYS2 se filtra porque sus DLLs de nombre coincidente se cuelan antes
-    /// que las de conda: el mismo problema que ya obliga a filtrarlo al
-    /// compilar.
-    fn path_para_hijos(&self) -> String {
-        let bin = Self::libreria_de(&self.conda_env);
-        let resto: Vec<String> = std::env::var("PATH")
+    /// Without `Library/bin` in front, the engine does not find Gazebo's DLLs
+    /// and dies on start with a Windows error that does not say which one is
+    /// missing. And MSYS2 is filtered out because its same-named DLLs get in
+    /// before conda's: the same problem that already forces filtering it
+    /// when building.
+    fn child_path(&self) -> String {
+        let bin = Self::lib_dir_of(&self.conda_env);
+        let rest: Vec<String> = std::env::var("PATH")
             .unwrap_or_default()
             .split(';')
             .filter(|p| !p.is_empty() && !p.to_lowercase().contains("msys64"))
             .map(String::from)
             .collect();
-        format!("{};{}", bin.display(), resto.join(";"))
+        format!("{};{}", bin.display(), rest.join(";"))
     }
 
-    /// Variables que necesita la ventana 3D y el motor headless no.
+    /// Variables the 3D window needs and the headless engine does not.
     ///
-    /// `OGRE2_RESOURCE_PATH` es la que cuesta encontrar: conda instala los
-    /// RenderSystem de OGRE-Next en `Library/bin/OGRE-Next`, y gz-rendering los
-    /// busca en la ruta que le grabaron al compilar. Sin esto la ventana abre,
-    /// se ve gris y el unico rastro es un `unable to find OpenGL 3+ Rendering
-    /// Subsystem` en stderr.
-    fn entorno_de_render(&self, cmd: &mut Command) {
+    /// `OGRE2_RESOURCE_PATH` is the hard one to find: conda installs
+    /// OGRE-Next's RenderSystems in `Library/bin/OGRE-Next`, and gz-rendering
+    /// looks for them in the path baked in at compile time. Without this the
+    /// window opens, shows grey and the only trace is an `unable to find
+    /// OpenGL 3+ Rendering Subsystem` in stderr.
+    fn render_env(&self, cmd: &mut Command) {
         let lib = self.conda_env.join("Library");
-        // La ventana resuelve por su cuenta las mallas que le llegan por
-        // gz-transport, asi que necesita las mismas rutas de modelos que el
-        // motor: si no, el mundo tiene las pelotas y la ventana no las dibuja.
+        // The window resolves on its own the meshes that reach it over
+        // gz-transport, so it needs the same model paths as the engine:
+        // otherwise the world has the balls and the window does not draw them.
         cmd.env("GZ_SIM_RESOURCE_PATH", self.sim_dir.join("models"));
         cmd.env("OGRE2_RESOURCE_PATH", lib.join("bin/OGRE-Next"));
         cmd.env(
@@ -411,25 +411,25 @@ impl Supervisor {
         );
     }
 
-    fn abrir_log(&self, nombre: &str) -> Result<Stdio> {
+    fn open_log(&self, name: &str) -> Result<Stdio> {
         let dir = self.sim_dir.join("build");
         std::fs::create_dir_all(&dir)?;
-        let f = std::fs::File::create(dir.join(nombre))?;
+        let f = std::fs::File::create(dir.join(name))?;
         Ok(Stdio::from(f))
     }
 
-    pub fn arrancar(&mut self, cfg: &Config) -> Result<()> {
-        if self.corriendo() {
+    pub fn start(&mut self, cfg: &Config) -> Result<()> {
+        if self.is_running() {
             bail!("the simulation is already running");
         }
-        self.caido = None;
+        self.crashed = None;
 
-        let motor_exe = self.sim_dir.join("build/mars-sim-server.exe");
-        if !motor_exe.is_file() {
-            bail!("{} is missing. {}", motor_exe.display(), ARREGLO_BINARIO);
+        let engine_exe = self.sim_dir.join("build/mars-sim-server.exe");
+        if !engine_exe.is_file() {
+            bail!("{} is missing. {}", engine_exe.display(), BINARY_FIX);
         }
-        let bridge_exe = self.buscar_bridge().ok_or_else(|| {
-            anyhow!("{} is missing. {}", self.rutas_bridge()[0].display(), ARREGLO_BINARIO)
+        let bridge_exe = self.find_bridge().ok_or_else(|| {
+            anyhow!("{} is missing. {}", self.bridge_paths()[0].display(), BINARY_FIX)
         })?;
         if !self.sim_dir.join(&cfg.world).is_file() {
             bail!("world {} does not exist", cfg.world);
@@ -438,53 +438,54 @@ impl Supervisor {
             bail!("robot map {} does not exist", cfg.robot_map);
         }
 
-        let path = self.path_para_hijos();
+        let path = self.child_path();
 
-        // El motor primero: el bridge se muere si no encuentra a nadie
-        // publicando, y de todas formas necesita que el servidor NT4 exista.
-        let motor = Command::new(&motor_exe)
+        // The engine first: the bridge dies if it finds nobody publishing, and
+        // it needs the NT4 server to exist anyway.
+        let engine = Command::new(&engine_exe)
             .args([cfg.world.as_str(), "run"])
             .current_dir(&self.sim_dir)
             .env("PATH", &path)
-            // Aquí busca gz-sim los systems propios; sin esto MarsLink no se
-            // carga y el mundo arranca sin actuadores, en silencio.
+            // This is where gz-sim looks for our own systems; without it
+            // MarsLink does not load and the world starts with no actuators,
+            // silently.
             .env("GZ_SIM_SYSTEM_PLUGIN_PATH", self.sim_dir.join("build"))
-            // Donde resuelven los `model://`. Sin esto un mundo que incluye
-            // `model://fuel` carga sin las pelotas y solo lo dice una linea de
-            // stderr; la fisica sigue corriendo, asi que parece que el mundo
-            // esta bien y simplemente no hay nada dentro.
+            // Where `model://` resolves. Without it a world that includes
+            // `model://fuel` loads without the balls and only one line of
+            // stderr says so; the physics keeps running, so it looks like the
+            // world is fine and simply has nothing in it.
             .env("GZ_SIM_RESOURCE_PATH", self.sim_dir.join("models"))
-            .stdout(self.abrir_log("app-motor.log")?)
-            .stderr(self.abrir_log("app-motor.err")?)
+            .stdout(self.open_log("app-engine.log")?)
+            .stderr(self.open_log("app-engine.err")?)
             .spawn()
-            .with_context(|| format!("could not launch {}", motor_exe.display()))?;
-        self.motor = Some(motor);
+            .with_context(|| format!("could not launch {}", engine_exe.display()))?;
+        self.engine = Some(engine);
 
-        // Un respiro para que el discovery de gz-transport se entere del motor
-        // antes de que se suscriban la ventana y el bridge. Sin esto arrancan,
-        // no ven nada y se quedan esperando su timeout.
+        // A breather so gz-transport's discovery learns about the engine
+        // before the window and the bridge subscribe. Without it they start,
+        // see nothing and sit waiting for their timeout.
         std::thread::sleep(std::time::Duration::from_millis(800));
 
-        // La ventana del mundo. Si no esta compilada se sigue sin ella: la
-        // simulacion es util headless (es como corre en CI) y quedarse sin
-        // fisica por no poder dibujarla seria absurdo.
-        let mundo_exe = self.sim_dir.join("build/mars-sim-gui.exe");
-        if self.sin_ventana {
+        // The world window. If it is not built we carry on without it: the
+        // simulation is useful headless (it is how it runs in CI) and losing
+        // the physics because it cannot be drawn would be absurd.
+        let window_exe = self.sim_dir.join("build/mars-sim-gui.exe");
+        if self.headless {
             eprintln!("[sup] headless mode: no 3D window");
-        } else if mundo_exe.is_file() {
-            let mut cmd = Command::new(&mundo_exe);
+        } else if window_exe.is_file() {
+            let mut cmd = Command::new(&window_exe);
             cmd.arg("gui/mars.config")
                 .current_dir(&self.sim_dir)
                 .env("PATH", &path)
-                .stdout(self.abrir_log("app-mundo.log")?)
-                .stderr(self.abrir_log("app-mundo.err")?);
-            self.entorno_de_render(&mut cmd);
+                .stdout(self.open_log("app-window.log")?)
+                .stderr(self.open_log("app-window.err")?);
+            self.render_env(&mut cmd);
             match cmd.spawn() {
-                Ok(m) => self.mundo = Some(m),
+                Ok(m) => self.window = Some(m),
                 Err(e) => eprintln!("[sup] no 3D window: {e}"),
             }
         } else {
-            eprintln!("[sup] no 3D window: {} is missing", mundo_exe.display());
+            eprintln!("[sup] no 3D window: {} is missing", window_exe.display());
         }
 
         let bridge = Command::new(&bridge_exe)
@@ -498,92 +499,94 @@ impl Supervisor {
             ])
             .current_dir(&self.sim_dir)
             .env("PATH", &path)
-            .stdout(self.abrir_log("app-bridge.log")?)
-            .stderr(self.abrir_log("app-bridge.err")?)
+            .stdout(self.open_log("app-bridge.log")?)
+            .stderr(self.open_log("app-bridge.err")?)
             .spawn();
 
         match bridge {
             Ok(b) => self.bridge = Some(b),
             Err(e) => {
-                // Si el bridge no arranca, el motor no puede quedarse suelto.
-                self.detener();
+                // If the bridge does not start, the engine cannot be left loose.
+                self.stop();
                 return Err(anyhow!("could not launch the bridge: {e}"));
             }
         }
 
-        self.arranque = Some(Instant::now());
+        self.started = Some(Instant::now());
         Ok(())
     }
 
-    pub fn detener(&mut self) {
-        // El bridge primero: matar el motor mientras el bridge escribe deja
-        // errores de conexión en su log que no son la causa de nada.
-        for hijo in [self.bridge.take(), self.mundo.take(), self.motor.take()]
+    pub fn stop(&mut self) {
+        // The bridge first: killing the engine while the bridge writes leaves
+        // connection errors in its log that are not the cause of anything.
+        for child in [self.bridge.take(), self.window.take(), self.engine.take()]
             .into_iter()
             .flatten()
         {
-            let mut hijo = hijo;
-            let _ = hijo.kill();
-            let _ = hijo.wait();
+            let mut child = child;
+            let _ = child.kill();
+            let _ = child.wait();
         }
-        self.arranque = None;
+        self.started = None;
     }
 
-    fn corriendo(&mut self) -> bool {
-        self.motor.is_some() || self.bridge.is_some() || self.mundo.is_some()
+    fn is_running(&mut self) -> bool {
+        self.engine.is_some() || self.bridge.is_some() || self.window.is_some()
     }
 
-    /// Estado actual, recogiendo de paso a los hijos que se hayan muerto solos.
-    pub fn estado(&mut self) -> Estado {
-        // `try_wait` es lo que convierte un proceso muerto en un estado
-        // visible. Sin esto la UI diría "corriendo" para siempre después de un
-        // crash, que es la peor forma de fallar: silenciosa.
-        // La ventana NO entra aqui: cerrarla es algo que el usuario hace a
-        // proposito y no debe matar la simulacion. Se recoge aparte.
-        if let Some(Ok(Some(_))) = self.mundo.as_mut().map(|h| h.try_wait()) {
-            self.mundo = None;
+    /// Current status, reaping along the way any children that died on their
+    /// own.
+    pub fn status(&mut self) -> Status {
+        // `try_wait` is what turns a dead process into a visible status.
+        // Without it the UI would say "running" forever after a crash, which
+        // is the worst way to fail: silently.
+        // The window does NOT count here: closing it is something the user
+        // does on purpose and must not kill the simulation. It is reaped
+        // separately.
+        if let Some(Ok(Some(_))) = self.window.as_mut().map(|h| h.try_wait()) {
+            self.window = None;
         }
 
-        for (nombre, ranura) in [("the engine", &mut self.motor), ("the bridge", &mut self.bridge)] {
-            let salio = match ranura.as_mut().map(|h| h.try_wait()) {
+        for (name, slot) in [("the engine", &mut self.engine), ("the bridge", &mut self.bridge)] {
+            let exited = match slot.as_mut().map(|h| h.try_wait()) {
                 Some(Ok(Some(status))) => Some(status),
                 _ => None,
             };
-            if let Some(status) = salio {
-                *ranura = None;
-                if self.caido.is_none() {
-                    self.caido = Some(format!("{nombre} exited ({status})"));
+            if let Some(status) = exited {
+                *slot = None;
+                if self.crashed.is_none() {
+                    self.crashed = Some(format!("{name} exited ({status})"));
                 }
             }
         }
 
-        // Si uno se cayó, el otro no tiene con quién hablar.
-        if self.caido.is_some() && (self.motor.is_some() || self.bridge.is_some()) {
-            self.detener();
+        // If one went down, the other has nobody to talk to.
+        if self.crashed.is_some() && (self.engine.is_some() || self.bridge.is_some()) {
+            self.stop();
         }
 
-        Estado {
-            corriendo: self.motor.is_some() && self.bridge.is_some(),
-            motor_pid: self.motor.as_ref().map(|h| h.id()),
-            mundo_pid: self.mundo.as_ref().map(|h| h.id()),
+        Status {
+            running: self.engine.is_some() && self.bridge.is_some(),
+            engine_pid: self.engine.as_ref().map(|h| h.id()),
+            window_pid: self.window.as_ref().map(|h| h.id()),
             bridge_pid: self.bridge.as_ref().map(|h| h.id()),
-            segundos: self.arranque.map(|t| t.elapsed().as_secs()).unwrap_or(0),
-            caido: self.caido.clone(),
+            seconds: self.started.map(|t| t.elapsed().as_secs()).unwrap_or(0),
+            crashed: self.crashed.clone(),
         }
     }
 
-    /// Últimas líneas de un log, para el panel.
-    pub fn log(&self, nombre: &str, lineas: usize) -> String {
-        let ruta = self.sim_dir.join("build").join(nombre);
-        let texto = std::fs::read_to_string(&ruta).unwrap_or_default();
-        let todas: Vec<&str> = texto.lines().collect();
-        todas[todas.len().saturating_sub(lineas)..].join("\n")
+    /// The last lines of a log, for the panel.
+    pub fn log(&self, name: &str, lines: usize) -> String {
+        let path = self.sim_dir.join("build").join(name);
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        let all: Vec<&str> = text.lines().collect();
+        all[all.len().saturating_sub(lines)..].join("\n")
     }
 }
 
 impl Drop for Supervisor {
     fn drop(&mut self) {
-        self.detener();
+        self.stop();
     }
 }
 
@@ -591,30 +594,30 @@ impl Drop for Supervisor {
 mod tests {
     use super::*;
 
-    /// El JSON que manda la UI tiene que caer en `Config` campo por campo.
+    /// The JSON the UI sends has to land in `Config` field by field.
     ///
-    /// Es el mismo objeto literal de `ui/index.html`. Un nombre que no coincida
-    /// no da error de compilación en ningún lado: serde falla en tiempo de
-    /// ejecución, con la ventana ya abierta y el usuario dándole a Arrancar.
+    /// It is the same object literal as in `ui/js/pages/launch.js`. A name
+    /// that does not match is not a compile error anywhere: serde fails at run
+    /// time, with the window already open and the user pressing Start.
     #[test]
-    fn la_ui_y_config_hablan_el_mismo_json() {
-        let de_la_ui = r#"{
+    fn the_ui_and_config_speak_the_same_json() {
+        let from_ui = r#"{
             "world": "worlds/swerve.sdf",
             "robot_map": "models/swerve/robot-map.json",
             "nt_host": "127.0.0.1",
             "nt_port": 5810
         }"#;
-        let cfg: Config = serde_json::from_str(de_la_ui).expect("la UI manda algo que Config no lee");
+        let cfg: Config = serde_json::from_str(from_ui).expect("the UI sends something Config cannot read");
         assert_eq!(cfg.world, "worlds/swerve.sdf");
         assert_eq!(cfg.robot_map, "models/swerve/robot-map.json");
         assert_eq!(cfg.nt_port, 5810);
     }
 
-    /// Los campos con defecto pueden faltar.
+    /// The fields with a default can be missing.
     #[test]
-    fn el_servidor_nt4_tiene_defecto() {
-        let minimo = r#"{"world": "worlds/empty.sdf", "robot_map": "models/testbot/robot-map.json"}"#;
-        let cfg: Config = serde_json::from_str(minimo).expect("faltan defectos");
+    fn the_nt4_server_has_a_default() {
+        let minimal = r#"{"world": "worlds/empty.sdf", "robot_map": "models/testbot/robot-map.json"}"#;
+        let cfg: Config = serde_json::from_str(minimal).expect("defaults missing");
         assert_eq!(cfg.nt_host, "127.0.0.1");
         assert_eq!(cfg.nt_port, 5810);
     }

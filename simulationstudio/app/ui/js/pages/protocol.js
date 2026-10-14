@@ -1,15 +1,15 @@
-// Protocol: la referencia del contrato entre los tres procesos.
+// Protocol: the reference for the contract between the three processes.
 //
-// El texto está resumido de sim/protocol/README.md, y el topics.toml se lee
-// del disco en vez de copiarse: es la fuente única de verdad de los nombres de
-// tópico, y el build.rs del bridge lo lee en tiempo de compilación. Una copia
-// aquí se desincronizaría el primer día.
+// The text is summarized from sim/protocol/README.md, and topics.toml is read
+// from disk instead of copied: it is the single source of truth for topic
+// names, and the bridge's build.rs reads it at compile time. A copy here
+// would drift on day one.
 
 import { el, invoke } from "./../core.js";
-import { navegar, reportar } from "./../shell.js";
-import { boton, panel } from "./../ui.js";
+import { navigate, report } from "./../shell.js";
+import { button, panel } from "./../ui.js";
 
-const SALTOS = `  robot code                     bridge (Rust)              engine (C++)
+const HOPS = `  robot code                     bridge (Rust)              engine (C++)
   ──────────                     ─────────────              ────────────
   simulateJava / roboRIO                                    gz-sim headless
 
@@ -23,20 +23,20 @@ const SALTOS = `  robot code                     bridge (Rust)              engi
                    │                  │
              MARS Desktop (client) ───┘`;
 
-export function paginaProtocol() {
+export function protocolPage() {
   const toml = el("pre.log", { style: { height: "300px" } }, "Reading protocol/topics.toml…");
-  invoke("sim_leer_texto", { ruta: "protocol/topics.toml" })
+  invoke("sim_read_text", { path: "protocol/topics.toml" })
     .then((t) => (toml.textContent = t))
     .catch((e) => (toml.textContent = `Could not read protocol/topics.toml:\n${e.message}`));
 
-  const cuerpo = el(
+  const body = el(
     "div.stack",
 
     panel(
       "The three hops",
       { svg: "network.svg", help: "protocol.topics" },
       el("div.doc", { html: "<p>A running simulation is three processes and three channels between them.</p>" }),
-      el("pre.log", { style: { height: "auto" } }, SALTOS),
+      el("pre.log", { style: { height: "auto" } }, HOPS),
       el("div.doc", {
         html: `
           <h4>Three role decisions worth not revisiting lightly</h4>
@@ -123,10 +123,10 @@ export function paginaProtocol() {
       {
         svg: "model-file.svg",
         help: "protocol.topics",
-        acciones: boton("Reveal", {
+        actions: button("Reveal", {
           sm: true,
           svg: "open-folder.svg",
-          onclick: () => invoke("sim_revelar", { ruta: "protocol/topics.toml" }).catch(reportar),
+          onclick: () => invoke("sim_reveal", { path: "protocol/topics.toml" }).catch(report),
         }),
       },
       el("div.doc", {
@@ -140,11 +140,11 @@ export function paginaProtocol() {
   );
 
   return {
-    titulo: "Protocol",
+    title: "Protocol",
     meta: "The contract between engine, bridge and robot code",
     help: "protocol.topics",
-    ancho: "narrow",
-    acciones: [boton("Import guide", { svg: "import-model.svg", sm: true, onclick: () => navegar("guide") })],
-    cuerpo,
+    width: "narrow",
+    actions: [button("Import guide", { svg: "import-model.svg", sm: true, onclick: () => navigate("guide") })],
+    body,
   };
 }

@@ -1,244 +1,246 @@
-// World Editor: el árbol de propiedades que genera el SDF.
+// World Editor: the property tree that generates the SDF.
 //
-// Cuatro pestañas. **Properties** y **Props** editan el spec y regeneran el
-// XML; **Source** edita el XML a mano; **Preview** enseña lo que saldría del
-// spec sin escribir nada --- ver el XML antes de guardarlo es la diferencia
-// entre confiar en el generador y comprobarlo.
+// Four tabs. **Properties** and **Props** edit the spec and regenerate the
+// XML; **Source** edits the XML by hand; **Preview** shows what would come out
+// of the spec without writing anything --- seeing the XML before saving it is
+// the difference between trusting the generator and checking it.
 //
-// Un mundo EXTERNO (sin .studio.json al lado) abre directamente en Source, con
-// el árbol deshabilitado. Regenerar un SDF escrito a mano a partir de lo poco
-// que un regex puede sacar de él destruiría trabajo ajeno en silencio.
+// An EXTERNAL world (no .studio.json beside it) opens straight into Source,
+// with the tree disabled. Regenerating a hand-written SDF from the little a
+// regex can pull out of it would silently destroy someone else's work.
 
-import { anotarReciente, el, estado, grados, guardarPrefs, invoke, pintar, radianes, recargarBibliotecas } from "./../core.js";
-import { navegar, refrescarPagina, reportar } from "./../shell.js";
+import { degrees, el, fill, invoke, noteRecent, radians, reloadLibraries, savePrefs, state } from "./../core.js";
+import { navigate, refreshPage, report } from "./../shell.js";
 import {
-  aviso, boton, casilla, chip, color, grupoProp, modal, numero, numeroEn,
-  opciones, prop, propTexto, texto, vacio,
+  button, checkbox, chip, colorInput, emptyState, modal, notice, numberAt, numberInput,
+  prop, propGroup, propText, select, textInput,
 } from "./../ui.js";
-import { PROPS_PREDEFINIDOS, nuevoProp, rejillaFuel } from "./../worldspec.js";
-import { nuevoMundo } from "./worlds.js";
+import { PRESET_PROPS, fuelGrid, newProp } from "./../worldspec.js";
+import { newWorld } from "./worlds.js";
 
-const MOTORES = [
+const ENGINES = [
   ["dart", "DART (default, verified)"],
   ["bullet-featherstone", "Bullet Featherstone"],
 ];
 
 /**
- * Lo que el generador va a hacer con ese número, dicho ANTES de guardarlo: la
- * rejilla que sale y si hay que apilar. Sin esto, "60" y "600" se ven igual en
- * el editor, y la diferencia solo aparece cuando la ventana del mundo ya está
- * abierta y arrastrándose.
+ * What the generator will do with that number, said BEFORE saving it: the
+ * grid that comes out and whether it has to stack. Without this, "60" and
+ * "600" look the same in the editor, and the difference only shows up once
+ * the world window is already open and crawling.
  */
-function notaFuel(s) {
+function fuelNote(s) {
   if (!s.fuel) return "none";
-  const { cols, filas, porCapa, capas } = rejillaFuel(s.fuel, s.fuel_area);
-  const rejilla = `${cols} × ${filas} grid`;
-  return capas > 1 ? `${rejilla}, ${capas} layers (${porCapa} per layer)` : rejilla;
+  const { cols, rows, perLayer, layers } = fuelGrid(s.fuel, s.fuel_area);
+  const grid = `${cols} × ${rows} grid`;
+  return layers > 1 ? `${grid}, ${layers} layers (${perLayer} per layer)` : grid;
 }
 
-const FORMAS = [
+const SHAPES = [
   ["box", "Box"],
   ["cylinder", "Cylinder"],
   ["sphere", "Sphere"],
   ["mesh", "Mesh"],
 ];
 
-export function paginaEditor(params) {
-  const ruta = params?.ruta ?? estado.mundoAbierto ?? estado.prefs.mundoSeleccionado ?? estado.prefs.mundo;
-  const info = estado.mundos.find((m) => m.ruta === ruta);
+export function editorPage(params) {
+  const path = params?.path ?? state.openWorld ?? state.prefs.selectedWorld ?? state.prefs.world;
+  const info = state.worlds.find((m) => m.path === path);
 
-  if (!ruta || !info) {
+  if (!path || !info) {
     return {
-      titulo: "World Editor",
-      cuerpo: vacio(
+      title: "World Editor",
+      body: emptyState(
         "No world open",
         "Pick one in World Library, or create a new one"
       ),
-      acciones: [
-        boton("New world", { svg: "add.svg", sm: true, onclick: () => nuevoMundo() }),
-        boton("World Library", { svg: "scene.svg", sm: true, onclick: () => navegar("worlds") }),
+      actions: [
+        button("New world", { svg: "add.svg", sm: true, onclick: () => newWorld() }),
+        button("World Library", { svg: "scene.svg", sm: true, onclick: () => navigate("worlds") }),
       ],
     };
   }
 
-  estado.mundoAbierto = ruta;
-  anotarReciente(ruta);
-  const cuerpo = el("div.stack");
+  state.openWorld = path;
+  noteRecent(path);
+  const body = el("div.stack");
 
   let spec = null;
-  let sucio = false;
-  let pestana = estado.prefs.editorTab ?? "props";
+  let dirty = false;
+  let tab = state.prefs.editorTab ?? "props";
 
-  // El manifiesto del generador, si este mundo lo tiene, y lo que el usuario
-  // lleva elegido. `null` mientras no se ha preguntado; `false` si no hay.
-  let generador = null;
-  let valores = {};
-  let salidaGen = "";
+  // The generator's manifest, if this world has one, and what the user has
+  // chosen so far. `null` while it has not been asked; `false` if there is
+  // none.
+  let generator = null;
+  let values = {};
+  let generatorOutput = "";
 
-  const marcarSucio = () => {
-    if (sucio) return;
-    sucio = true;
-    pintarTodo();
+  const markDirty = () => {
+    if (dirty) return;
+    dirty = true;
+    drawAll();
   };
 
-  // --- guardar ----------------------------------------------------------
+  // --- saving ----------------------------------------------------------------
 
-  async function guardar() {
+  async function save() {
     try {
-      await invoke("sim_guardar_mundo", { spec });
-      sucio = false;
-      await recargarBibliotecas();
-      pintarTodo();
+      await invoke("sim_save_world", { spec });
+      dirty = false;
+      await reloadLibraries();
+      drawAll();
     } catch (e) {
-      reportar(e);
+      report(e);
     }
   }
 
-  // --- carga ------------------------------------------------------------
+  // --- loading ---------------------------------------------------------------
 
   (async () => {
     try {
-      spec = await invoke("sim_mundo_spec", { ruta });
+      spec = await invoke("sim_world_spec", { path });
     } catch (e) {
-      reportar(e);
+      report(e);
     }
     try {
-      generador = (await invoke("sim_generador", { ruta })) ?? false;
-      if (generador) {
-        for (const o of generador.opciones) valores[o.nombre] = o.defecto;
-        // Un mundo generado no se edita con el arbol: su pestana util es esta.
-        if (!spec) pestana = "generator";
+      generator = (await invoke("sim_generator", { path })) ?? false;
+      if (generator) {
+        for (const o of generator.options) values[o.name] = o.default;
+        // A generated world is not edited with the tree: its useful tab is
+        // this one.
+        if (!spec) tab = "generator";
       }
     } catch (e) {
-      generador = false;
-      reportar(e);
+      generator = false;
+      report(e);
     }
-    if (!spec && !generador) pestana = "source";
-    pintarTodo();
+    if (!spec && !generator) tab = "source";
+    drawAll();
   })();
 
-  pintar(cuerpo, el("div.empty-state", "Loading world…"));
+  fill(body, el("div.empty-state", "Loading world…"));
 
-  // --- pintado ----------------------------------------------------------
+  // --- drawing ---------------------------------------------------------------
 
-  function pintarTodo() {
-    const externo = !spec;
-    // La pestaña elegida se recuerda entre mundos, y "generator" solo existe en
-    // los que tienen script: sin esto, abrir un mundo normal después de uno
-    // generado deja el editor en una pestaña que no está.
-    if (pestana === "generator" && !generador) pestana = externo ? "source" : "props";
-    const tabs = el(
+  function drawAll() {
+    const external = !spec;
+    // The chosen tab is remembered across worlds, and "generator" only exists
+    // on the ones with a script: without this, opening a normal world after a
+    // generated one leaves the editor on a tab that is not there.
+    if (tab === "generator" && !generator) tab = external ? "source" : "props";
+    const tabBar = el(
       "div.tabs",
       ...[
-        ["props", "Properties", "settings.svg", !externo],
-        ["objects", "Props & objects", "game-piece.svg", !externo],
-        ["generator", "Generator", "wizard.svg", Boolean(generador)],
+        ["props", "Properties", "settings.svg", !external],
+        ["objects", "Props & objects", "game-piece.svg", !external],
+        ["generator", "Generator", "wizard.svg", Boolean(generator)],
         ["source", "Source (SDF)", "model-file.svg", true],
-        ["preview", "Preview", "visible.svg", !externo],
+        ["preview", "Preview", "visible.svg", !external],
       ]
         .filter(([, , , visible]) => visible)
-        .map(([id, etiqueta, svg]) =>
+        .map(([id, label, svg]) =>
           el(
             "div.tab",
             {
-              data: { active: String(pestana === id) },
+              data: { active: String(tab === id) },
               onclick: () => {
-                pestana = id;
-                guardarPrefs({ editorTab: id });
-                pintarTodo();
+                tab = id;
+                savePrefs({ editorTab: id });
+                drawAll();
               },
             },
             el("img", { src: `icons/${svg}`, width: 13, height: 13, alt: "" }),
-            etiqueta
+            label
           )
         )
     );
 
-    const contenido =
-      pestana === "generator" && generador ? vistaGenerador()
-      : externo ? vistaFuente(ruta, true)
-      : pestana === "props" ? vistaPropiedades()
-      : pestana === "objects" ? vistaObjetos()
-      : pestana === "source" ? vistaFuente(ruta, false)
-      : vistaPreview();
+    const content =
+      tab === "generator" && generator ? generatorView()
+      : external ? sourceView(path, true)
+      : tab === "props" ? propertiesView()
+      : tab === "objects" ? objectsView()
+      : tab === "source" ? sourceView(path, false)
+      : previewView();
 
-    pintar(
-      cuerpo,
-      externo && generador
-        ? aviso(
-            `This world is written by ${generador.script}. Change it from the Generator tab and press Generate — editing the XML by hand works, but the next Generate overwrites it.`,
+    fill(
+      body,
+      external && generator
+        ? notice(
+            `This world is written by ${generator.script}. Change it from the Generator tab and press Generate — editing the XML by hand works, but the next Generate overwrites it.`,
             "info"
           )
-        : externo
-        ? aviso(
+        : external
+        ? notice(
             "This is an external world: there is no .studio.json beside it, so the property tree cannot rewrite it. Edit the XML directly below — everything else about it works normally.",
             "warn"
           )
         : null,
-      sucio ? aviso("Unsaved changes. The .sdf on disk still holds the previous version.", "warn") : null,
-      ...info.notas.map((n) => aviso(n, "warn")),
-      el("div", { style: { border: "1px solid var(--border-main)" } }, tabs, el("div", { style: { padding: "0" } }, contenido))
+      dirty ? notice("Unsaved changes. The .sdf on disk still holds the previous version.", "warn") : null,
+      ...info.notes.map((n) => notice(n, "warn")),
+      el("div", { style: { border: "1px solid var(--border-main)" } }, tabBar, el("div", { style: { padding: "0" } }, content))
     );
   }
 
-  // --- pestaña: propiedades ---------------------------------------------
+  // --- tab: properties -------------------------------------------------------
 
-  function vistaPropiedades() {
+  function propertiesView() {
     const s = spec;
-    const alCambiar = () => marcarSucio();
+    const onChange = () => markDirty();
 
-    // Los ángulos se editan en grados aunque el SDF los guarde en radianes: un
-    // heading de spawn es algo que se piensa en grados. La conversión pasa
-    // aquí y en ningún otro sitio.
-    const anguloPose = (arr, i) =>
+    // Angles are edited in degrees even though the SDF stores them in
+    // radians: a spawn heading is something people think about in degrees.
+    // The conversion happens here and nowhere else.
+    const poseAngle = (arr, i) =>
       el("input", {
         type: "number",
         step: 1,
-        value: Number(grados(arr[i]).toFixed(2)),
+        value: Number(degrees(arr[i]).toFixed(2)),
         oninput: (e) => {
           const v = parseFloat(e.target.value);
           if (Number.isFinite(v)) {
-            arr[i] = radianes(v);
-            marcarSucio();
+            arr[i] = radians(v);
+            markDirty();
           }
         },
       });
 
-    // El árbol solo se repinta la PRIMERA vez que se ensucia: repintarlo en
-    // cada tecla le robaría el foco al campo que se está escribiendo. Pero la
-    // cuenta de FUEL tiene que seguir al número --- si no, dice "8 × 3" al lado
-    // de un 200 --- así que esta parte se refresca a mano y en su propio nodo.
-    const notaFuelNodo = el("span", notaFuel(s));
-    const filasFuel = el("div");
+    // The tree is only redrawn the FIRST time it gets dirty: redrawing it on
+    // every keystroke would steal focus from the field being typed in. But
+    // the FUEL count has to follow the number --- otherwise it says "8 × 3"
+    // next to a 200 --- so this part is refreshed by hand in its own node.
+    const fuelNoteNode = el("span", fuelNote(s));
+    const fuelRows = el("div");
 
-    const camposFuel = () =>
+    const fuelFields = () =>
       s.fuel > 0
         ? [
             prop(
               "Staging zone",
               el(
                 "div.row",
-                numeroEn(s.fuel_area, 0, { onchange: alCambiarFuel }),
-                numeroEn(s.fuel_area, 1, { onchange: alCambiarFuel })
+                numberAt(s.fuel_area, 0, { onchange: onFuelChange }),
+                numberAt(s.fuel_area, 1, { onchange: onFuelChange })
               ),
-              { help: "world.fuel.zone", indent: 1, unidad: "m  ·  x y" }
+              { help: "world.fuel.zone", indent: 1, unit: "m  ·  x y" }
             ),
             prop(
               "Zone centre",
               el(
                 "div.row",
-                numeroEn(s.fuel_centro, 0, { onchange: alCambiar }),
-                numeroEn(s.fuel_centro, 1, { onchange: alCambiar })
+                numberAt(s.fuel_center, 0, { onchange: onChange }),
+                numberAt(s.fuel_center, 1, { onchange: onChange })
               ),
-              { help: "world.fuel.zone", indent: 1, unidad: "m" }
+              { help: "world.fuel.zone", indent: 1, unit: "m" }
             ),
-            prop("Drop height", numero(s, "fuel_altura", { step: 0.05, min: 0, onchange: alCambiar }), {
+            prop("Drop height", numberInput(s, "fuel_height", { step: 0.05, min: 0, onchange: onChange }), {
               help: "world.fuel.zone",
               indent: 1,
-              unidad: "m above the floor",
+              unit: "m above the floor",
             }),
             s.fuel > 60
-              ? aviso(
+              ? notice(
                   `${s.fuel} FUEL is a lot of dynamic bodies. Watch the real-time factor: below ~0.95 the loop stops being representative, and this is the cheapest thing to cut.`,
                   "warn"
                 )
@@ -246,67 +248,67 @@ export function paginaEditor(params) {
           ]
         : [];
 
-    // La zona cambia la rejilla pero no qué campos hay: repintar el contenedor
-    // entero mientras se escribe dentro de él se llevaría el foco.
-    function alCambiarFuel() {
-      pintar(notaFuelNodo, notaFuel(s));
-      marcarSucio();
+    // The zone changes the grid but not which fields there are: redrawing
+    // the whole container while typing inside it would take the focus away.
+    function onFuelChange() {
+      fill(fuelNoteNode, fuelNote(s));
+      markDirty();
     }
-    function refrescarFuel() {
-      pintar(notaFuelNodo, notaFuel(s));
-      pintar(filasFuel, ...camposFuel());
+    function refreshFuel() {
+      fill(fuelNoteNode, fuelNote(s));
+      fill(fuelRows, ...fuelFields());
     }
-    pintar(filasFuel, ...camposFuel());
+    fill(fuelRows, ...fuelFields());
 
     return el(
       "div",
-      grupoProp("World", "worlds.managed"),
-      propTexto("File", `worlds/${s.archivo}.sdf`),
+      propGroup("World", "worlds.managed"),
+      propText("File", `worlds/${s.file}.sdf`),
       prop("World name", el("span.row", el("span.mono", "mars"), chip("fixed")), { help: "worlds.name-mars" }),
-      prop("Description", texto(s, "descripcion", { placeholder: "What this world is for", onchange: alCambiar })),
+      prop("Description", textInput(s, "description", { placeholder: "What this world is for", onchange: onChange })),
 
-      grupoProp("Physics", "world.physics.step"),
-      prop("Step size", numero(s, "paso", { step: 0.001, min: 0.0001, max: 0.1, onchange: alCambiar }), {
+      propGroup("Physics", "world.physics.step"),
+      prop("Step size", numberInput(s, "step", { step: 0.001, min: 0.0001, max: 0.1, onchange: onChange }), {
         help: "world.physics.step",
-        unidad: `s  ·  ${s.paso > 0 ? Math.round(1 / s.paso) : 0} Hz`,
+        unit: `s  ·  ${s.step > 0 ? Math.round(1 / s.step) : 0} Hz`,
       }),
-      prop("Real-time factor", numero(s, "rtf", { step: 0.05, min: 0, onchange: alCambiar }), { help: "world.physics.rtf" }),
-      prop("Engine", opciones(s, "motor_fisica", MOTORES, { onchange: alCambiar }), { help: "world.physics.engine" }),
-      prop("Gravity Z", numero(s, "gravedad", { step: 0.1, onchange: alCambiar }), { help: "world.gravity", unidad: "m/s²" }),
+      prop("Real-time factor", numberInput(s, "rtf", { step: 0.05, min: 0, onchange: onChange }), { help: "world.physics.rtf" }),
+      prop("Engine", select(s, "physics_engine", ENGINES, { onchange: onChange }), { help: "world.physics.engine" }),
+      prop("Gravity Z", numberInput(s, "gravity", { step: 0.1, onchange: onChange }), { help: "world.gravity", unit: "m/s²" }),
 
-      grupoProp("Ground", "world.ground"),
-      prop("Ground plane", casilla(s, "suelo", { onchange: alCambiar }), { help: "world.ground" }),
-      prop("Friction μ", numero(s, "friccion", { step: 0.05, min: 0, onchange: alCambiar }), { help: "world.friction", indent: 1 }),
-      prop("Friction μ2", numero(s, "friccion2", { step: 0.05, min: 0, onchange: alCambiar }), { help: "world.friction", indent: 1 }),
-      prop("Field length (X)", numero(s, "cancha_largo", { step: 0.1, min: 0.1, onchange: alCambiar }), {
+      propGroup("Ground", "world.ground"),
+      prop("Ground plane", checkbox(s, "ground", { onchange: onChange }), { help: "world.ground" }),
+      prop("Friction μ", numberInput(s, "friction", { step: 0.05, min: 0, onchange: onChange }), { help: "world.friction", indent: 1 }),
+      prop("Friction μ2", numberInput(s, "friction2", { step: 0.05, min: 0, onchange: onChange }), { help: "world.friction", indent: 1 }),
+      prop("Field length (X)", numberInput(s, "field_length", { step: 0.1, min: 0.1, onchange: onChange }), {
         help: "world.field-size",
         indent: 1,
-        unidad: "m",
+        unit: "m",
       }),
-      prop("Field width (Y)", numero(s, "cancha_ancho", { step: 0.1, min: 0.1, onchange: alCambiar }), {
+      prop("Field width (Y)", numberInput(s, "field_width", { step: 0.1, min: 0.1, onchange: onChange }), {
         help: "world.field-size",
         indent: 1,
-        unidad: "m",
+        unit: "m",
       }),
-      prop("Ground colour", color(s.color_suelo, { onchange: alCambiar }), { indent: 1 }),
+      prop("Ground colour", colorInput(s.ground_color, { onchange: onChange }), { indent: 1 }),
 
-      grupoProp("FRC field model", "world.field"),
+      propGroup("FRC field model", "world.field"),
       prop(
         "Field mesh",
-        opciones(
+        select(
           s,
-          "campo",
+          "field_mesh",
           [
             ["", "None"],
-            ...(estado.campos ?? []).filter((c) => c.instalado).map((c) => [c.ruta, c.nombre]),
+            ...(state.fields ?? []).filter((c) => c.installed).map((c) => [c.path, c.name]),
           ],
-          { onchange: alCambiar }
+          { onchange: onChange }
         ),
         { help: "world.field" }
       ),
-      // Lo que el usuario necesita saber al ver el robot en el centro: no es un
-      // error, es que el marco de Gazebo es el del CENTRO y quien traslada al
-      // origen de esquina de WPILib es el bridge.
+      // What the user needs to know when they see the robot in the middle: it
+      // is not an error, Gazebo's frame is the CENTER's and the bridge is the
+      // one that translates to WPILib's corner origin.
       prop(
         "Origin",
         el(
@@ -315,133 +317,133 @@ export function paginaEditor(params) {
           el("span.dim", "="),
           el(
             "span.mono",
-            `WPILib (${(s.cancha_largo / 2).toFixed(2)}, ${(s.cancha_ancho / 2).toFixed(2)})`
+            `WPILib (${(s.field_length / 2).toFixed(2)}, ${(s.field_width / 2).toFixed(2)})`
           )
         ),
         { help: "world.field.origin", indent: 1 }
       ),
-      s.campo
+      s.field_mesh
         ? prop(
             "Mesh position",
             el(
               "div.row",
-              numeroEn(s.campo_pose, 0, { onchange: alCambiar }),
-              numeroEn(s.campo_pose, 1, { onchange: alCambiar }),
-              numeroEn(s.campo_pose, 2, { onchange: alCambiar })
+              numberAt(s.field_pose, 0, { onchange: onChange }),
+              numberAt(s.field_pose, 1, { onchange: onChange }),
+              numberAt(s.field_pose, 2, { onchange: onChange })
             ),
-            { help: "world.field.origin", indent: 1, unidad: "m" }
+            { help: "world.field.origin", indent: 1, unit: "m" }
           )
         : null,
-      s.campo
+      s.field_mesh
         ? prop(
             "Mesh rotation",
-            el("div.row", anguloPose(s.campo_pose, 3), anguloPose(s.campo_pose, 4), anguloPose(s.campo_pose, 5)),
-            { help: "world.field", indent: 1, unidad: "deg" }
+            el("div.row", poseAngle(s.field_pose, 3), poseAngle(s.field_pose, 4), poseAngle(s.field_pose, 5)),
+            { help: "world.field", indent: 1, unit: "deg" }
           )
         : null,
-      s.campo
-        ? prop("Mesh scale", numero(s, "campo_escala", { step: 0.01, min: 0.01, onchange: alCambiar }), {
+      s.field_mesh
+        ? prop("Mesh scale", numberInput(s, "field_scale", { step: 0.01, min: 0.01, onchange: onChange }), {
             help: "world.field",
             indent: 1,
           })
         : null,
 
-      grupoProp("FUEL (game pieces)", "world.fuel"),
-      prop("Count", numero(s, "fuel", { step: 1, min: 0, max: 456, onchange: () => { refrescarFuel(); alCambiar(); } }), {
+      propGroup("FUEL (game pieces)", "world.fuel"),
+      prop("Count", numberInput(s, "fuel", { step: 1, min: 0, max: 456, onchange: () => { refreshFuel(); onChange(); } }), {
         help: "world.fuel",
-        unidad: notaFuelNodo,
+        unit: fuelNoteNode,
       }),
-      filasFuel,
+      fuelRows,
 
-      grupoProp("Perimeter walls", "world.walls"),
-      prop("Walls", casilla(s, "muros", { onchange: alCambiar }), { help: "world.walls" }),
-      prop("Height", numero(s, "muro_alto", { step: 0.05, min: 0.01, onchange: alCambiar }), { indent: 1, unidad: "m" }),
-      prop("Thickness", numero(s, "muro_grosor", { step: 0.01, min: 0.01, onchange: alCambiar }), { indent: 1, unidad: "m" }),
+      propGroup("Perimeter walls", "world.walls"),
+      prop("Walls", checkbox(s, "walls", { onchange: onChange }), { help: "world.walls" }),
+      prop("Height", numberInput(s, "wall_height", { step: 0.05, min: 0.01, onchange: onChange }), { indent: 1, unit: "m" }),
+      prop("Thickness", numberInput(s, "wall_thickness", { step: 0.01, min: 0.01, onchange: onChange }), { indent: 1, unit: "m" }),
 
-      grupoProp("Lighting and scene", "world.lighting"),
-      prop("Sun", casilla(s, "sol", { onchange: alCambiar }), { help: "world.lighting" }),
-      prop("Cast shadows", casilla(s, "sombras", { onchange: alCambiar }), { indent: 1 }),
-      prop("Intensity", numero(s, "sol_intensidad", { step: 0.05, min: 0, max: 2, onchange: alCambiar }), { indent: 1 }),
+      propGroup("Lighting and scene", "world.lighting"),
+      prop("Sun", checkbox(s, "sun", { onchange: onChange }), { help: "world.lighting" }),
+      prop("Cast shadows", checkbox(s, "shadows", { onchange: onChange }), { indent: 1 }),
+      prop("Intensity", numberInput(s, "sun_intensity", { step: 0.05, min: 0, max: 2, onchange: onChange }), { indent: 1 }),
       prop(
         "Direction",
         el(
           "div.row",
-          numeroEn(s.sol_direccion, 0, { step: 0.1, onchange: alCambiar }),
-          numeroEn(s.sol_direccion, 1, { step: 0.1, onchange: alCambiar }),
-          numeroEn(s.sol_direccion, 2, { step: 0.1, onchange: alCambiar })
+          numberAt(s.sun_direction, 0, { step: 0.1, onchange: onChange }),
+          numberAt(s.sun_direction, 1, { step: 0.1, onchange: onChange }),
+          numberAt(s.sun_direction, 2, { step: 0.1, onchange: onChange })
         ),
-        { indent: 1, unidad: "x y z" }
+        { indent: 1, unit: "x y z" }
       ),
-      prop("Ambient light", numero(s, "ambiente", { step: 0.05, min: 0, max: 1, onchange: alCambiar }), { help: "world.scene" }),
-      prop("Background", color(s.fondo, { onchange: alCambiar }), { help: "world.scene" }),
+      prop("Ambient light", numberInput(s, "ambient", { step: 0.05, min: 0, max: 1, onchange: onChange }), { help: "world.scene" }),
+      prop("Background", colorInput(s.background, { onchange: onChange }), { help: "world.scene" }),
 
-      grupoProp("Systems", "world.plugins"),
+      propGroup("Systems", "world.plugins"),
       prop("Physics", el("span.row", chip("always on", "ok"), el("span.dim", "gz-sim-physics-system")), { help: "world.plugins" }),
       prop("Scene broadcaster", el("span.row", chip("always on", "ok"), el("span.dim", "gz-sim-scene-broadcaster-system")), {
         help: "world.plugins",
       }),
-      prop("User commands", casilla(s, "comandos_usuario", { onchange: alCambiar }), { help: "world.plugins" }),
-      prop("Sensors (rendering)", casilla(s, "sensores", { onchange: alCambiar }), { help: "world.sensors" }),
-      prop("IMU", casilla(s, "imu_system", { onchange: alCambiar }), { help: "robots.imu" }),
+      prop("User commands", checkbox(s, "user_commands", { onchange: onChange }), { help: "world.plugins" }),
+      prop("Sensors (rendering)", checkbox(s, "sensors", { onchange: onChange }), { help: "world.sensors" }),
+      prop("IMU", checkbox(s, "imu_system", { onchange: onChange }), { help: "robots.imu" }),
       prop(
         "Extra plugins",
         el("textarea", {
           rows: 2,
           placeholder: "One plugin filename per line",
-          value: (s.plugins_extra ?? []).join("\n"),
+          value: (s.extra_plugins ?? []).join("\n"),
           oninput: (e) => {
-            s.plugins_extra = e.target.value.split("\n").map((x) => x.trim()).filter(Boolean);
-            marcarSucio();
+            s.extra_plugins = e.target.value.split("\n").map((x) => x.trim()).filter(Boolean);
+            markDirty();
           },
         }),
         { help: "world.plugins" }
       ),
 
-      grupoProp("Robot", "world.robot-include"),
-      prop("Include URI", texto(s, "robot_uri", { placeholder: "model://my-robot   (empty = robot defined inside the world)", onchange: alCambiar }), {
+      propGroup("Robot", "world.robot-include"),
+      prop("Include URI", textInput(s, "robot_uri", { placeholder: "model://my-robot   (empty = robot defined inside the world)", onchange: onChange }), {
         help: "world.robot-include",
       }),
       prop(
         "Spawn position",
         el(
           "div.row",
-          numeroEn(s.robot_pose, 0, { onchange: alCambiar }),
-          numeroEn(s.robot_pose, 1, { onchange: alCambiar }),
-          numeroEn(s.robot_pose, 2, { onchange: alCambiar })
+          numberAt(s.robot_pose, 0, { onchange: onChange }),
+          numberAt(s.robot_pose, 1, { onchange: onChange }),
+          numberAt(s.robot_pose, 2, { onchange: onChange })
         ),
-        { help: "world.pose", indent: 1, unidad: "m" }
+        { help: "world.pose", indent: 1, unit: "m" }
       ),
       prop(
         "Spawn rotation",
-        el("div.row", anguloPose(s.robot_pose, 3), anguloPose(s.robot_pose, 4), anguloPose(s.robot_pose, 5)),
-        { help: "world.pose", indent: 1, unidad: "deg" }
+        el("div.row", poseAngle(s.robot_pose, 3), poseAngle(s.robot_pose, 4), poseAngle(s.robot_pose, 5)),
+        { help: "world.pose", indent: 1, unit: "deg" }
       )
     );
   }
 
-  // --- pestaña: props ----------------------------------------------------
+  // --- tab: props ------------------------------------------------------------
 
-  function vistaObjetos() {
+  function objectsView() {
     const s = spec;
 
-    const agregar = () => {
-      // El modal se construye antes de existir, asi que la funcion de cierre
-      // se captura por referencia: sin esto la fila elegida no tendria forma
-      // de cerrar el dialogo que la contiene.
-      const dialogo = {};
-      const elegir = (base) => {
-        s.props.push(nuevoProp(base, s.props.length + 1));
-        sucio = true;
-        dialogo.cerrar?.();
-        pintarTodo();
+    const add = () => {
+      // The modal is built before it exists, so the close function is
+      // captured by reference: without this the chosen row would have no way
+      // to close the dialog that contains it.
+      const dialog = {};
+      const choose = (base) => {
+        s.props.push(newProp(base, s.props.length + 1));
+        dirty = true;
+        dialog.close?.();
+        drawAll();
       };
       Object.assign(
-        dialogo,
+        dialog,
         modal({
-          titulo: "Add prop",
+          title: "Add prop",
           svg: "game-piece.svg",
-          ancho: 460,
-          cuerpo: el(
+          width: 460,
+          body: el(
             "div",
             el("div.doc", {
               html: `<p>Loose objects in the world: game pieces, obstacles, ramps, a wall to drive into.
@@ -452,18 +454,18 @@ export function paginaEditor(params) {
               "div.bevel",
               { style: { marginTop: "10px" } },
               el("div.bevel-title", el("span.label", "Shape")),
-              ...PROPS_PREDEFINIDOS.map((base) =>
+              ...PRESET_PROPS.map((base) =>
                 el(
                   "div.list-row",
-                  { onclick: () => elegir(base) },
+                  { onclick: () => choose(base) },
                   el("img", { src: "icons/game-piece.svg", width: 15, height: 15, alt: "" }),
-                  el("span", base.etiqueta),
-                  el("span.desc", base.forma)
+                  el("span", base.label),
+                  el("span.desc", base.shape)
                 )
               )
             )
           ),
-          pie: (cerrar) => [boton("Cancel", { onclick: cerrar })],
+          footer: (close) => [button("Cancel", { onclick: close })],
         })
       );
     };
@@ -475,9 +477,9 @@ export function paginaEditor(params) {
         el(
           "div.row",
           { style: { marginBottom: "12px" } },
-          boton("Add prop", { svg: "add-part.svg", variante: "primary", onclick: agregar })
+          button("Add prop", { svg: "add-part.svg", variant: "primary", onclick: add })
         ),
-        vacio("No props in this world", "Game pieces, obstacles and scenery go here")
+        emptyState("No props in this world", "Game pieces, obstacles and scenery go here")
       );
     }
 
@@ -486,52 +488,54 @@ export function paginaEditor(params) {
       el(
         "div.row",
         { style: { padding: "10px 12px", borderBottom: "1px solid var(--border-main)", background: "var(--bg-panel)" } },
-        boton("Add prop", { svg: "add-part.svg", variante: "primary", onclick: agregar }),
+        button("Add prop", { svg: "add-part.svg", variant: "primary", onclick: add }),
         el("span.dim", { style: { marginLeft: "auto", fontSize: "11px" } }, `${s.props.length} object${s.props.length === 1 ? "" : "s"}`)
       ),
-      ...s.props.map((p, i) => filaProp(p, i, s, marcarSucio, pintarTodo))
+      ...s.props.map((p, i) => propRow(p, i, s, markDirty, drawAll))
     );
   }
 
-  // --- pestaña: generador ------------------------------------------------
+  // --- tab: generator --------------------------------------------------------
   //
-  // El panel NO conoce ninguna opción: las pinta desde lo que el script declara
-  // en su `--opciones`. Añadir una opción al generador la hace aparecer aquí
-  // sola, que es la única forma de que la ventana y la terminal no se
-  // desincronicen.
+  // The panel knows NONE of the options: it draws them from what the script
+  // declares in its `--options`. Adding an option to the generator makes it
+  // appear here on its own, which is the only way the window and the
+  // terminal cannot drift apart.
 
-  function vistaGenerador() {
-    // Los helpers ligan el control al objeto: escriben en `valores[nombre]`
-    // ellos solos, asi que aqui no hace falta ningun onchange.
+  function generatorView() {
+    // The helpers bind the control to the object: they write into
+    // `values[name]` on their own, so no onchange is needed here.
     const control = (o) =>
-      o.tipo === "bool" ? casilla(valores, o.nombre)
-      : o.tipo === "opcion" ? opciones(valores, o.nombre, o.opciones)
-      : numero(valores, o.nombre, { step: 1, min: o.min, max: o.max });
+      o.type === "bool" ? checkbox(values, o.name)
+      : o.type === "choice" ? select(values, o.name, o.choices)
+      : numberInput(values, o.name, { step: 1, min: o.min, max: o.max });
 
-    // La ayuda de cada opcion va DEBAJO de su fila y no en un tooltip: es la
-    // diferencia entre "FUEL: 408" y "408 son todas y el mundo va a medio
-    // tiempo real", que es justo lo que hay que saber antes de elegir.
-    const fila = (o) => [
-      prop(o.etiqueta ?? o.nombre, control(o), { unidad: o.unidad }),
-      o.ayuda
+    // Each option's help goes UNDER its row and not in a tooltip: it is the
+    // difference between "FUEL: 408" and "408 is all of them and the world
+    // runs at half real time", which is exactly what you need to know before
+    // choosing.
+    const row = (o) => [
+      prop(o.label ?? o.name, control(o), { unit: o.unit }),
+      o.help
         ? el("div", { style: { padding: "0 12px 10px 12px", marginTop: "-6px" } },
-            el("span.dim", { style: { fontSize: "11px" } }, o.ayuda))
+            el("span.dim", { style: { fontSize: "11px" } }, o.help))
         : null,
     ];
 
-    const salida = el("pre.log", { style: { height: "150px", border: "none", borderRadius: "0" } },
-      salidaGen || "Nothing generated yet in this session.");
+    const output = el("pre.log", { style: { height: "150px", border: "none", borderRadius: "0" } },
+      generatorOutput || "Nothing generated yet in this session.");
 
-    const generar = async () => {
+    const generate = async () => {
       try {
-        salidaGen = await invoke("sim_generar_mundo", { ruta, valores });
-        // El .sdf de disco cambió: la biblioteca lo relee y el editor con ella.
-        await recargarBibliotecas();
-        pintarTodo();
+        generatorOutput = await invoke("sim_generate_world", { path, values });
+        // The .sdf on disk changed: the library rereads it and the editor
+        // with it.
+        await reloadLibraries();
+        drawAll();
       } catch (e) {
-        salidaGen = String(e.message ?? e);
-        pintarTodo();
-        reportar(e);
+        generatorOutput = String(e.message ?? e);
+        drawAll();
+        report(e);
       }
     };
 
@@ -540,41 +544,41 @@ export function paginaEditor(params) {
       el(
         "div.row",
         { style: { padding: "10px 12px", borderBottom: "1px solid var(--border-main)", background: "var(--bg-panel)" } },
-        boton("Generate", { svg: "publish.svg", variante: "primary", onclick: generar }),
-        boton("Defaults", {
+        button("Generate", { svg: "publish.svg", variant: "primary", onclick: generate }),
+        button("Defaults", {
           svg: "republish.svg",
           onclick: () => {
-            for (const o of generador.opciones) valores[o.nombre] = o.defecto;
-            pintarTodo();
+            for (const o of generator.options) values[o.name] = o.default;
+            drawAll();
           },
         }),
         el("span.dim", { style: { marginLeft: "auto", fontSize: "11px" } },
-          `${generador.script}  ·  writes ${(generador.genera ?? []).join(", ")}`)
+          `${generator.script}  ·  writes ${(generator.generates ?? []).join(", ")}`)
       ),
       el(
         "div",
-        grupoProp("Options", "worlds.generator"),
-        ...generador.opciones.flatMap(fila),
+        propGroup("Options", "worlds.generator"),
+        ...generator.options.flatMap(row),
         el("div", { style: { padding: "10px 12px 0 12px" } },
           el("span.dim", { style: { fontSize: "11px" } }, "Output")),
-        salida
+        output
       )
     );
   }
 
-  // --- pestaña: fuente ---------------------------------------------------
+  // --- tab: source -----------------------------------------------------------
 
-  function vistaFuente(ruta, externo) {
+  function sourceView(path, external) {
     const area = el("textarea", { rows: 26, spellcheck: "false", style: { border: "none", borderRadius: "0" } }, "Loading…");
     let original = "";
 
-    invoke("sim_leer_texto", { ruta })
+    invoke("sim_read_text", { path })
       .then((t) => {
         original = t;
         area.value = t;
       })
       .catch((e) => {
-        area.value = `Could not read ${ruta}:\n${e.message}`;
+        area.value = `Could not read ${path}:\n${e.message}`;
       });
 
     return el(
@@ -582,36 +586,36 @@ export function paginaEditor(params) {
       el(
         "div.row",
         { style: { padding: "10px 12px", borderBottom: "1px solid var(--border-main)", background: "var(--bg-panel)" } },
-        boton("Save SDF", {
+        button("Save SDF", {
           svg: "publish.svg",
-          variante: "primary",
+          variant: "primary",
           onclick: async () => {
             try {
-              await invoke("sim_escribir_texto", { ruta, contenido: area.value });
+              await invoke("sim_write_text", { path, content: area.value });
               original = area.value;
-              await recargarBibliotecas();
-              refrescarPagina();
+              await reloadLibraries();
+              refreshPage();
             } catch (e) {
-              reportar(e);
+              report(e);
             }
           },
         }),
-        boton("Revert", { svg: "republish.svg", onclick: () => (area.value = original) }),
+        button("Revert", { svg: "republish.svg", onclick: () => (area.value = original) }),
         el(
           "span.dim",
           { style: { marginLeft: "auto", fontSize: "11px" } },
-          externo ? "External world — this is the only editor for it" : "Hand edits are overwritten if you save from Properties"
+          external ? "External world — this is the only editor for it" : "Hand edits are overwritten if you save from Properties"
         )
       ),
       area
     );
   }
 
-  // --- pestaña: preview --------------------------------------------------
+  // --- tab: preview ----------------------------------------------------------
 
-  function vistaPreview() {
+  function previewView() {
     const pre = el("pre.log", { style: { height: "520px", border: "none", borderRadius: "0" } }, "Generating…");
-    invoke("sim_previsualizar_mundo", { spec })
+    invoke("sim_preview_world", { spec })
       .then((sdf) => (pre.textContent = sdf))
       .catch((e) => (pre.textContent = e.message));
     return el(
@@ -620,10 +624,10 @@ export function paginaEditor(params) {
         "div.row",
         { style: { padding: "10px 12px", borderBottom: "1px solid var(--border-main)", background: "var(--bg-panel)" } },
         el("span.dim", { style: { fontSize: "11px" } }, "What Save would write. Nothing on disk has changed."),
-        boton("Copy", {
+        button("Copy", {
           svg: "copy-value.svg",
           sm: true,
-          onclick: () => navigator.clipboard?.writeText(pre.textContent).catch(reportar),
+          onclick: () => navigator.clipboard?.writeText(pre.textContent).catch(report),
           title: "Copy XML",
         })
       ),
@@ -632,51 +636,51 @@ export function paginaEditor(params) {
   }
 
   return {
-    titulo: `World Editor — ${info.archivo}`,
-    meta: spec === null && info.gestionado ? "" : info.gestionado ? "managed" : "external",
+    title: `World Editor — ${info.file}`,
+    meta: spec === null && info.managed ? "" : info.managed ? "managed" : "external",
     help: "worlds.managed",
-    acciones: [
-      boton("Save", {
+    actions: [
+      button("Save", {
         svg: "publish.svg",
-        variante: "primary",
+        variant: "primary",
         sm: true,
-        onclick: () => (spec ? guardar() : null),
+        onclick: () => (spec ? save() : null),
         title: "Write the .sdf and its .studio.json",
       }),
-      boton("Run this world", {
+      button("Run this world", {
         svg: "play.svg",
         sm: true,
         onclick: () => {
-          guardarPrefs({ mundo: ruta });
-          navegar("launch");
+          savePrefs({ world: path });
+          navigate("launch");
         },
       }),
-      boton("Library", { svg: "scene.svg", sm: true, onclick: () => navegar("worlds") }),
+      button("Library", { svg: "scene.svg", sm: true, onclick: () => navigate("worlds") }),
     ],
-    cuerpo,
+    body,
   };
 }
 
-// --- una tarjeta de prop --------------------------------------------------
+// --- a prop card ---------------------------------------------------------------
 
-function filaProp(p, i, spec, marcarSucio, repintar) {
+function propRow(p, i, spec, markDirty, redraw) {
   const dims =
-    p.forma === "sphere"
+    p.shape === "sphere"
       ? [["Radius", 0]]
-      : p.forma === "cylinder"
+      : p.shape === "cylinder"
       ? [["Radius", 0], ["Length", 1]]
       : [["Size X", 0], ["Size Y", 1], ["Size Z", 2]];
 
-  const angulo = (idx) =>
+  const angle = (idx) =>
     el("input", {
       type: "number",
       step: 5,
-      value: Number(grados(p.pose[idx]).toFixed(2)),
+      value: Number(degrees(p.pose[idx]).toFixed(2)),
       oninput: (e) => {
         const v = parseFloat(e.target.value);
         if (Number.isFinite(v)) {
-          p.pose[idx] = radianes(v);
-          marcarSucio();
+          p.pose[idx] = radians(v);
+          markDirty();
         }
       },
     });
@@ -688,66 +692,66 @@ function filaProp(p, i, spec, marcarSucio, repintar) {
       "div.prop-group",
       { style: { background: "var(--bg-panel-header)" } },
       el("img", { src: "icons/game-piece.svg", width: 12, height: 12, alt: "" }),
-      p.nombre || `prop ${i + 1}`,
+      p.name || `prop ${i + 1}`,
       el(
         "span",
         { style: { marginLeft: "auto", display: "flex", gap: "5px" } },
-        boton("Duplicate", {
+        button("Duplicate", {
           svg: "duplicate.svg",
           sm: true,
           onclick: () => {
-            spec.props.splice(i + 1, 0, { ...structuredClone(p), nombre: `${p.nombre}_copy` });
-            marcarSucio();
-            repintar();
+            spec.props.splice(i + 1, 0, { ...structuredClone(p), name: `${p.name}_copy` });
+            markDirty();
+            redraw();
           },
         }),
-        boton("Remove", {
+        button("Remove", {
           svg: "delete.svg",
           sm: true,
           onclick: () => {
             spec.props.splice(i, 1);
-            marcarSucio();
-            repintar();
+            markDirty();
+            redraw();
           },
         })
       )
     ),
-    prop("Name", texto(p, "nombre", { onchange: marcarSucio }), { help: "world.props", indent: 1 }),
+    prop("Name", textInput(p, "name", { onchange: markDirty }), { help: "world.props", indent: 1 }),
     prop(
       "Shape",
-      opciones(p, "forma", FORMAS, {
+      select(p, "shape", SHAPES, {
         onchange: () => {
-          marcarSucio();
-          repintar();
+          markDirty();
+          redraw();
         },
       }),
       { indent: 1 }
     ),
-    p.forma === "mesh"
-      ? prop("Mesh URI", texto(p, "malla", { placeholder: "model://my-model/meshes/part.dae", onchange: marcarSucio }), {
+    p.shape === "mesh"
+      ? prop("Mesh URI", textInput(p, "mesh", { placeholder: "model://my-model/meshes/part.dae", onchange: markDirty }), {
           help: "guide.sdf-model",
           indent: 1,
         })
       : null,
-    ...dims.map(([etiqueta, idx]) =>
-      prop(p.forma === "mesh" ? `Scale ${["X", "Y", "Z"][idx]}` : etiqueta, numeroEn(p.tamano, idx, { onchange: marcarSucio }), {
+    ...dims.map(([label, idx]) =>
+      prop(p.shape === "mesh" ? `Scale ${["X", "Y", "Z"][idx]}` : label, numberAt(p.size, idx, { onchange: markDirty }), {
         indent: 2,
-        unidad: p.forma === "mesh" ? "×" : "m",
+        unit: p.shape === "mesh" ? "×" : "m",
       })
     ),
-    prop("Static", casilla(p, "estatico", { onchange: marcarSucio }), { help: "world.props", indent: 1 }),
-    p.estatico ? null : prop("Mass", numero(p, "masa", { step: 0.1, min: 0.001, onchange: marcarSucio }), { help: "world.props.mass", indent: 1, unidad: "kg" }),
+    prop("Static", checkbox(p, "static", { onchange: markDirty }), { help: "world.props", indent: 1 }),
+    p.static ? null : prop("Mass", numberInput(p, "mass", { step: 0.1, min: 0.001, onchange: markDirty }), { help: "world.props.mass", indent: 1, unit: "kg" }),
     prop(
       "Position",
       el(
         "div.row",
-        numeroEn(p.pose, 0, { onchange: marcarSucio }),
-        numeroEn(p.pose, 1, { onchange: marcarSucio }),
-        numeroEn(p.pose, 2, { onchange: marcarSucio })
+        numberAt(p.pose, 0, { onchange: markDirty }),
+        numberAt(p.pose, 1, { onchange: markDirty }),
+        numberAt(p.pose, 2, { onchange: markDirty })
       ),
-      { help: "world.pose", indent: 1, unidad: "m" }
+      { help: "world.pose", indent: 1, unit: "m" }
     ),
-    prop("Rotation", el("div.row", angulo(3), angulo(4), angulo(5)), { help: "world.pose", indent: 1, unidad: "deg" }),
-    prop("Colour", color(p.color, { onchange: marcarSucio }), { indent: 1 })
+    prop("Rotation", el("div.row", angle(3), angle(4), angle(5)), { help: "world.pose", indent: 1, unit: "deg" }),
+    prop("Colour", colorInput(p.color, { onchange: markDirty }), { indent: 1 })
   );
 }

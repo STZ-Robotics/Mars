@@ -1,17 +1,17 @@
-// About: qué es esto, sobre qué corre, y de quién es cada parte.
+// About: what this is, what it runs on, and who each part belongs to.
 //
-// El crédito a Gazebo va aquí completo, no solo el logo de la barra de estado:
-// toda la física de esta aplicación es Gazebo Jetty, consumido como
-// dependencia de conda-forge y nunca clonado al repositorio.
+// The credit to Gazebo goes here in full, not just the logo in the status
+// bar: all the physics in this application is Gazebo Jetty, consumed as a
+// conda-forge dependency and never cloned into the repository.
 
 import { MSS_PROTOCOL_VERSION, MSS_VERSION } from "./../constants.js";
-import { el, estado } from "./../core.js";
-import { navegar } from "./../shell.js";
-import { boton, panel, propTexto } from "./../ui.js";
-import { abrirBienvenida } from "./../welcome.js";
+import { el, state } from "./../core.js";
+import { navigate } from "./../shell.js";
+import { button, panel, propText } from "./../ui.js";
+import { openWelcome } from "./../welcome.js";
 
-export function paginaAbout() {
-  const cuerpo = el(
+export function aboutPage() {
+  const body = el(
     "div.stack",
 
     el(
@@ -84,10 +84,10 @@ export function paginaAbout() {
       { svg: "settings.svg" },
       el(
         "div",
-        propTexto("sim/ directory", estado.opciones?.sim_dir ?? "—"),
-        propTexto("Conda environment", estado.opciones?.conda_dir ?? "—"),
-        propTexto("Worlds", String(estado.mundos.length)),
-        propTexto("Robot maps", String(estado.robots.length))
+        propText("sim/ directory", state.options?.sim_dir ?? "—"),
+        propText("Conda environment", state.options?.conda_dir ?? "—"),
+        propText("Worlds", String(state.worlds.length)),
+        propText("Robot maps", String(state.robots.length))
       )
     ),
 
@@ -108,12 +108,12 @@ export function paginaAbout() {
       el(
         "div.row-wrap",
         { style: { marginTop: "10px" } },
-        boton("Welcome screen", { svg: "home.svg", onclick: () => abrirBienvenida({ forzado: true }) }),
-        boton("Help topics", { svg: "help.svg", onclick: () => navegar("help") }),
-        boton("Import guide", { svg: "import-model.svg", onclick: () => navegar("guide") })
+        button("Welcome screen", { svg: "home.svg", onclick: () => openWelcome({ force: true }) }),
+        button("Help topics", { svg: "help.svg", onclick: () => navigate("help") }),
+        button("Import guide", { svg: "import-model.svg", onclick: () => navigate("guide") })
       )
     )
   );
 
-  return { titulo: "About", meta: "MARS Simulation Studio", ancho: "narrow", cuerpo };
+  return { title: "About", meta: "MARS Simulation Studio", width: "narrow", body };
 }

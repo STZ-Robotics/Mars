@@ -1,22 +1,20 @@
-// La ayuda contextual: el "?" que lleva cada panel y cada grupo de
-// propiedades, y el registro de temas que abre.
+// Contextual help: the "?" every panel and every property group carries, and
+// the registry of topics it opens.
 //
-// Todo lo que el programa hace y no se explica solo tiene una entrada aquí. La
-// regla que se siguió al escribirlas: cada tema dice QUÉ es el control, QUÉ
-// pasa si se cambia, y QUÉ falla si se pone mal --- ese tercer punto es el que
-// convierte una descripción en ayuda. Casi todos los fallos de esta app son
-// silenciosos (una física que no converge, un mundo sin plugin que arranca y
-// no publica nada), así que un tema que solo repite el nombre del campo no
-// sirve para nada.
-//
-// El texto va en inglés, como toda la UI de los dos productos.
+// Everything the program does that does not explain itself has an entry here.
+// The rule followed when writing them: each topic says WHAT the control is,
+// WHAT happens if it changes, and WHAT breaks if it is set wrong --- that third
+// point is what turns a description into help. Almost every failure of this
+// app is silent (physics that does not converge, a world without a plugin that
+// starts and publishes nothing), so a topic that only repeats the field's name
+// is useless.
 
-import { el, escapar, icono, pintar } from "./core.js";
+import { el, escapeHtml, fill, icon } from "./core.js";
 
-const T = (titulo, cuerpo, ver = []) => ({ titulo, cuerpo, ver });
+const T = (title, body, see = []) => ({ title, body, see });
 
 export const HELP = {
-  // --- la aplicación ----------------------------------------------------
+  // --- the application --------------------------------------------------
   "app.overview": T(
     "What MARS Simulation Studio is",
     `<p><strong>MARS Simulation Studio</strong> runs and authors the physics simulation of your
@@ -72,7 +70,7 @@ export const HELP = {
     ["diagnostics"]
   ),
 
-  // --- lanzamiento ------------------------------------------------------
+  // --- launching ----------------------------------------------------------
   "launch.world": T(
     "World",
     `<p>The <code>.sdf</code> file the physics engine loads. It defines everything that is not the
@@ -151,7 +149,7 @@ export const HELP = {
     ["app.processes"]
   ),
 
-  // --- biblioteca de mundos ---------------------------------------------
+  // --- world library ------------------------------------------------------
   "worlds.library": T(
     "World Library",
     `<p>Every <code>.sdf</code> in <code>sim/worlds/</code>, with what could be read out of it:
@@ -172,7 +170,7 @@ export const HELP = {
      together with its <code>robot-map.json</code> so the <em>order</em> of the actuators cannot
      drift between the two files.</p>
      <p>The <strong>Generator</strong> tab is that script's own option list. The panel does not know
-     what any of the options mean: it asks the script with <code>--opciones</code> and draws what
+     what any of the options mean: it asks the script with <code>--options</code> and draws what
      comes back. Add an option to the generator and it appears here on its own — which is the only
      way the window and the terminal can stay in agreement.</p>
      <p><strong>Generate</strong> reruns the script and overwrites both files. Anything you edited
@@ -233,7 +231,7 @@ export const HELP = {
     ["guide.sdf-model", "worlds.name-mars"]
   ),
 
-  // --- propiedades del mundo --------------------------------------------
+  // --- world properties ---------------------------------------------------
   "world.physics.step": T(
     "Physics step",
     `<p>How much simulated time each solver step advances, in seconds. Smaller is more accurate
@@ -632,7 +630,7 @@ export const HELP = {
     ["robots.control-mode", "protocol.topics"]
   ),
 
-  // --- guías y referencia ------------------------------------------------
+  // --- guides and reference ----------------------------------------------
   "guide.sdf-model": T(
     "Importing an SDF model",
     `<p>The full walkthrough is on the <strong>Import Guide</strong> page — folder layout, mesh
@@ -664,123 +662,123 @@ export const HELP = {
   ),
 };
 
-// --- el botón y su popover ----------------------------------------------
+// --- the button and its popover -------------------------------------------
 
-let abierto = null;
+let open = null;
 
 /**
- * El "?" que se pone junto a un título.
+ * The "?" placed next to a title.
  *
- * `id` tiene que existir en HELP: un botón que abre un tema vacío es peor que
- * no tener botón, así que en desarrollo se avisa por consola.
+ * `id` has to exist in HELP: a button that opens an empty topic is worse than
+ * no button, so in development it warns on the console.
  */
-export function ayuda(id) {
-  if (!HELP[id]) console.warn(`[help] tema inexistente: ${id}`);
+export function helpButton(id) {
+  if (!HELP[id]) console.warn(`[help] no such topic: ${id}`);
   return el(
     "button.help-btn",
     {
       type: "button",
       title: "What is this?",
-      "aria-label": `Help: ${HELP[id]?.titulo ?? id}`,
+      "aria-label": `Help: ${HELP[id]?.title ?? id}`,
       onclick: (e) => {
         e.stopPropagation();
-        abrirAyuda(id, e.currentTarget);
+        openHelp(id, e.currentTarget);
       },
     },
     "?"
   );
 }
 
-/** Abre el tema `id`, anclado al elemento que lo pidió. */
-export function abrirAyuda(id, ancla) {
-  cerrarAyuda();
-  const tema = HELP[id];
-  if (!tema) return;
+/** Opens topic `id`, anchored to the element that asked for it. */
+export function openHelp(id, anchor) {
+  closeHelp();
+  const topic = HELP[id];
+  if (!topic) return;
 
   const pop = el(
     "div.help-pop",
-    { role: "dialog", "aria-label": tema.titulo },
+    { role: "dialog", "aria-label": topic.title },
     el(
       "div.head",
-      icono("help.svg", 13),
-      el("span.label", tema.titulo),
-      el("button.btn.btn-sm", { type: "button", onclick: cerrarAyuda, title: "Close" }, "✕")
+      icon("help.svg", 13),
+      el("span.label", topic.title),
+      el("button.btn.btn-sm", { type: "button", onclick: closeHelp, title: "Close" }, "✕")
     ),
-    el("div.doc", { html: tema.cuerpo + verTambien(tema.ver) })
+    el("div.doc", { html: topic.body + seeAlso(topic.see) })
   );
 
-  // Los enlaces "see also" saltan de tema sin cerrar el popover, que es como se
-  // navega un índice de ayuda.
+  // The "see also" links jump between topics without closing the popover,
+  // which is how a help index is navigated.
   pop.querySelectorAll("a[data-help]").forEach((a) =>
     a.addEventListener("click", (e) => {
       e.preventDefault();
-      abrirAyuda(a.dataset.help, ancla);
+      openHelp(a.dataset.help, anchor);
     })
   );
 
   document.body.appendChild(pop);
-  colocar(pop, ancla);
-  ancla?.setAttribute("data-open", "true");
-  abierto = { pop, ancla };
+  place(pop, anchor);
+  anchor?.setAttribute("data-open", "true");
+  open = { pop, anchor };
 
-  // Un click fuera cierra. Se registra en el siguiente tick para no comerse el
-  // click que acaba de abrirlo.
-  setTimeout(() => document.addEventListener("mousedown", fuera), 0);
+  // A click outside closes it. It is registered on the next tick so as not to
+  // swallow the click that just opened it.
+  setTimeout(() => document.addEventListener("mousedown", outside), 0);
   document.addEventListener("keydown", escape);
 }
 
-function verTambien(ver) {
-  const vivos = (ver || []).filter((v) => HELP[v]);
-  if (!vivos.length) return "";
-  const enlaces = vivos
-    .map((v) => `<a data-help="${v}" href="#">${escapar(HELP[v].titulo)}</a>`)
+function seeAlso(see) {
+  const alive = (see || []).filter((v) => HELP[v]);
+  if (!alive.length) return "";
+  const links = alive
+    .map((v) => `<a data-help="${v}" href="#">${escapeHtml(HELP[v].title)}</a>`)
     .join(" · ");
   return `<p style="margin-top:12px;padding-top:9px;border-top:1px solid var(--border-light);font-size:11px">
-            <strong>See also:</strong> ${enlaces}
+            <strong>See also:</strong> ${links}
           </p>`;
 }
 
-/** Debajo del ancla si cabe, encima si no, y siempre dentro de la ventana. */
-function colocar(pop, ancla) {
-  const r = ancla?.getBoundingClientRect() ?? { left: 40, bottom: 60, top: 60 };
-  const caja = pop.getBoundingClientRect();
-  const margen = 8;
+/** Below the anchor if it fits, above if not, and always inside the window. */
+function place(pop, anchor) {
+  const r = anchor?.getBoundingClientRect() ?? { left: 40, bottom: 60, top: 60 };
+  const box = pop.getBoundingClientRect();
+  const margin = 8;
 
   let left = r.left - 10;
-  left = Math.max(margen, Math.min(left, window.innerWidth - caja.width - margen));
+  left = Math.max(margin, Math.min(left, window.innerWidth - box.width - margin));
 
   let top = r.bottom + 6;
-  if (top + caja.height > window.innerHeight - margen) {
-    const arriba = r.top - caja.height - 6;
-    top = arriba >= margen ? arriba : Math.max(margen, window.innerHeight - caja.height - margen);
+  if (top + box.height > window.innerHeight - margin) {
+    const above = r.top - box.height - 6;
+    top = above >= margin ? above : Math.max(margin, window.innerHeight - box.height - margin);
   }
 
   pop.style.left = `${Math.round(left)}px`;
   pop.style.top = `${Math.round(top)}px`;
 }
 
-function fuera(e) {
-  if (abierto && !abierto.pop.contains(e.target)) cerrarAyuda();
+function outside(e) {
+  if (open && !open.pop.contains(e.target)) closeHelp();
 }
 function escape(e) {
-  if (e.key === "Escape") cerrarAyuda();
+  if (e.key === "Escape") closeHelp();
 }
 
-export function cerrarAyuda() {
-  if (!abierto) return;
-  abierto.pop.remove();
-  abierto.ancla?.removeAttribute("data-open");
-  abierto = null;
-  document.removeEventListener("mousedown", fuera);
+export function closeHelp() {
+  if (!open) return;
+  open.pop.remove();
+  open.anchor?.removeAttribute("data-open");
+  open = null;
+  document.removeEventListener("mousedown", outside);
   document.removeEventListener("keydown", escape);
 }
 
 /**
- * El índice completo, para la página Help Topics. Devuelve los temas
- * agrupados por su prefijo, que es como están nombrados.
+ * The full index, for the Help Topics page. Returns the topics grouped by
+ * their prefix, which is how they are named.
  */
-export function temasPorGrupo() {
-  const nombres = {
+export function topicsByGroup() {
+  const names = {
     app: "The application",
     launch: "Running a simulation",
     console: "Logs",
@@ -791,25 +789,25 @@ export function temasPorGrupo() {
     guide: "Guides",
     protocol: "Protocol",
   };
-  const grupos = new Map();
-  for (const [id, tema] of Object.entries(HELP)) {
+  const groups = new Map();
+  for (const [id, topic] of Object.entries(HELP)) {
     const g = id.split(".")[0];
-    if (!grupos.has(g)) grupos.set(g, { nombre: nombres[g] ?? g, temas: [] });
-    grupos.get(g).temas.push({ id, ...tema });
+    if (!groups.has(g)) groups.set(g, { name: names[g] ?? g, topics: [] });
+    groups.get(g).topics.push({ id, ...topic });
   }
-  return [...grupos.values()];
+  return [...groups.values()];
 }
 
-/** Renderiza un tema completo dentro de un nodo (para la página de ayuda). */
-export function pintarTema(nodo, id) {
-  const tema = HELP[id];
-  if (!tema) return nodo;
-  pintar(nodo, el("div.doc", { html: tema.cuerpo + verTambien(tema.ver) }));
-  nodo.querySelectorAll("a[data-help]").forEach((a) =>
+/** Renders a full topic inside a node (for the help page). */
+export function renderTopic(node, id) {
+  const topic = HELP[id];
+  if (!topic) return node;
+  fill(node, el("div.doc", { html: topic.body + seeAlso(topic.see) }));
+  node.querySelectorAll("a[data-help]").forEach((a) =>
     a.addEventListener("click", (e) => {
       e.preventDefault();
-      pintarTema(nodo, a.dataset.help);
+      renderTopic(node, a.dataset.help);
     })
   );
-  return nodo;
+  return node;
 }

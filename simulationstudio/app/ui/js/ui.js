@@ -1,273 +1,273 @@
-// Los componentes del chrome, como funciones que devuelven nodos.
+// The chrome's components, as functions that return nodes.
 //
-// Son los mismos que mars-desktop tiene en React (Panel, PropertyRow,
-// AlertBanner, EmptyState, StatusBadge, ToolbarButton) con el mismo look, pero
-// sin framework: esta app no lleva toolchain de node, así que un "componente"
-// es una función y las "props" son argumentos.
+// They are the same ones mars-desktop has in React (Panel, PropertyRow,
+// AlertBanner, EmptyState, StatusBadge, ToolbarButton) with the same look,
+// but without a framework: this app carries no node toolchain, so a
+// "component" is a function and the "props" are arguments.
 
-import { el, icono } from "./core.js";
-import { ayuda } from "./help.js";
+import { el, icon } from "./core.js";
+import { helpButton } from "./help.js";
 
-// --- paneles -------------------------------------------------------------
+// --- panels ----------------------------------------------------------------
 
 /**
- * Panel acoplable estilo QDockWidget (los "Displays"/"Views" de RViz): barra
- * de título sólida y contenido debajo, todo dentro de un borde fino.
+ * QDockWidget-style dockable panel (RViz's "Displays"/"Views"): a solid title
+ * bar and the content below, all inside a thin border.
  *
- * `opciones.help` pone el "?" en la barra de título; `opciones.acciones` va a
- * su derecha; `flush` quita el padding del cuerpo (listas y tablas lo quieren
- * pegado al borde).
+ * `options.help` puts the "?" in the title bar; `options.actions` goes to its
+ * right; `flush` removes the body's padding (lists and tables want it flush
+ * with the border).
  */
-export function panel(titulo, { svg, help, acciones, flush } = {}, ...hijos) {
+export function panel(title, { svg, help, actions, flush } = {}, ...children) {
   return el(
     "div.panel",
     el(
       "div.panel-title",
-      svg && icono(svg),
-      el("span.label", titulo),
-      el("span.right", help && ayuda(help), acciones)
+      svg && icon(svg),
+      el("span.label", title),
+      el("span.right", help && helpButton(help), actions)
     ),
-    el(flush ? "div.panel-body.flush" : "div.panel-body", ...hijos)
+    el(flush ? "div.panel-body.flush" : "div.panel-body", ...children)
   );
 }
 
-/** Panel con relieve (QGroupBox clásico), para el portal y las guías. */
-export function bevel(titulo, { svg, help, acciones } = {}, ...hijos) {
+/** Raised panel (classic QGroupBox), for the portal and the guides. */
+export function bevel(title, { svg, help, actions } = {}, ...children) {
   return el(
     "div.bevel",
     el(
       "div.bevel-title",
-      svg && icono(svg),
-      el("span.label", titulo),
-      el("span.right", help && ayuda(help), acciones)
+      svg && icon(svg),
+      el("span.label", title),
+      el("span.right", help && helpButton(help), actions)
     ),
-    ...hijos
+    ...children
   );
 }
 
-// --- filas de propiedades ------------------------------------------------
+// --- property rows -----------------------------------------------------------
 
-/** Fila `nombre | control` de 24 px, como el árbol de propiedades de RViz. */
-export function prop(nombre, control, { help, indent = 0, unidad } = {}) {
+/** A 24 px `name | control` row, like RViz's property tree. */
+export function prop(name, control, { help, indent = 0, unit } = {}) {
   return el(
     "div.prop",
     { data: { indent } },
-    el("div.name", nombre, help && ayuda(help)),
-    el("div.value", control, unidad && el("span.unit", unidad))
+    el("div.name", name, help && helpButton(help)),
+    el("div.value", control, unit && el("span.unit", unit))
   );
 }
 
-/** Cabecera de un grupo de filas de propiedades. */
-export function grupoProp(nombre, help) {
-  return el("div.prop-group", nombre, help && ayuda(help));
+/** Header of a group of property rows. */
+export function propGroup(name, help) {
+  return el("div.prop-group", name, help && helpButton(help));
 }
 
-/** Fila de solo lectura: valor en monoespaciada, sin control. */
-export function propTexto(nombre, valor, opciones) {
-  return prop(nombre, el("span.mono", valor ?? "—"), opciones);
+/** Read-only row: value in monospace, no control. */
+export function propText(name, value, options) {
+  return prop(name, el("span.mono", value ?? "—"), options);
 }
 
-// --- controles ligados ---------------------------------------------------
+// --- bound controls ----------------------------------------------------------
 
 /**
- * `<input type=number>` ligado a `objeto[clave]`.
+ * `<input type=number>` bound to `object[key]`.
  *
- * Nunca escribe NaN: un campo vacío o a medio teclear deja el modelo como
- * estaba, en vez de meterle un NaN que sale al SDF y hace que el motor muera
- * al parsear.
+ * It never writes NaN: an empty or half-typed field leaves the model as it
+ * was, instead of putting a NaN into it that goes out to the SDF and makes
+ * the engine die while parsing.
  */
-export function numero(objeto, clave, { step = 0.01, min, max, onchange } = {}) {
+export function numberInput(object, key, { step = 0.01, min, max, onchange } = {}) {
   return el("input", {
     type: "number",
-    value: objeto[clave],
+    value: object[key],
     step,
     min,
     max,
     oninput: (e) => {
       const v = parseFloat(e.target.value);
       if (Number.isFinite(v)) {
-        objeto[clave] = v;
+        object[key] = v;
         onchange?.(v);
       }
     },
   });
 }
 
-/** Igual, pero sobre `objeto[clave][i]` (poses, direcciones, tamaños). */
-export function numeroEn(arreglo, i, { step = 0.01, onchange } = {}) {
+/** Same, but on `array[i]` (poses, directions, sizes). */
+export function numberAt(array, i, { step = 0.01, onchange } = {}) {
   return el("input", {
     type: "number",
-    value: arreglo[i],
+    value: array[i],
     step,
     oninput: (e) => {
       const v = parseFloat(e.target.value);
       if (Number.isFinite(v)) {
-        arreglo[i] = v;
+        array[i] = v;
         onchange?.(v);
       }
     },
   });
 }
 
-export function texto(objeto, clave, { placeholder, onchange } = {}) {
+export function textInput(object, key, { placeholder, onchange } = {}) {
   return el("input", {
     type: "text",
-    value: objeto[clave] ?? "",
+    value: object[key] ?? "",
     placeholder,
     spellcheck: "false",
     oninput: (e) => {
-      objeto[clave] = e.target.value;
+      object[key] = e.target.value;
       onchange?.(e.target.value);
     },
   });
 }
 
-export function casilla(objeto, clave, { etiqueta, onchange } = {}) {
+export function checkbox(object, key, { label, onchange } = {}) {
   const input = el("input", {
     type: "checkbox",
-    checked: Boolean(objeto[clave]),
+    checked: Boolean(object[key]),
     onchange: (e) => {
-      objeto[clave] = e.target.checked;
+      object[key] = e.target.checked;
       onchange?.(e.target.checked);
     },
   });
-  return etiqueta
-    ? el("label", { style: { display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", cursor: "pointer" } }, input, etiqueta)
+  return label
+    ? el("label", { style: { display: "flex", alignItems: "center", gap: "6px", fontSize: "11px", cursor: "pointer" } }, input, label)
     : input;
 }
 
-export function opciones(objeto, clave, lista, { onchange } = {}) {
+export function select(object, key, list, { onchange } = {}) {
   return el(
     "select",
     {
       onchange: (e) => {
-        objeto[clave] = e.target.value;
+        object[key] = e.target.value;
         onchange?.(e.target.value);
       },
     },
-    ...lista.map(([valor, etiqueta]) =>
-      el("option", { value: valor, selected: String(objeto[clave]) === String(valor) }, etiqueta ?? valor)
+    ...list.map(([value, label]) =>
+      el("option", { value, selected: String(object[key]) === String(value) }, label ?? value)
     )
   );
 }
 
-/** Selector de color que habla en floats 0..1, como el SDF. */
-export function color(arreglo, { onchange } = {}) {
+/** Color picker that speaks in 0..1 floats, like SDF. */
+export function colorInput(array, { onchange } = {}) {
   const hex = (c) => {
     const b = (x) => Math.max(0, Math.min(255, Math.round(x * 255))).toString(16).padStart(2, "0");
     return `#${b(c[0])}${b(c[1])}${b(c[2])}`;
   };
   return el("input", {
     type: "color",
-    value: hex(arreglo),
+    value: hex(array),
     oninput: (e) => {
       const n = parseInt(e.target.value.slice(1), 16);
-      arreglo[0] = ((n >> 16) & 255) / 255;
-      arreglo[1] = ((n >> 8) & 255) / 255;
-      arreglo[2] = (n & 255) / 255;
+      array[0] = ((n >> 16) & 255) / 255;
+      array[1] = ((n >> 8) & 255) / 255;
+      array[2] = (n & 255) / 255;
       onchange?.();
     },
   });
 }
 
-// --- botones -------------------------------------------------------------
+// --- buttons -----------------------------------------------------------------
 
-export function boton(etiqueta, { svg, onclick, variante, disabled, title, sm } = {}) {
-  const clases = ["btn", variante && `btn-${variante}`, sm && "btn-sm"].filter(Boolean).join(".");
-  return el(`button.${clases}`, { type: "button", onclick, disabled, title: title ?? etiqueta }, svg && icono(svg), etiqueta);
+export function button(label, { svg, onclick, variant, disabled, title, sm } = {}) {
+  const classes = ["btn", variant && `btn-${variant}`, sm && "btn-sm"].filter(Boolean).join(".");
+  return el(`button.${classes}`, { type: "button", onclick, disabled, title: title ?? label }, svg && icon(svg), label);
 }
 
-// --- avisos y vacíos -----------------------------------------------------
+// --- notices and empty states ------------------------------------------------
 
-export function aviso(mensaje, variante = "error") {
-  const svg = { ok: "status-ok.svg", warn: "status-warning.svg", info: "status-unknown.svg" }[variante] ?? "status-error.svg";
-  return el("div.alert", { data: { variant: variante } }, icono(svg), el("span", mensaje));
+export function notice(message, variant = "error") {
+  const svg = { ok: "status-ok.svg", warn: "status-warning.svg", info: "status-unknown.svg" }[variant] ?? "status-error.svg";
+  return el("div.alert", { data: { variant } }, icon(svg), el("span", message));
 }
 
-export function vacio(mensaje, pista) {
-  return el("div.empty-state", el("div", mensaje), pista && el("div.hint", pista));
+export function emptyState(message, hint) {
+  return el("div.empty-state", el("div", message), hint && el("div.hint", hint));
 }
 
-export function chip(etiqueta, tono) {
-  return el("span.chip", { data: tono ? { tone: tono } : {} }, etiqueta);
+export function chip(label, tone) {
+  return el("span.chip", { data: tone ? { tone } : {} }, label);
 }
 
-export function punto(tono) {
-  return el("span.dot", { data: tono ? { tone: tono } : {} });
+export function dot(tone) {
+  return el("span.dot", { data: tone ? { tone } : {} });
 }
 
-// --- pestañas ------------------------------------------------------------
+// --- tabs --------------------------------------------------------------------
 
 /**
- * Barra de pestañas. `alCambiar(id)` se llama con el id elegido; el llamador
- * decide qué repintar.
+ * Tab bar. `onChange(id)` is called with the chosen id; the caller decides
+ * what to redraw.
  */
-export function pestanas(items, activo, alCambiar) {
+export function tabs(items, active, onChange) {
   return el(
     "div.tabs",
-    ...items.map(([id, etiqueta, svg]) =>
+    ...items.map(([id, label, svg]) =>
       el(
         "div.tab",
-        { data: { active: String(id === activo) }, onclick: () => alCambiar(id) },
-        svg && icono(svg, 13),
-        etiqueta
+        { data: { active: String(id === active) }, onclick: () => onChange(id) },
+        svg && icon(svg, 13),
+        label
       )
     )
   );
 }
 
-// --- modal ---------------------------------------------------------------
+// --- modal -------------------------------------------------------------------
 
 /**
- * Diálogo modal. Devuelve `{ cerrar }`.
+ * Modal dialog. Returns `{ close, box }`.
  *
- * `pie` recibe la función de cierre para que sus botones puedan cerrarlo, y
- * Escape cierra siempre: un modal del que no se sale con Escape es un modal
- * roto.
+ * `footer` receives the close function so its buttons can close it, and
+ * Escape always closes: a modal you cannot leave with Escape is a broken
+ * modal.
  */
-export function modal({ titulo, svg, ancho, clase, cuerpo, pie, alCerrar }) {
-  const caja = el(`div.modal${clase ? "." + clase : ""}`, ancho ? { style: { width: `${ancho}px` } } : {});
-  const capa = el("div.overlay", { onmousedown: (e) => { if (e.target === capa) cerrar(); } }, caja);
+export function modal({ title, svg, width, className, body, footer, onClose }) {
+  const box = el(`div.modal${className ? "." + className : ""}`, width ? { style: { width: `${width}px` } } : {});
+  const layer = el("div.overlay", { onmousedown: (e) => { if (e.target === layer) close(); } }, box);
 
-  function cerrar() {
-    capa.remove();
-    document.removeEventListener("keydown", tecla);
-    alCerrar?.();
+  function close() {
+    layer.remove();
+    document.removeEventListener("keydown", key);
+    onClose?.();
   }
-  function tecla(e) {
-    if (e.key === "Escape") cerrar();
+  function key(e) {
+    if (e.key === "Escape") close();
   }
 
-  caja.append(
+  box.append(
     el(
       "div.modal-title",
-      svg && icono(svg),
-      el("span", titulo),
-      el("button.close", { type: "button", onclick: cerrar, title: "Close" }, "✕")
+      svg && icon(svg),
+      el("span", title),
+      el("button.close", { type: "button", onclick: close, title: "Close" }, "✕")
     ),
-    cuerpo instanceof HTMLElement && cuerpo.classList.contains("modal-body") ? cuerpo : el("div.modal-body", cuerpo)
+    body instanceof HTMLElement && body.classList.contains("modal-body") ? body : el("div.modal-body", body)
   );
-  if (pie) caja.append(el("div.modal-footer", pie(cerrar)));
+  if (footer) box.append(el("div.modal-footer", footer(close)));
 
-  document.addEventListener("keydown", tecla);
-  document.body.appendChild(capa);
-  return { cerrar, caja };
+  document.addEventListener("keydown", key);
+  document.body.appendChild(layer);
+  return { close, box };
 }
 
-/** Confirmación destructiva. Nunca usa `window.confirm`: rompe el look. */
-export function confirmar({ titulo, mensaje, etiquetaOk = "Delete", alAceptar }) {
+/** Destructive confirmation. Never uses `window.confirm`: it breaks the look. */
+export function confirmDialog({ title, message, okLabel = "Delete", onAccept }) {
   modal({
-    titulo,
+    title,
     svg: "status-warning.svg",
-    ancho: 420,
-    cuerpo: el("div.doc", el("p", mensaje)),
-    pie: (cerrar) => [
-      boton("Cancel", { onclick: cerrar }),
-      boton(etiquetaOk, {
-        variante: "stop",
+    width: 420,
+    body: el("div.doc", el("p", message)),
+    footer: (close) => [
+      button("Cancel", { onclick: close }),
+      button(okLabel, {
+        variant: "stop",
         onclick: () => {
-          cerrar();
-          alAceptar();
+          close();
+          onAccept();
         },
       }),
     ],

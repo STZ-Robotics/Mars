@@ -1,127 +1,126 @@
-// El selector de archivos.
+// The file picker.
 //
-// La app no lleva `tauri-plugin-dialog`: una dependencia más para abrir un
-// cuadro de "elegí un .sdf", que es su único uso del disco. Se hace con
-// `std::fs` del lado de Rust (`estudio::explorar`) y con este diálogo del
-// lado de la UI, que además encaja con el resto del chrome --- un selector
-// nativo de Windows 11, con sus esquinas redondeadas, se vería como una
-// ventana de otro programa.
+// The app does not carry `tauri-plugin-dialog`: one more dependency to open
+// a "pick an .sdf" box, which is its only use of the disk. It is done with
+// `std::fs` on the Rust side (`studio::browse`) and this dialog on the UI
+// side, which also fits the rest of the chrome --- a native Windows 11 picker,
+// with its rounded corners, would look like a window from another program.
 
-import { bytes, el, icono, invoke, pintar } from "./core.js";
-import { aviso, boton, modal, vacio } from "./ui.js";
+import { bytes, el, fill, icon, invoke } from "./core.js";
+import { button, emptyState, modal, notice } from "./ui.js";
 
 /**
- * Abre el selector. `filtro` son extensiones sin punto, en minúscula
- * (`["sdf"]`); vacío muestra todos los archivos.
+ * Opens the picker. `filter` is extensions without the dot, lowercase
+ * (`["sdf"]`); empty shows every file.
  *
- * Llama a `alElegir(rutaAbsoluta)` y cierra.
+ * Calls `onPick(absolutePath)` and closes.
  */
-export function elegirArchivo({ titulo = "Open file", filtro = [], inicio = null, alElegir }) {
-  let dir = inicio;
-  let seleccion = null;
+export function pickFile({ title = "Open file", filter = [], start = null, onPick }) {
+  let dir = start;
+  let selection = null;
 
-  const rutaTexto = el("span.p");
-  const lista = el("div.browser-list");
-  const lateral = el("div.browser-side");
+  const pathText = el("span.p");
+  const list = el("div.browser-list");
+  const side = el("div.browser-side");
   const error = el("div", { style: { padding: "0 12px" } });
-  const btnArriba = boton("Up", { svg: "open-folder.svg", sm: true, onclick: () => subir() });
+  const upButton = button("Up", { svg: "open-folder.svg", sm: true, onclick: () => goUp() });
 
-  const cuerpo = el(
+  const body = el(
     "div.modal-body",
     { style: { padding: "0", display: "flex", flexDirection: "column", minHeight: "0", flex: "1" } },
-    el("div.browser-path", btnArriba, rutaTexto),
+    el("div.browser-path", upButton, pathText),
     error,
-    el("div.browser-body", lateral, lista)
+    el("div.browser-body", side, list)
   );
 
-  let padre = null;
-  const abrir = modal({
-    titulo,
+  let parent = null;
+  const dialog = modal({
+    title,
     svg: "open-folder.svg",
-    clase: "browser",
-    cuerpo,
-    pie: (cerrar) => [
+    className: "browser",
+    body,
+    footer: (close) => [
       el("span.left", el("span.mono.dim", { id: "browser-sel" }, "No file selected")),
-      boton("Cancel", { onclick: cerrar }),
-      boton("Open", {
-        variante: "primary",
+      button("Cancel", { onclick: close }),
+      button("Open", {
+        variant: "primary",
         onclick: () => {
-          if (!seleccion) return;
-          cerrar();
-          alElegir(seleccion);
+          if (!selection) return;
+          close();
+          onPick(selection);
         },
       }),
     ],
   });
 
-  const etiquetaSel = abrir.caja.querySelector("#browser-sel");
-  const btnAbrir = abrir.caja.querySelector(".modal-footer .btn-primary");
-  btnAbrir.disabled = true;
+  const selectionLabel = dialog.box.querySelector("#browser-sel");
+  const openButton = dialog.box.querySelector(".modal-footer .btn-primary");
+  openButton.disabled = true;
 
-  function subir() {
-    if (padre) cargar(padre);
+  function goUp() {
+    if (parent) load(parent);
   }
 
-  async function cargar(destino) {
+  async function load(target) {
     try {
-      const r = await invoke("sim_explorar", { dir: destino, filtro });
+      const r = await invoke("sim_browse", { dir: target, filter });
       dir = r.dir;
-      padre = r.padre;
-      seleccion = null;
-      etiquetaSel.textContent = "No file selected";
-      btnAbrir.disabled = true;
-      btnArriba.disabled = !padre;
-      rutaTexto.textContent = r.dir;
-      pintar(error);
+      parent = r.parent;
+      selection = null;
+      selectionLabel.textContent = "No file selected";
+      openButton.disabled = true;
+      upButton.disabled = !parent;
+      pathText.textContent = r.dir;
+      fill(error);
 
-      pintar(
-        lateral,
-        ...r.atajos.map((a) =>
-          el("div.tree-row", { onclick: () => cargar(a.ruta), title: a.ruta }, icono("open-folder.svg"), a.nombre)
+      fill(
+        side,
+        ...r.shortcuts.map((a) =>
+          el("div.tree-row", { onclick: () => load(a.path), title: a.path }, icon("open-folder.svg"), a.name)
         )
       );
 
-      if (!r.entradas.length) {
-        pintar(lista, vacio("This folder is empty", filtro.length ? `filter: *.${filtro.join(", *.")}` : null));
+      if (!r.entries.length) {
+        fill(list, emptyState("This folder is empty", filter.length ? `filter: *.${filter.join(", *.")}` : null));
         return;
       }
 
-      pintar(
-        lista,
-        ...r.entradas.map((e) => {
-          const fila = el(
+      fill(
+        list,
+        ...r.entries.map((e) => {
+          const row = el(
             "div.list-row",
             {
-              title: e.ruta,
-              // Doble click entra en la carpeta o confirma el archivo: es lo
-              // que hace cualquier selector y lo que la mano espera.
+              title: e.path,
+              // Double click enters the folder or confirms the file: it is
+              // what any picker does and what the hand expects.
               ondblclick: () => {
-                if (e.carpeta) cargar(e.ruta);
+                if (e.is_dir) load(e.path);
                 else {
-                  abrir.cerrar();
-                  alElegir(e.ruta);
+                  dialog.close();
+                  onPick(e.path);
                 }
               },
               onclick: () => {
-                if (e.carpeta) return cargar(e.ruta);
-                seleccion = e.ruta;
-                etiquetaSel.textContent = e.nombre;
-                btnAbrir.disabled = false;
-                lista.querySelectorAll(".list-row").forEach((f) => f.removeAttribute("data-active"));
-                fila.dataset.active = "true";
+                if (e.is_dir) return load(e.path);
+                selection = e.path;
+                selectionLabel.textContent = e.name;
+                openButton.disabled = false;
+                list.querySelectorAll(".list-row").forEach((f) => f.removeAttribute("data-active"));
+                row.dataset.active = "true";
               },
             },
-            icono(e.carpeta ? "open-folder.svg" : "model-file.svg"),
-            el("span", e.nombre),
-            !e.carpeta && el("span.desc", bytes(e.bytes))
+            icon(e.is_dir ? "open-folder.svg" : "model-file.svg"),
+            el("span", e.name),
+            !e.is_dir && el("span.desc", bytes(e.bytes))
           );
-          return fila;
+          return row;
         })
       );
     } catch (e) {
-      pintar(error, aviso(e.message));
+      fill(error, notice(e.message));
     }
   }
 
-  cargar(dir);
+  load(dir);
 }

@@ -1,118 +1,118 @@
-// Console: los tres logs, a tamaño completo.
+// Console: the three logs, full size.
 //
-// La app vieja tenía dos paneles de log recortados a 40 líneas. Aquí hay tres
-// (falta el de la ventana del mundo, que es donde aparece el fallo de OGRE
-// que deja la escena gris), con filtro, control de cuántas líneas se traen y
-// la opción de congelar la vista para poder leer.
+// The old app had two log panels cut to 40 lines. Here there are three (the
+// world window's was missing, and it is where the OGRE failure that leaves
+// the scene grey shows up), with a filter, a control for how many lines are
+// fetched and the option to freeze the view so it can be read.
 
-import { el, estado, invoke, pintar } from "./../core.js";
-import { reportar } from "./../shell.js";
-import { boton, casilla, panel } from "./../ui.js";
+import { el, fill, invoke, state } from "./../core.js";
+import { report } from "./../shell.js";
+import { button, checkbox, panel } from "./../ui.js";
 
-const FUENTES = [
-  ["motor", "Engine", "mars-sim-server — physics"],
-  ["mundo", "World window", "mars-sim-gui — the 3D view"],
+const SOURCES = [
+  ["engine", "Engine", "mars-sim-server — physics"],
+  ["window", "World window", "mars-sim-gui — the 3D view"],
   ["bridge", "Bridge", "mars-bridge — gz-transport ⇄ NT4"],
 ];
 
-export function paginaConsole() {
-  const cfg = estado.prefs.consola ?? (estado.prefs.consola = { lineas: 120, filtro: "", congelado: false });
+export function consolePage() {
+  const cfg = state.prefs.console ?? (state.prefs.console = { lines: 120, filter: "", frozen: false });
 
-  const paneles = {};
-  const cuerpo = el("div.stack");
+  const panes = {};
+  const body = el("div.stack");
 
-  const inFiltro = el("input", {
+  const filterInput = el("input", {
     type: "text",
-    value: cfg.filtro,
+    value: cfg.filter,
     placeholder: "Filter lines (plain text, case-insensitive)",
     spellcheck: "false",
     oninput: (e) => {
-      cfg.filtro = e.target.value;
-      repintar();
+      cfg.filter = e.target.value;
+      redraw();
     },
   });
 
-  const selLineas = el(
+  const linesSelect = el(
     "select",
     {
       style: { width: "90px" },
       onchange: (e) => {
-        cfg.lineas = parseInt(e.target.value, 10);
+        cfg.lines = parseInt(e.target.value, 10);
       },
     },
-    ...[60, 120, 250, 500].map((n) => el("option", { value: n, selected: cfg.lineas === n }, `${n} lines`))
+    ...[60, 120, 250, 500].map((n) => el("option", { value: n, selected: cfg.lines === n }, `${n} lines`))
   );
 
-  let ultimo = { motor: "", mundo: "", bridge: "" };
+  let last = { engine: "", window: "", bridge: "" };
 
-  function repintar() {
-    for (const [clave] of FUENTES) escribir(paneles[clave], ultimo[clave] ?? "");
+  function redraw() {
+    for (const [key] of SOURCES) write(panes[key], last[key] ?? "");
   }
 
-  function escribir(pre, texto) {
-    const lineas = texto.split("\n");
-    const f = cfg.filtro.trim().toLowerCase();
-    const vistas = f ? lineas.filter((l) => l.toLowerCase().includes(f)) : lineas;
-    const limpio = vistas.join("\n").replace(/^\s+|\s+$/g, "");
-    if (pre.textContent === limpio) return;
+  function write(pre, text) {
+    const lines = text.split("\n");
+    const f = cfg.filter.trim().toLowerCase();
+    const shown = f ? lines.filter((l) => l.toLowerCase().includes(f)) : lines;
+    const clean = shown.join("\n").replace(/^\s+|\s+$/g, "");
+    if (pre.textContent === clean) return;
 
-    // Seguir la cola solo si el usuario ya estaba al final: si está leyendo más
-    // arriba, saltarle el scroll es de las cosas más molestas que puede hacer
-    // un panel de logs.
-    const abajo = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
-    pre.textContent = limpio || (f ? "(no lines match the filter)" : "(empty)");
-    if (abajo) pre.scrollTop = pre.scrollHeight;
+    // Follow the tail only if the user was already at the bottom: if they are
+    // reading further up, yanking the scroll is one of the most annoying
+    // things a log panel can do.
+    const atBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight < 40;
+    pre.textContent = clean || (f ? "(no lines match the filter)" : "(empty)");
+    if (atBottom) pre.scrollTop = pre.scrollHeight;
   }
 
-  pintar(
-    cuerpo,
+  fill(
+    body,
     panel(
       "View",
       { svg: "console.svg", help: "console.logs" },
       el(
         "div.row",
-        el("span", { style: { flex: "1" } }, inFiltro),
-        selLineas,
-        casilla(cfg, "congelado", { etiqueta: "Freeze" }),
-        boton("Copy all", {
+        el("span", { style: { flex: "1" } }, filterInput),
+        linesSelect,
+        checkbox(cfg, "frozen", { label: "Freeze" }),
+        button("Copy all", {
           svg: "copy-value.svg",
           sm: true,
           onclick: () => {
-            const todo = FUENTES.map(([k, n]) => `=== ${n} ===\n${ultimo[k] ?? ""}`).join("\n\n");
-            navigator.clipboard?.writeText(todo).catch(reportar);
+            const all = SOURCES.map(([k, n]) => `=== ${n} ===\n${last[k] ?? ""}`).join("\n\n");
+            navigator.clipboard?.writeText(all).catch(report);
           },
         }),
-        boton("Reveal log folder", {
+        button("Reveal log folder", {
           svg: "open-folder.svg",
           sm: true,
-          onclick: () => invoke("sim_revelar", { ruta: "build" }).catch(reportar),
+          onclick: () => invoke("sim_reveal", { path: "build" }).catch(report),
         })
       )
     ),
-    ...FUENTES.map(([clave, titulo, sub]) => {
+    ...SOURCES.map(([key, title, sub]) => {
       const pre = el("pre.log", { style: { height: "220px" } }, "(empty)");
-      paneles[clave] = pre;
-      return panel(titulo, { svg: "console.svg", acciones: el("span.mono.dim", sub) }, pre);
+      panes[key] = pre;
+      return panel(title, { svg: "console.svg", actions: el("span.mono.dim", sub) }, pre);
     })
   );
 
   const tick = async () => {
-    if (cfg.congelado) return;
+    if (cfg.frozen) return;
     try {
-      const l = await invoke("sim_logs", { lineas: cfg.lineas });
-      ultimo = l;
-      repintar();
+      const l = await invoke("sim_logs", { lines: cfg.lines });
+      last = l;
+      redraw();
     } catch (e) {
-      // Un fallo leyendo logs no debe empapelar la página cada 700 ms.
+      // A failure reading logs must not wallpaper the page every 700 ms.
       console.warn(e);
     }
   };
 
   return {
-    titulo: "Console",
+    title: "Console",
     meta: "Engine, world window and bridge output",
     help: "console.logs",
-    cuerpo,
+    body,
     tick,
   };
 }

@@ -1,81 +1,83 @@
-//! MARS Simulation Studio: la aplicación de simulación.
+//! MARS Simulation Studio: the simulation application.
 //!
-//! Es un proceso APARTE de mars-desktop, a propósito. mars-desktop es el
-//! dashboard y solo lleva un botón que lanza esta app; todo lo de Gazebo vive
-//! aquí. Así la simulación puede reiniciarse, colgarse o actualizarse sin
-//! tocar la app que el equipo usa en competencia, y las dependencias pesadas
-//! (el entorno conda entero) no entran en el bundle del dashboard.
+//! It is a SEPARATE process from mars-desktop, on purpose. mars-desktop is
+//! the dashboard and only carries a button that launches this app; everything
+//! about Gazebo lives here. That way the simulation can restart, hang or be
+//! updated without touching the app the team uses at competition, and the
+//! heavy dependencies (the whole conda environment) stay out of the
+//! dashboard's bundle.
 //!
-//! Esta app NO dibuja el robot: eso ya lo hace mars-desktop, que recibe las
-//! poses por NT4 igual que de un robot real, y lo hace la ventana de Gazebo,
-//! que es la que muestra la física. Lo que sí hace es todo lo demás: arrancar
-//! y supervisar la simulación, y ser el editor de los mundos y de los mapas de
-//! robot que la alimentan.
+//! This app does NOT draw the robot: mars-desktop already does that, receiving
+//! the poses over NT4 exactly as from a real robot, and so does the Gazebo
+//! window, which is the one showing the physics. What it does is everything
+//! else: start and supervise the simulation, and be the editor of the worlds
+//! and robot maps that feed it.
 //!
-//! Las responsabilidades están partidas en dos módulos porque son dos riesgos
-//! distintos: `supervisor` lanza y mata procesos, `estudio` escribe archivos.
-//! Un fallo en el editor no tiene por qué poder tocar el código que mata.
+//! The responsibilities are split into two modules because they are two
+//! different risks: `supervisor` launches and kills processes, `studio`
+//! writes files. A failure in the editor has no business being able to touch
+//! the code that kills.
 //!
-//! Uso:
-//!   mars-sim-app                          abre la ventana
-//!   mars-sim-app --headless [segundos]    arranca, espera y para (para CI)
+//! Usage:
+//!   mars-sim-app                         opens the window
+//!   mars-sim-app --headless [seconds]    starts, waits and stops (for CI)
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod estudio;
+mod studio;
 mod supervisor;
 
 use std::sync::Mutex;
 
-use estudio::{CampoInfo, Explorador, MundoInfo, MundoSpec, RobotInfo};
-use supervisor::{Chequeo, Config, Estado, Supervisor};
+use studio::{FieldInfo, Listing, RobotInfo, WorldInfo, WorldSpec};
+use supervisor::{Check, Config, Status, Supervisor};
 use tauri::{Manager, State};
 
-struct Estados(Mutex<Supervisor>);
+struct AppState(Mutex<Supervisor>);
 
-/// Toma el supervisor y saca de él el `sim/`, que es lo que necesita casi todo
-/// `estudio`. El lock se suelta antes de tocar el disco: leer veinte SDFs con
-/// el supervisor bloqueado congelaría el sondeo de estado de la UI.
+/// Takes the supervisor and pulls `sim/` out of it, which is what almost all
+/// of `studio` needs. The lock is released before touching the disk: reading
+/// twenty SDFs with the supervisor locked would freeze the UI's status poll.
 macro_rules! sim_dir {
-    ($estado:expr) => {{
-        let s = $estado.0.lock().map_err(|e| e.to_string())?;
+    ($state:expr) => {{
+        let s = $state.0.lock().map_err(|e| e.to_string())?;
         s.sim_dir().to_path_buf()
     }};
 }
 
-/// El python del entorno conda y el `sim/`, que es lo que necesitan los
-/// generadores. El python es el del entorno y no el del sistema a proposito:
-/// los scripts usan tomllib y lo que traiga el entorno, no lo que el usuario
-/// tenga instalado por su cuenta.
-fn python_y_sim(estado: &State<Estados>) -> Result<(std::path::PathBuf, std::path::PathBuf), String> {
-    let s = estado.0.lock().map_err(|e| e.to_string())?;
+/// The conda environment's python and `sim/`, which is what the generators
+/// need. The python is the environment's and not the system's on purpose:
+/// the scripts use tomllib and whatever the environment carries, not what the
+/// user happens to have installed.
+fn sim_and_python(state: &State<AppState>) -> Result<(std::path::PathBuf, std::path::PathBuf), String> {
+    let s = state.0.lock().map_err(|e| e.to_string())?;
     Ok((s.sim_dir().to_path_buf(), s.conda_env().join("python.exe")))
 }
 
-/// `anyhow::Error` -> el string que ve la UI, con la cadena de contextos.
-fn ay<T>(r: anyhow::Result<T>) -> Result<T, String> {
+/// `anyhow::Error` -> the string the UI sees, with the chain of contexts.
+fn ui_err<T>(r: anyhow::Result<T>) -> Result<T, String> {
     r.map_err(|e| format!("{e:#}"))
 }
 
-// --- comandos: arrancar y parar ----------------------------------------
+// --- commands: start and stop ----------------------------------------------
 
 #[derive(serde::Serialize)]
-struct Opciones {
-    mundos: Vec<String>,
+struct Options {
+    worlds: Vec<String>,
     robots: Vec<String>,
     sim_dir: String,
     conda_dir: Option<String>,
-    /// La del crate. La que la interfaz escribe en pantalla es
-    /// MSS_VERSION (ui/js/constants.js): esta viaja igual para que un
-    /// reporte de fallo pueda decir que binario estaba corriendo.
+    /// The crate's. The one the interface writes on screen is MSS_VERSION
+    /// (ui/js/constants.js): this one travels anyway so a bug report can say
+    /// which binary was running.
     version: String,
 }
 
 #[tauri::command]
-fn sim_opciones(estado: State<Estados>) -> Result<Opciones, String> {
-    let s = estado.0.lock().map_err(|e| e.to_string())?;
-    Ok(Opciones {
-        mundos: s.mundos(),
+fn sim_options(state: State<AppState>) -> Result<Options, String> {
+    let s = state.0.lock().map_err(|e| e.to_string())?;
+    Ok(Options {
+        worlds: s.worlds(),
         robots: s.robots(),
         sim_dir: s.sim_dir().display().to_string(),
         conda_dir: Some(s.conda_env().display().to_string()),
@@ -84,248 +86,244 @@ fn sim_opciones(estado: State<Estados>) -> Result<Opciones, String> {
 }
 
 #[tauri::command]
-fn sim_arrancar(cfg: Config, estado: State<Estados>) -> Result<(), String> {
-    let mut s = estado.0.lock().map_err(|e| e.to_string())?;
-    ay(s.arrancar(&cfg))
+fn sim_start(cfg: Config, state: State<AppState>) -> Result<(), String> {
+    let mut s = state.0.lock().map_err(|e| e.to_string())?;
+    ui_err(s.start(&cfg))
 }
 
 #[tauri::command]
-fn sim_detener(estado: State<Estados>) -> Result<(), String> {
-    let mut s = estado.0.lock().map_err(|e| e.to_string())?;
-    s.detener();
+fn sim_stop(state: State<AppState>) -> Result<(), String> {
+    let mut s = state.0.lock().map_err(|e| e.to_string())?;
+    s.stop();
     Ok(())
 }
 
 #[tauri::command]
-fn sim_estado(estado: State<Estados>) -> Result<Estado, String> {
-    let mut s = estado.0.lock().map_err(|e| e.to_string())?;
-    Ok(s.estado())
+fn sim_status(state: State<AppState>) -> Result<Status, String> {
+    let mut s = state.0.lock().map_err(|e| e.to_string())?;
+    Ok(s.status())
 }
 
 #[derive(serde::Serialize)]
 struct Logs {
-    motor: String,
-    mundo: String,
+    engine: String,
+    window: String,
     bridge: String,
 }
 
 #[tauri::command]
-fn sim_logs(lineas: Option<usize>, estado: State<Estados>) -> Result<Logs, String> {
-    let s = estado.0.lock().map_err(|e| e.to_string())?;
-    let n = lineas.unwrap_or(40).clamp(10, 500);
-    // El .err es donde cada proceso escribe lo que importa cuando algo falla;
-    // el .log lleva el arranque normal. Se concatenan para no obligar a la UI a
-    // tener dos paneles por proceso.
-    let par = |base: &str| format!("{}\n{}", s.log(&format!("{base}.log"), n), s.log(&format!("{base}.err"), n));
+fn sim_logs(lines: Option<usize>, state: State<AppState>) -> Result<Logs, String> {
+    let s = state.0.lock().map_err(|e| e.to_string())?;
+    let n = lines.unwrap_or(40).clamp(10, 500);
+    // The .err is where each process writes what matters when something
+    // fails; the .log carries the normal startup. They are concatenated so
+    // the UI does not need two panels per process.
+    let pair = |base: &str| format!("{}\n{}", s.log(&format!("{base}.log"), n), s.log(&format!("{base}.err"), n));
     Ok(Logs {
-        motor: par("app-motor"),
-        mundo: par("app-mundo"),
-        bridge: par("app-bridge"),
+        engine: pair("app-engine"),
+        window: pair("app-window"),
+        bridge: pair("app-bridge"),
     })
 }
 
 #[tauri::command]
-fn sim_diagnostico(estado: State<Estados>) -> Result<Vec<Chequeo>, String> {
-    let s = estado.0.lock().map_err(|e| e.to_string())?;
-    Ok(s.diagnostico())
+fn sim_diagnostics(state: State<AppState>) -> Result<Vec<Check>, String> {
+    let s = state.0.lock().map_err(|e| e.to_string())?;
+    Ok(s.diagnostics())
 }
 
-// --- comandos: biblioteca de mundos y robots ---------------------------
+// --- commands: world and robot libraries -----------------------------------
 
 #[tauri::command]
-fn sim_mundos_detalle(estado: State<Estados>) -> Result<Vec<MundoInfo>, String> {
-    Ok(estudio::mundos_detalle(&sim_dir!(estado)))
-}
-
-#[tauri::command]
-fn sim_robots_detalle(estado: State<Estados>) -> Result<Vec<RobotInfo>, String> {
-    Ok(estudio::robots_detalle(&sim_dir!(estado)))
+fn sim_worlds(state: State<AppState>) -> Result<Vec<WorldInfo>, String> {
+    Ok(studio::list_worlds(&sim_dir!(state)))
 }
 
 #[tauri::command]
-fn sim_mundo_spec(ruta: String, estado: State<Estados>) -> Result<Option<MundoSpec>, String> {
-    ay(estudio::leer_spec(&sim_dir!(estado), &ruta))
+fn sim_robots(state: State<AppState>) -> Result<Vec<RobotInfo>, String> {
+    Ok(studio::list_robots(&sim_dir!(state)))
 }
 
 #[tauri::command]
-fn sim_guardar_mundo(spec: MundoSpec, estado: State<Estados>) -> Result<String, String> {
-    ay(estudio::guardar_mundo(&sim_dir!(estado), &spec))
+fn sim_world_spec(path: String, state: State<AppState>) -> Result<Option<WorldSpec>, String> {
+    ui_err(studio::read_spec(&sim_dir!(state), &path))
 }
 
-/// El SDF que saldría de un spec, sin escribir nada. Es lo que alimenta la
-/// pestaña de vista previa del editor: ver el XML antes de guardarlo es la
-/// diferencia entre confiar en el generador y comprobarlo.
 #[tauri::command]
-fn sim_previsualizar_mundo(spec: MundoSpec) -> Result<String, String> {
-    Ok(estudio::generar_sdf(&spec))
+fn sim_save_world(spec: WorldSpec, state: State<AppState>) -> Result<String, String> {
+    ui_err(studio::save_world(&sim_dir!(state), &spec))
 }
 
-/// Lo que el generador de este mundo declara que se le puede tocar, o `null`
-/// si el mundo no lo tiene. El panel de opciones sale de aqui.
+/// The SDF a spec would produce, without writing anything. It feeds the
+/// editor's preview tab: seeing the XML before saving it is the difference
+/// between trusting the generator and checking it.
 #[tauri::command]
-fn sim_generador(ruta: String, estado: State<Estados>) -> Result<Option<serde_json::Value>, String> {
-    let (dir, python) = python_y_sim(&estado)?;
-    ay(estudio::opciones_generador(&dir, &python, &ruta))
+fn sim_preview_world(spec: WorldSpec) -> Result<String, String> {
+    Ok(studio::generate_sdf(&spec))
 }
 
-/// Regenera el mundo con esos valores y devuelve lo que imprimio el script.
+/// What this world's generator declares can be changed, or `null` if the
+/// world has none. The options panel comes from here.
 #[tauri::command]
-fn sim_generar_mundo(
-    ruta: String,
-    valores: serde_json::Value,
-    estado: State<Estados>,
+fn sim_generator(path: String, state: State<AppState>) -> Result<Option<serde_json::Value>, String> {
+    let (dir, python) = sim_and_python(&state)?;
+    ui_err(studio::generator_options(&dir, &python, &path))
+}
+
+/// Regenerates the world with these values and returns what the script
+/// printed.
+#[tauri::command]
+fn sim_generate_world(
+    path: String,
+    values: serde_json::Value,
+    state: State<AppState>,
 ) -> Result<String, String> {
-    let (dir, python) = python_y_sim(&estado)?;
-    ay(estudio::generar_mundo(&dir, &python, &ruta, &valores))
+    let (dir, python) = sim_and_python(&state)?;
+    ui_err(studio::generate_world(&dir, &python, &path, &values))
 }
 
 #[tauri::command]
-fn sim_duplicar_mundo(ruta: String, nombre: String, estado: State<Estados>) -> Result<String, String> {
-    ay(estudio::duplicar_mundo(&sim_dir!(estado), &ruta, &nombre))
+fn sim_duplicate_world(path: String, name: String, state: State<AppState>) -> Result<String, String> {
+    ui_err(studio::duplicate_world(&sim_dir!(state), &path, &name))
 }
 
 #[tauri::command]
-fn sim_borrar_mundo(ruta: String, estado: State<Estados>) -> Result<(), String> {
-    ay(estudio::borrar_mundo(&sim_dir!(estado), &ruta))
+fn sim_delete_world(path: String, state: State<AppState>) -> Result<(), String> {
+    ui_err(studio::delete_world(&sim_dir!(state), &path))
 }
 
 #[tauri::command]
-fn sim_importar_mundo(
-    origen: String,
-    nombre: Option<String>,
-    estado: State<Estados>,
+fn sim_import_world(
+    origin: String,
+    name: Option<String>,
+    state: State<AppState>,
 ) -> Result<String, String> {
-    ay(estudio::importar_mundo(
-        &sim_dir!(estado),
-        &origen,
-        nombre.as_deref().filter(|n| !n.is_empty()),
+    ui_err(studio::import_world(
+        &sim_dir!(state),
+        &origin,
+        name.as_deref().filter(|n| !n.is_empty()),
     ))
 }
 
-// --- comandos: canchas -------------------------------------------------
+// --- commands: fields ------------------------------------------------------
 
 #[tauri::command]
-fn sim_campos(estado: State<Estados>) -> Result<Vec<CampoInfo>, String> {
-    Ok(estudio::campos(&sim_dir!(estado)))
+fn sim_fields(state: State<AppState>) -> Result<Vec<FieldInfo>, String> {
+    Ok(studio::list_fields(&sim_dir!(state)))
 }
 
 #[tauri::command]
-fn sim_instalar_campo(
-    origen: String,
-    nombre: String,
-    estado: State<Estados>,
+fn sim_install_field(
+    origin: String,
+    name: String,
+    state: State<AppState>,
 ) -> Result<String, String> {
-    ay(estudio::instalar_campo(&sim_dir!(estado), &origen, &nombre))
+    ui_err(studio::install_field(&sim_dir!(state), &origin, &name))
 }
 
-// --- comandos: archivos ------------------------------------------------
+// --- commands: files -------------------------------------------------------
 
 #[tauri::command]
-fn sim_leer_texto(ruta: String, estado: State<Estados>) -> Result<String, String> {
-    ay(estudio::leer_texto(&sim_dir!(estado), &ruta))
+fn sim_read_text(path: String, state: State<AppState>) -> Result<String, String> {
+    ui_err(studio::read_text(&sim_dir!(state), &path))
 }
 
 #[tauri::command]
-fn sim_escribir_texto(
-    ruta: String,
-    contenido: String,
-    estado: State<Estados>,
+fn sim_write_text(
+    path: String,
+    content: String,
+    state: State<AppState>,
 ) -> Result<(), String> {
-    ay(estudio::escribir_texto(&sim_dir!(estado), &ruta, &contenido))
+    ui_err(studio::write_text(&sim_dir!(state), &path, &content))
 }
 
 #[tauri::command]
-fn sim_explorar(dir: Option<String>, filtro: Option<Vec<String>>) -> Result<Explorador, String> {
-    ay(estudio::explorar(dir.as_deref(), &filtro.unwrap_or_default()))
+fn sim_browse(dir: Option<String>, filter: Option<Vec<String>>) -> Result<Listing, String> {
+    ui_err(studio::browse(dir.as_deref(), &filter.unwrap_or_default()))
 }
 
 #[tauri::command]
-fn sim_revelar(ruta: String, estado: State<Estados>) -> Result<(), String> {
-    ay(estudio::revelar(&sim_dir!(estado), &ruta))
+fn sim_reveal(path: String, state: State<AppState>) -> Result<(), String> {
+    ui_err(studio::reveal(&sim_dir!(state), &path))
 }
 
-// --- comandos: preferencias --------------------------------------------
+// --- commands: preferences -------------------------------------------------
 
 #[tauri::command]
-fn sim_prefs(estado: State<Estados>) -> Result<serde_json::Value, String> {
-    Ok(estudio::prefs(&sim_dir!(estado)))
+fn sim_prefs(state: State<AppState>) -> Result<serde_json::Value, String> {
+    Ok(studio::prefs(&sim_dir!(state)))
 }
 
 #[tauri::command]
-fn sim_guardar_prefs(prefs: serde_json::Value, estado: State<Estados>) -> Result<(), String> {
-    ay(estudio::guardar_prefs(&sim_dir!(estado), &prefs))
+fn sim_save_prefs(prefs: serde_json::Value, state: State<AppState>) -> Result<(), String> {
+    ui_err(studio::save_prefs(&sim_dir!(state), &prefs))
 }
 
-// --- modo sin ventana ----------------------------------------------------
+// --- windowless mode -------------------------------------------------------
 
-/// Arranca, espera y para. Existe para que el supervisor sea verificable en CI,
-/// donde no hay pantalla: sin esto la única forma de probarlo sería a mano.
-fn headless(segundos: u64) -> Result<(), String> {
-    let mut s = Supervisor::descubrir().map_err(|e| format!("{e:#}"))?;
-    // Sin ventana por defecto: en CI no hay pantalla. Con MARS_CON_VENTANA=1 se
-    // incluye, que es la forma de probar el camino COMPLETO del botón Start sin
-    // tener que darle a un botón.
-    s.sin_ventana(std::env::var("MARS_CON_VENTANA").is_err());
+/// Starts, waits and stops. It exists so the supervisor can be verified in
+/// CI, where there is no screen: without it the only way to test it would be
+/// by hand.
+fn headless(seconds: u64) -> Result<(), String> {
+    let mut s = Supervisor::discover().map_err(|e| format!("{e:#}"))?;
+    // No window by default: there is no screen in CI. With MARS_WITH_WINDOW=1
+    // it is included, which is the way to test the FULL path of the Start
+    // button without having to press a button.
+    s.set_headless(std::env::var("MARS_WITH_WINDOW").is_err());
     println!("[app] sim at {}", s.sim_dir().display());
 
-    let mundos = s.mundos();
+    let worlds = s.worlds();
     let robots = s.robots();
-    println!("[app] {} worlds, {} robot maps", mundos.len(), robots.len());
+    println!("[app] {} worlds, {} robot maps", worlds.len(), robots.len());
 
-    // El swerve si está, que es el robot del equipo; si no, el primero.
+    // The swerve if it is there, which is the team's robot; otherwise the
+    // first one.
     let robot = robots
         .iter()
         .find(|r| r.contains("swerve"))
         .or_else(|| robots.first())
         .ok_or("there is no robot map at all")?
         .clone();
-    let mundo = if robot.contains("swerve") {
+    let world = if robot.contains("swerve") {
         "worlds/swerve.sdf".to_string()
     } else {
         "worlds/testbot.sdf".to_string()
     };
 
     let cfg = Config {
-        world: mundo.clone(),
+        world: world.clone(),
         robot_map: robot.clone(),
         nt_host: "127.0.0.1".into(),
         nt_port: 5810,
     };
-    println!("[app] starting {mundo} with {robot}");
-    s.arrancar(&cfg).map_err(|e| format!("{e:#}"))?;
+    println!("[app] starting {world} with {robot}");
+    s.start(&cfg).map_err(|e| format!("{e:#}"))?;
 
-    let mut ultimo = Estado {
-        corriendo: false,
-        motor_pid: None,
-        mundo_pid: None,
-        bridge_pid: None,
-        segundos: 0,
-        caido: None,
-    };
-    for _ in 0..segundos {
+    let mut last = s.status();
+    for _ in 0..seconds {
         std::thread::sleep(std::time::Duration::from_secs(1));
-        ultimo = s.estado();
-        if !ultimo.corriendo {
+        last = s.status();
+        if !last.running {
             break;
         }
     }
 
-    if let Some(motivo) = &ultimo.caido {
-        eprintln!("[app] {motivo}");
-        eprintln!("--- engine ---\n{}", s.log("app-motor.err", 15));
+    if let Some(reason) = &last.crashed {
+        eprintln!("[app] {reason}");
+        eprintln!("--- engine ---\n{}", s.log("app-engine.err", 15));
         eprintln!("--- bridge ---\n{}", s.log("app-bridge.err", 15));
         return Err("the simulation died on its own".into());
     }
     println!(
         "[app] engine pid {:?}, window pid {:?}, bridge pid {:?}, up {} s",
-        ultimo.motor_pid, ultimo.mundo_pid, ultimo.bridge_pid, ultimo.segundos
+        last.engine_pid, last.window_pid, last.bridge_pid, last.seconds
     );
 
-    s.detener();
-    // Después de detener, los dos tienen que estar muertos. Comprobarlo es lo
-    // que distingue "pedimos que pararan" de "pararon".
-    let despues = s.estado();
-    if despues.motor_pid.is_some() || despues.bridge_pid.is_some() {
+    s.stop();
+    // After stopping, both have to be dead. Checking it is what tells "we
+    // asked them to stop" from "they stopped".
+    let after = s.status();
+    if after.engine_pid.is_some() || after.bridge_pid.is_some() {
         return Err("processes were still alive after stopping".into());
     }
 
@@ -336,62 +334,62 @@ fn headless(segundos: u64) -> Result<(), String> {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|a| a == "--headless") {
-        let segundos = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(8);
-        if let Err(e) = headless(segundos) {
+        let seconds = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(8);
+        if let Err(e) = headless(seconds) {
             eprintln!("FAILED: {e}");
             std::process::exit(1);
         }
         return;
     }
 
-    let supervisor = match Supervisor::descubrir() {
+    let supervisor = match Supervisor::discover() {
         Ok(s) => s,
         Err(e) => {
-            // Sin supervisor no hay app. Vale más morir con el motivo que abrir
-            // una ventana que no puede hacer nada.
+            // Without a supervisor there is no app. Better to die with the
+            // reason than to open a window that cannot do anything.
             eprintln!("FAILED: {e:#}");
             std::process::exit(1);
         }
     };
 
     tauri::Builder::default()
-        .manage(Estados(Mutex::new(supervisor)))
+        .manage(AppState(Mutex::new(supervisor)))
         .invoke_handler(tauri::generate_handler![
-            sim_opciones,
-            sim_arrancar,
-            sim_detener,
-            sim_estado,
+            sim_options,
+            sim_start,
+            sim_stop,
+            sim_status,
             sim_logs,
-            sim_diagnostico,
-            sim_mundos_detalle,
-            sim_robots_detalle,
-            sim_mundo_spec,
-            sim_guardar_mundo,
-            sim_previsualizar_mundo,
-            sim_generador,
-            sim_generar_mundo,
-            sim_duplicar_mundo,
-            sim_borrar_mundo,
-            sim_importar_mundo,
-            sim_campos,
-            sim_instalar_campo,
-            sim_leer_texto,
-            sim_escribir_texto,
-            sim_explorar,
-            sim_revelar,
+            sim_diagnostics,
+            sim_worlds,
+            sim_robots,
+            sim_world_spec,
+            sim_save_world,
+            sim_preview_world,
+            sim_generator,
+            sim_generate_world,
+            sim_duplicate_world,
+            sim_delete_world,
+            sim_import_world,
+            sim_fields,
+            sim_install_field,
+            sim_read_text,
+            sim_write_text,
+            sim_browse,
+            sim_reveal,
             sim_prefs,
-            sim_guardar_prefs
+            sim_save_prefs
         ])
         .on_window_event(|window, event| {
-            // Cerrar la ventana tiene que matar la simulación. En Windows matar
-            // al padre no mata a los hijos, así que sin esto quedan un motor y
-            // un bridge huérfanos ocupando los tópicos de gz-transport: el
-            // siguiente arranque ve dos motores publicando y las poses se
-            // pisan, sin ningún error.
+            // Closing the window has to kill the simulation. On Windows
+            // killing the parent does not kill the children, so without this
+            // an orphaned engine and bridge stay behind holding the
+            // gz-transport topics: the next start sees two engines publishing
+            // and the poses overwrite each other, without any error.
             if let tauri::WindowEvent::Destroyed = event {
-                if let Some(estados) = window.try_state::<Estados>() {
-                    if let Ok(mut s) = estados.0.lock() {
-                        s.detener();
+                if let Some(state) = window.try_state::<AppState>() {
+                    if let Ok(mut s) = state.0.lock() {
+                        s.stop();
                     }
                 }
             }

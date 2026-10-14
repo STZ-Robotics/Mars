@@ -1,39 +1,40 @@
 # -*- coding: utf-8 -*-
-"""Genera el juego de iconos de MARS Simulation Studio a partir de mss.svg.
+"""Generates MARS Simulation Studio's icon set from mss.svg.
 
     python sim/app/icons/make-icons.py
 
-La fuente es `public/icons/mss.svg` del repositorio --- la misma marca que
-mars-desktop pone en la fila "Simulation Studio" de su sidebar --- y de ahi
-salen:
+The source is the repository's `public/icons/mss.svg` --- the same mark
+mars-desktop puts on the "Simulation Studio" row of its sidebar --- and out of
+it come:
 
-    icons/icon.ico          el que empotra tauri-build en el ejecutable de
-                            Windows; SIN el, `cargo build` falla
-    icons/icon.png          512x512, para el bundle en Linux/macOS
+    icons/icon.ico          the one tauri-build embeds in the Windows
+                            executable; WITHOUT it, `cargo build` fails
+    icons/icon.png          512x512, for the Linux/macOS bundle
     icons/32x32.png
     icons/128x128.png
     icons/128x128@2x.png
 
-Por que el SVG y no el PNG: el vector se rasteriza a la medida exacta de cada
-icono, asi que el .ico de 16 px sale nitido en vez de ser una reduccion de una
-reduccion. El PNG (`public/mss.png`) sigue siendo la fuente de `ui/mss.png`,
-el logo que la interfaz muestra en la bienvenida, el About y la pantalla de
-carga: ese se ve grande y sobre fondo oscuro, y ahi la version en rojo es la
-que el equipo ya reconoce. Un icono de barra de tareas es otro problema.
+Why the SVG and not the PNG: the vector is rasterized at each icon's exact
+size, so the 16 px .ico comes out sharp instead of being a reduction of a
+reduction. The PNG (`public/mss.png`) is still the source of `ui/mss.png`, the
+logo the interface shows on the welcome screen, the About page and the loading
+screen: that one is seen large and on a dark background, and there the red
+version is the one the team already recognizes. A taskbar icon is a different
+problem.
 
-Rasterizar un SVG necesita un motor. En vez de sumar cairosvg --- que en
-Windows arrastra las DLL de cairo y falla mas de lo que funciona --- se usa el
-Chrome que ya esta instalado, en modo headless, que es exactamente lo que hace
-el webview de la app al pintar el mismo archivo.
+Rasterizing an SVG needs an engine. Instead of adding cairosvg --- which on
+Windows drags in cairo's DLLs and fails more often than it works --- the
+Chrome that is already installed is used, headless, which is exactly what the
+app's webview does when painting the same file.
 
-Por que hace falta recortar: el arte ocupa solo la parte central del lienzo. Un
-icono de 32 px generado a partir de eso deja la marca en ~24 px reales y se ve
-diminuto en la barra de tareas. Se recorta al bounding box del canal alfa y se
-le devuelve un margen del 6 %, que es lo que hace que respire sin desperdiciar
-el cuadro.
+Why it has to crop: the artwork only takes the central part of the canvas. A
+32 px icon generated from that leaves the mark at ~24 real pixels and it looks
+tiny on the taskbar. It is cropped to the alpha channel's bounding box and
+given back a 6 % margin, which is what lets it breathe without wasting the
+square.
 
-Volver a correrlo cuando el logo cambie. No hay nada automatico que lo haga: es
-una dependencia de Pillow mas un Chrome, y no vale la pena meter eso en el
+Run it again when the logo changes. Nothing automatic does it: it is a
+dependency on Pillow plus a Chrome, and that is not worth putting in the
 build.
 """
 import os
@@ -45,22 +46,22 @@ import tempfile
 try:
     from PIL import Image
 except ImportError:
-    sys.exit("hace falta Pillow:  pip install pillow")
+    sys.exit("Pillow is required:  pip install pillow")
 
-AQUI = os.path.dirname(os.path.abspath(__file__))
-REPO = os.path.abspath(os.path.join(AQUI, "..", "..", ".."))
-FUENTE = os.path.join(REPO, "public", "icons", "mss.svg")
-UI = os.path.abspath(os.path.join(AQUI, "..", "ui"))
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
+SOURCE = os.path.join(REPO, "public", "icons", "mss.svg")
+UI = os.path.abspath(os.path.join(HERE, "..", "ui"))
 
-# El lienzo del rasterizado. No es el tamano de ningun icono: es el original
-# del que salen todos, grande para que el recorte no quede corto de pixeles.
-LIENZO = 2048
-MARGEN = 0.06
-TAMANOS_ICO = [16, 24, 32, 48, 64, 128, 256]
+# The rasterizing canvas. It is not the size of any icon: it is the original
+# all of them come from, large so the crop is not short of pixels.
+CANVAS = 2048
+MARGIN = 0.06
+ICO_SIZES = [16, 24, 32, 48, 64, 128, 256]
 
-# Donde suele estar Chrome en Windows. `MARS_CHROME` gana sobre todo esto por
-# si el navegador vive en otro lado o se prefiere Edge/Chromium.
-CANDIDATOS = [
+# Where Chrome usually lives on Windows. `MARS_CHROME` wins over all of this
+# in case the browser lives elsewhere or Edge/Chromium is preferred.
+CANDIDATES = [
     os.environ.get("MARS_CHROME"),
     r"C:\Program Files\Google\Chrome\Application\chrome.exe",
     r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
@@ -69,102 +70,103 @@ CANDIDATOS = [
 ]
 
 
-def buscar_navegador():
-    for ruta in CANDIDATOS:
-        if ruta and os.path.isfile(ruta):
-            return ruta
-    for nombre in ("google-chrome", "chromium", "chrome", "msedge"):
-        ruta = shutil.which(nombre)
-        if ruta:
-            return ruta
+def find_browser():
+    for path in CANDIDATES:
+        if path and os.path.isfile(path):
+            return path
+    for name in ("google-chrome", "chromium", "chrome", "msedge"):
+        path = shutil.which(name)
+        if path:
+            return path
     sys.exit(
-        "no se encontro Chrome/Edge para rasterizar el SVG.\n"
-        "Apunta MARS_CHROME al ejecutable, por ejemplo:\n"
+        "no Chrome/Edge found to rasterize the SVG.\n"
+        "Point MARS_CHROME at the executable, for example:\n"
         '  set MARS_CHROME="C:\Program Files\Google\Chrome\Application\chrome.exe"'
     )
 
 
-def rasterizar(svg, lado):
-    """El SVG pintado por Chrome en un cuadrado de `lado` px, con fondo
-    transparente."""
-    navegador = buscar_navegador()
-    trabajo = tempfile.mkdtemp(prefix="mss-icon-")
+def rasterize(svg, side):
+    """The SVG painted by Chrome in a `side` px square, with a transparent
+    background."""
+    browser = find_browser()
+    work = tempfile.mkdtemp(prefix="mss-icon-")
     try:
-        shutil.copyfile(svg, os.path.join(trabajo, "marca.svg"))
-        # El <img> va con medidas explicitas: el SVG trae width/height propios y
-        # sin esto Chrome lo pinta a ese tamano y no al del lienzo.
-        with open(os.path.join(trabajo, "marca.html"), "w", encoding="utf-8") as f:
+        shutil.copyfile(svg, os.path.join(work, "mark.svg"))
+        # The <img> gets explicit sizes: the SVG carries its own width/height
+        # and without this Chrome paints it at that size and not the canvas's.
+        with open(os.path.join(work, "mark.html"), "w", encoding="utf-8") as f:
             f.write(
                 "<style>html,body{margin:0;padding:0;background:transparent}"
                 "img{display:block;width:%dpx;height:%dpx}</style>"
-                '<img src="marca.svg">' % (lado, lado)
+                '<img src="mark.svg">' % (side, side)
             )
-        salida = os.path.join(trabajo, "marca.png")
+        out = os.path.join(work, "mark.png")
         subprocess.run(
             [
-                navegador,
+                browser,
                 "--headless",
                 "--disable-gpu",
                 "--hide-scrollbars",
                 "--force-device-scale-factor=1",
-                # Sin esto el "fondo" del screenshot es blanco opaco y el icono
-                # sale con un cuadro blanco alrededor en vez de transparencia.
+                # Without this the screenshot's "background" is opaque white and
+                # the icon comes out with a white box around it instead of
+                # transparency.
                 "--default-background-color=00000000",
-                "--window-size=%d,%d" % (lado, lado),
-                "--screenshot=%s" % salida,
-                "file:///%s" % os.path.join(trabajo, "marca.html").replace("\\", "/"),
+                "--window-size=%d,%d" % (side, side),
+                "--screenshot=%s" % out,
+                "file:///%s" % os.path.join(work, "mark.html").replace("\\", "/"),
             ],
             check=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        if not os.path.isfile(salida):
-            sys.exit("Chrome no escribio el screenshot: %s" % salida)
-        return Image.open(salida).convert("RGBA")
+        if not os.path.isfile(out):
+            sys.exit("Chrome did not write the screenshot: %s" % out)
+        return Image.open(out).convert("RGBA")
     finally:
-        shutil.rmtree(trabajo, ignore_errors=True)
+        shutil.rmtree(work, ignore_errors=True)
 
 
-def cuadrado_recortado(im):
-    """Recorta al contenido y lo centra en un lienzo cuadrado con margen."""
-    caja = im.getchannel("A").getbbox()
-    if caja is None:
+def cropped_square(im):
+    """Crops to the content and centers it on a square canvas with a margin."""
+    box = im.getchannel("A").getbbox()
+    if box is None:
         return im
-    marca = im.crop(caja)
-    lado = max(marca.size)
-    lienzo = int(round(lado * (1 + 2 * MARGEN)))
-    fondo = Image.new("RGBA", (lienzo, lienzo), (0, 0, 0, 0))
-    fondo.paste(marca, ((lienzo - marca.width) // 2, (lienzo - marca.height) // 2))
-    return fondo
+    mark = im.crop(box)
+    side = max(mark.size)
+    canvas = int(round(side * (1 + 2 * MARGIN)))
+    background = Image.new("RGBA", (canvas, canvas), (0, 0, 0, 0))
+    background.paste(mark, ((canvas - mark.width) // 2, (canvas - mark.height) // 2))
+    return background
 
 
 def main():
-    if not os.path.isfile(FUENTE):
-        sys.exit("no esta %s" % FUENTE)
+    if not os.path.isfile(SOURCE):
+        sys.exit("%s is missing" % SOURCE)
 
-    base = cuadrado_recortado(rasterizar(FUENTE, LIENZO))
-    escalar = lambda n: base.resize((n, n), Image.LANCZOS)
+    base = cropped_square(rasterize(SOURCE, CANVAS))
+    scale = lambda n: base.resize((n, n), Image.LANCZOS)
 
-    escalar(512).save(os.path.join(AQUI, "icon.png"))
-    escalar(32).save(os.path.join(AQUI, "32x32.png"))
-    escalar(128).save(os.path.join(AQUI, "128x128.png"))
-    escalar(256).save(os.path.join(AQUI, "128x128@2x.png"))
+    scale(512).save(os.path.join(HERE, "icon.png"))
+    scale(32).save(os.path.join(HERE, "32x32.png"))
+    scale(128).save(os.path.join(HERE, "128x128.png"))
+    scale(256).save(os.path.join(HERE, "128x128@2x.png"))
 
-    # El .ico lleva TODAS las medidas dentro: Windows elige la que necesita
-    # para la barra de tareas, el explorador y el Alt+Tab. Uno de un solo
-    # tamano se ve borroso en el resto.
-    escalar(256).save(
-        os.path.join(AQUI, "icon.ico"),
+    # The .ico carries ALL the sizes inside: Windows picks the one it needs
+    # for the taskbar, the explorer and Alt+Tab. A single-size one looks
+    # blurry everywhere else.
+    scale(256).save(
+        os.path.join(HERE, "icon.ico"),
         format="ICO",
-        sizes=[(n, n) for n in TAMANOS_ICO],
+        sizes=[(n, n) for n in ICO_SIZES],
     )
 
-    print("iconos escritos en %s" % AQUI)
-    for n in sorted(os.listdir(AQUI)):
+    print("icons written to %s" % HERE)
+    for n in sorted(os.listdir(HERE)):
         if n.endswith((".png", ".ico")):
-            print("  %-16s %d KB" % (n, os.path.getsize(os.path.join(AQUI, n)) // 1024))
-    print("ui/mss.png no se toca: el logo de la interfaz sale de public/mss.png")
-    print("(ver el encabezado de este archivo) y se mantiene como esta.")
+            print("  %-16s %d KB" % (n, os.path.getsize(os.path.join(HERE, n)) // 1024))
+    print("ui/mss.png is left alone: the interface's logo comes from public/mss.png")
+    print("(see this file's header) and stays as it is.")
 
 
 if __name__ == "__main__":

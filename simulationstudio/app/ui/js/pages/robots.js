@@ -1,132 +1,132 @@
-// Robot Library: los robot-map.json de sim/models/, leídos como tablas.
+// Robot Library: the robot-map.json files in sim/models/, read as tables.
 //
-// Un robot-map es JSON y se puede abrir en cualquier editor, pero hay dos
-// cosas que solo se ven mirándolo entero: si el ORDEN de los actuadores es el
-// que espera el SDF (ese orden es el índice dentro de gz.msgs.Actuators), y si
-// cada actuador declara el modo de control que le corresponde. Las dos se
-// pintan aquí con su número de índice a la vista.
+// A robot map is JSON and can be opened in any editor, but there are two
+// things you only see by looking at it whole: whether the ORDER of the
+// actuators is the one the SDF expects (that order is the index inside
+// gz.msgs.Actuators), and whether each actuator declares the control mode it
+// should. Both are drawn here with their index number in sight.
 
-import { el, estado, guardarPrefs, invoke, num, pintar } from "./../core.js";
-import { navegar, refrescarPagina, reportar } from "./../shell.js";
-import { aviso, boton, chip, panel, prop, propTexto, vacio } from "./../ui.js";
+import { el, fill, invoke, num, savePrefs, state } from "./../core.js";
+import { navigate, refreshPage, report } from "./../shell.js";
+import { button, chip, emptyState, notice, panel, prop, propText } from "./../ui.js";
 
-export function paginaRobots() {
-  let seleccionado = estado.prefs.robotSeleccionado ?? estado.prefs.robot ?? estado.robots[0]?.ruta ?? null;
-  if (!estado.robots.some((r) => r.ruta === seleccionado)) seleccionado = estado.robots[0]?.ruta ?? null;
+export function robotsPage() {
+  let selected = state.prefs.selectedRobot ?? state.prefs.robot ?? state.robots[0]?.path ?? null;
+  if (!state.robots.some((r) => r.path === selected)) selected = state.robots[0]?.path ?? null;
 
-  const detalle = el("div");
-  const cuerpo = el("div.stack");
+  const detail = el("div");
+  const body = el("div.stack");
 
-  if (!estado.robots.length) {
+  if (!state.robots.length) {
     return {
-      titulo: "Robot Library",
+      title: "Robot Library",
       help: "robots.map",
-      acciones: [boton("Import guide", { svg: "import-model.svg", sm: true, onclick: () => navegar("guide") })],
-      cuerpo: vacio("No robot maps in sim/models/", "Each robot is a folder with a robot-map.json inside"),
+      actions: [button("Import guide", { svg: "import-model.svg", sm: true, onclick: () => navigate("guide") })],
+      body: emptyState("No robot maps in sim/models/", "Each robot is a folder with a robot-map.json inside"),
     };
   }
 
-  function pintarDetalle() {
-    const r = estado.robots.find((x) => x.ruta === seleccionado);
-    if (!r) return pintar(detalle, vacio("Select a robot"));
+  function drawDetail() {
+    const r = state.robots.find((x) => x.path === selected);
+    if (!r) return fill(detail, emptyState("Select a robot"));
 
     const json = el("div", el("div.empty-state", "Reading robot-map.json…"));
-    invoke("sim_leer_texto", { ruta: r.ruta })
-      .then((t) => pintar(json, tablas(t)))
-      .catch((e) => pintar(json, aviso(e.message)));
+    invoke("sim_read_text", { path: r.path })
+      .then((t) => fill(json, tables(t)))
+      .catch((e) => fill(json, notice(e.message)));
 
-    pintar(
-      detalle,
+    fill(
+      detail,
       panel(
-        r.carpeta,
+        r.folder,
         {
           svg: "robot.svg",
           help: "robots.map",
-          acciones: chip(r.perfil || "no profile", r.perfil === "vendor" ? "accent" : r.perfil ? "ok" : "warn"),
+          actions: chip(r.profile || "no profile", r.profile === "vendor" ? "accent" : r.profile ? "ok" : "warn"),
         },
         el(
           "div",
-          propTexto("Path", r.ruta),
-          propTexto("Robot", r.robot),
-          prop("Profile", el("span.mono", r.perfil || "—"), { help: "robots.profiles" }),
-          propTexto("World / model", `${r.mundo || "—"} / ${r.modelo || "—"}`),
+          propText("Path", r.path),
+          propText("Robot", r.robot),
+          prop("Profile", el("span.mono", r.profile || "—"), { help: "robots.profiles" }),
+          propText("World / model", `${r.world || "—"} / ${r.model || "—"}`),
           prop("Implements SDF", el("span.mono", r.sdf ?? "—"), { help: "robots.actuators" }),
-          prop("Actuators", el("span.mono", String(r.actuadores)), { help: "robots.actuators" }),
+          prop("Actuators", el("span.mono", String(r.actuators)), { help: "robots.actuators" }),
           prop("Encoders", el("span.mono", String(r.encoders)), { help: "robots.encoders" }),
           prop("IMU", el("span.mono", r.imu ? "declared" : "none"), { help: "robots.imu" })
         ),
         el(
           "div.row-wrap",
           { style: { marginTop: "10px" } },
-          boton("Use for launch", {
+          button("Use for launch", {
             svg: "play.svg",
-            variante: "primary",
-            disabled: estado.prefs.robot === r.ruta,
+            variant: "primary",
+            disabled: state.prefs.robot === r.path,
             onclick: () => {
-              guardarPrefs({ robot: r.ruta });
-              navegar("launch");
+              savePrefs({ robot: r.path });
+              navigate("launch");
             },
           }),
-          boton("Reveal in Explorer", {
+          button("Reveal in Explorer", {
             svg: "open-folder.svg",
-            onclick: () => invoke("sim_revelar", { ruta: r.ruta }).catch(reportar),
+            onclick: () => invoke("sim_reveal", { path: r.path }).catch(report),
           }),
-          boton("Import guide", { svg: "import-model.svg", onclick: () => navegar("guide") })
+          button("Import guide", { svg: "import-model.svg", onclick: () => navigate("guide") })
         ),
-        ...r.notas.map((n) => el("div", { style: { marginTop: "8px" } }, aviso(n, "warn")))
+        ...r.notes.map((n) => el("div", { style: { marginTop: "8px" } }, notice(n, "warn")))
       ),
       json
     );
   }
 
-  pintar(
-    cuerpo,
+  fill(
+    body,
     panel(
       "Robots",
       { svg: "robot.svg", help: "robots.map", flush: true },
       el(
         "div",
-        ...estado.robots.map((r) =>
+        ...state.robots.map((r) =>
           el(
             "div.list-row",
             {
-              data: { active: String(r.ruta === seleccionado) },
+              data: { active: String(r.path === selected) },
               onclick: () => {
-                seleccionado = r.ruta;
-                guardarPrefs({ robotSeleccionado: r.ruta });
-                refrescarPagina();
+                selected = r.path;
+                savePrefs({ selectedRobot: r.path });
+                refreshPage();
               },
             },
             el("img", { src: "icons/robot.svg", width: 15, height: 15, alt: "" }),
-            el("span", r.carpeta),
-            el("span.desc", `${r.perfil || "?"} · ${r.actuadores} actuators · ${r.encoders} encoders`)
+            el("span", r.folder),
+            el("span.desc", `${r.profile || "?"} · ${r.actuators} actuators · ${r.encoders} encoders`)
           )
         )
       )
     ),
-    detalle
+    detail
   );
-  pintarDetalle();
+  drawDetail();
 
   return {
-    titulo: "Robot Library",
-    meta: `${estado.robots.length} robot map${estado.robots.length === 1 ? "" : "s"}`,
+    title: "Robot Library",
+    meta: `${state.robots.length} robot map${state.robots.length === 1 ? "" : "s"}`,
     help: "robots.map",
-    acciones: [
-      boton("Import guide", { svg: "import-model.svg", sm: true, onclick: () => navegar("guide") }),
-      boton("Reload", { svg: "republish.svg", sm: true, onclick: () => refrescarPagina() }),
+    actions: [
+      button("Import guide", { svg: "import-model.svg", sm: true, onclick: () => navigate("guide") }),
+      button("Reload", { svg: "republish.svg", sm: true, onclick: () => refreshPage() }),
     ],
-    cuerpo,
+    body,
   };
 }
 
-/** Las tres tablas del mapa: actuadores, encoders, IMU. */
-function tablas(textoJson) {
+/** The map's three tables: actuators, encoders, IMU. */
+function tables(jsonText) {
   let j;
   try {
-    j = JSON.parse(textoJson);
+    j = JSON.parse(jsonText);
   } catch (e) {
-    return aviso(`robot-map.json is not valid JSON: ${e.message}`);
+    return notice(`robot-map.json is not valid JSON: ${e.message}`);
   }
 
   const act = j.actuators ?? [];
@@ -140,7 +140,7 @@ function tablas(textoJson) {
         svg: "joint.svg",
         help: "robots.actuators",
         flush: true,
-        acciones: el("span.dim", { style: { fontSize: "10.5px" } }, "index = position in gz.msgs.Actuators"),
+        actions: el("span.dim", { style: { fontSize: "10.5px" } }, "index = position in gz.msgs.Actuators"),
       },
       act.length
         ? el(
@@ -176,7 +176,7 @@ function tablas(textoJson) {
               )
             )
           )
-        : el("div", { style: { padding: "10px" } }, aviso("No actuators declared.", "warn"))
+        : el("div", { style: { padding: "10px" } }, notice("No actuators declared.", "warn"))
     ),
 
     panel(
@@ -200,7 +200,7 @@ function tablas(textoJson) {
               )
             )
           )
-        : el("div", { style: { padding: "10px" } }, aviso("No encoders declared. The robot will report no joint state.", "warn"))
+        : el("div", { style: { padding: "10px" } }, notice("No encoders declared. The robot will report no joint state.", "warn"))
     ),
 
     panel(
@@ -209,7 +209,7 @@ function tablas(textoJson) {
       j.imu
         ? el(
             "div",
-            ...Object.entries(j.imu).map(([k, v]) => propTexto(k, typeof v === "object" ? JSON.stringify(v) : String(v)))
+            ...Object.entries(j.imu).map(([k, v]) => propText(k, typeof v === "object" ? JSON.stringify(v) : String(v)))
           )
         : el(
             "div.doc",
@@ -226,7 +226,7 @@ function tablas(textoJson) {
     panel(
       "Raw file",
       { svg: "model-file.svg" },
-      el("pre.log", { style: { height: "260px" } }, textoJson)
+      el("pre.log", { style: { height: "260px" } }, jsonText)
     )
   );
 }

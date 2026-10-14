@@ -1,20 +1,20 @@
-// Import Guide: cómo meter un modelo propio en la simulación.
+// Import Guide: how to bring your own model into the simulation.
 //
-// Es la página más larga de la app y es a propósito. Todo lo que está aquí se
-// aprendió peleándose con ello --- las mallas que no cargan, la inercia
-// reflejada que hace divergir al solver, el orden de los actuadores que cruza
-// los comandos sin dar ningún error --- y ninguna de esas cosas se descubre
-// leyendo la documentación de SDF, porque no son de SDF: son de esta
-// simulación.
+// It is the longest page in the app and that is on purpose. Everything here
+// was learned by fighting with it --- meshes that do not load, reflected
+// inertia that makes the solver diverge, actuator order that crosses the
+// commands without any error --- and none of those things are found by
+// reading the SDF documentation, because they are not about SDF: they are
+// about this simulation.
 
 import { el } from "./../core.js";
-import { navegar } from "./../shell.js";
-import { boton } from "./../ui.js";
+import { navigate } from "./../shell.js";
+import { button } from "./../ui.js";
 
-const SECCIONES = [
+const SECTIONS = [
   {
     id: "shape",
-    titulo: "1 · What a model is",
+    title: "1 · What a model is",
     svg: "model-file.svg",
     html: `
       <p>In Gazebo a <strong>model</strong> is a directory, not a file. The minimum is two files:</p>
@@ -42,7 +42,7 @@ const SECCIONES = [
   },
   {
     id: "links",
-    titulo: "2 · Links, joints and frames",
+    title: "2 · Links, joints and frames",
     svg: "joint.svg",
     html: `
       <p>A model is <strong>links</strong> (rigid bodies) connected by <strong>joints</strong>. A
@@ -64,7 +64,7 @@ const SECCIONES = [
   },
   {
     id: "inertia",
-    titulo: "3 · Mass and inertia — where models go wrong",
+    title: "3 · Mass and inertia — where models go wrong",
     svg: "measure.svg",
     html: `
       <p>This is the section that will cost you a day if you skip it. Every dynamic link needs an
@@ -95,7 +95,7 @@ const SECCIONES = [
   },
   {
     id: "collision",
-    titulo: "4 · Collision vs. visual",
+    title: "4 · Collision vs. visual",
     svg: "part-shape.svg",
     html: `
       <p>Every link can carry two geometries and they do different jobs:</p>
@@ -120,7 +120,7 @@ const SECCIONES = [
   },
   {
     id: "meshes",
-    titulo: "5 · Meshes that actually load",
+    title: "5 · Meshes that actually load",
     svg: "part-mesh.svg",
     html: `
       <p>Reference a mesh by URI:</p>
@@ -154,7 +154,7 @@ const SECCIONES = [
   },
   {
     id: "actuators",
-    titulo: "6 · Making it controllable — the MarsLink plugin",
+    title: "6 · Making it controllable — the MarsLink plugin",
     svg: "gains.svg",
     html: `
       <p>A model with joints is still just furniture. What makes it a robot is the
@@ -200,7 +200,7 @@ const SECCIONES = [
   },
   {
     id: "map",
-    titulo: "7 · The robot map",
+    title: "7 · The robot map",
     svg: "manifest.svg",
     html: `
       <p>Last piece: <code>sim/models/&lt;robot&gt;/robot-map.json</code>. It is what tells the
@@ -240,7 +240,7 @@ const SECCIONES = [
   },
   {
     id: "profiles",
-    titulo: "8 · Which profile your robot needs",
+    title: "8 · Which profile your robot needs",
     svg: "network.svg",
     html: `
       <p>The distinction that shapes the whole project: <strong>the HALSim WebSocket protocol does
@@ -272,7 +272,7 @@ const SECCIONES = [
   },
   {
     id: "checklist",
-    titulo: "9 · Checklist before you press Start",
+    title: "9 · Checklist before you press Start",
     svg: "status-ok.svg",
     html: `
       <ol>
@@ -293,35 +293,35 @@ const SECCIONES = [
   },
 ];
 
-export function paginaGuide() {
-  const cuerpo = el(
+export function guidePage() {
+  const body = el(
     "div.stack",
     el(
       "div.bevel",
       el("div.bevel-title", el("img", { src: "icons/import-model.svg", width: 14, height: 14, alt: "" }), el("span.label", "Contents")),
       el(
         "div",
-        ...SECCIONES.map((s, i) =>
+        ...SECTIONS.map((s, i) =>
           el(
             "div.list-row",
             {
               onclick: () => document.getElementById(`sec-${s.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }),
             },
             el("img", { src: `icons/${s.svg}`, width: 15, height: 15, alt: "" }),
-            el("span", s.titulo),
+            el("span", s.title),
             el("span.desc", `§${i + 1}`)
           )
         )
       )
     ),
-    ...SECCIONES.map((s) =>
+    ...SECTIONS.map((s) =>
       el(
         "div.panel",
         { id: `sec-${s.id}` },
         el(
           "div.panel-title",
           el("img", { src: `icons/${s.svg}`, width: 14, height: 14, alt: "" }),
-          el("span.label", s.titulo)
+          el("span.label", s.title)
         ),
         el("div.panel-body", el("div.doc", { html: s.html }))
       )
@@ -333,20 +333,20 @@ export function paginaGuide() {
         "div.panel-body",
         el(
           "div.row-wrap",
-          boton("World Library", { svg: "scene.svg", onclick: () => navegar("worlds") }),
-          boton("Robot Library", { svg: "robot.svg", onclick: () => navegar("robots") }),
-          boton("Protocol reference", { svg: "network.svg", onclick: () => navegar("protocol") }),
-          boton("Diagnostics", { svg: "watchdog.svg", onclick: () => navegar("diagnostics") })
+          button("World Library", { svg: "scene.svg", onclick: () => navigate("worlds") }),
+          button("Robot Library", { svg: "robot.svg", onclick: () => navigate("robots") }),
+          button("Protocol reference", { svg: "network.svg", onclick: () => navigate("protocol") }),
+          button("Diagnostics", { svg: "watchdog.svg", onclick: () => navigate("diagnostics") })
         )
       )
     )
   );
 
   return {
-    titulo: "Import Guide",
+    title: "Import Guide",
     meta: "Bringing your own SDF model into the simulation",
     help: "guide.sdf-model",
-    ancho: "narrow",
-    cuerpo,
+    width: "narrow",
+    body,
   };
 }

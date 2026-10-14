@@ -1,124 +1,124 @@
-// La pantalla de carga.
+// The loading screen.
 //
-// La versión anterior era una barra indeterminada y una línea de texto: decía
-// "está haciendo algo", que es justo lo que no hace falta saber. Esta enumera
-// los pasos REALES del arranque, marca cada uno cuando termina y mueve la
-// barra con ellos, así que cuando algo tarda o falla se ve exactamente qué.
+// The previous version was an indeterminate bar and a line of text: it said
+// "doing something", which is exactly what you do not need to know. This one
+// lists the REAL startup steps, marks each one when it finishes and moves the
+// bar with them, so when something is slow or fails you can see exactly what.
 //
-// Los pasos no son decorativos: cada uno es una llamada al backend, y el que
-// falla se queda marcado en rojo con su error debajo. Antes, cualquier fallo
-// daba el mismo mensaje genérico para los cinco.
+// The steps are not decorative: each one is a backend call, and the one that
+// fails stays marked red with its error below. Before, any failure gave the
+// same generic message for all five.
 
 const $ = (id) => document.getElementById(id);
 
-/** Los pasos, en el orden en que ocurren. `clave` la usa `Progreso`. */
-export const PASOS = [
-  ["puente", "Connect to the application process"],
-  ["opciones", "Locate sim/ and the conda environment"],
+/** The steps, in the order they happen. `Progress` uses the key. */
+export const STEPS = [
+  ["bridge", "Connect to the application process"],
+  ["options", "Locate sim/ and the conda environment"],
   ["prefs", "Read preferences"],
-  ["mundos", "Scan worlds"],
+  ["worlds", "Scan worlds"],
   ["robots", "Scan robot maps"],
-  ["campos", "Scan field models"],
-  ["chequeos", "Check the installation"],
+  ["fields", "Scan field models"],
+  ["checks", "Check the installation"],
   ["ui", "Build the interface"],
 ];
 
-export class Progreso {
+export class Progress {
   constructor() {
-    this.hecho = 0;
-    this.filas = new Map();
+    this.done = 0;
+    this.rows = new Map();
 
-    const lista = $("splash-steps");
-    if (!lista) return;
-    lista.replaceChildren();
-    for (const [clave, etiqueta] of PASOS) {
-      const marca = document.createElement("span");
-      marca.className = "mark";
-      marca.textContent = "·";
-      const texto = document.createElement("span");
-      texto.textContent = etiqueta;
-      const nota = document.createElement("em");
+    const list = $("splash-steps");
+    if (!list) return;
+    list.replaceChildren();
+    for (const [key, label] of STEPS) {
+      const mark = document.createElement("span");
+      mark.className = "mark";
+      mark.textContent = "·";
+      const text = document.createElement("span");
+      text.textContent = label;
+      const note = document.createElement("em");
 
       const li = document.createElement("li");
       li.dataset.state = "pending";
-      li.append(marca, texto, nota);
-      lista.appendChild(li);
-      this.filas.set(clave, { li, marca, nota });
+      li.append(mark, text, note);
+      list.appendChild(li);
+      this.rows.set(key, { li, mark, note });
     }
   }
 
-  /** Marca el paso como en curso y lo pone en la línea de estado. */
-  empezar(clave) {
-    const f = this.filas.get(clave);
-    const etiqueta = PASOS.find((p) => p[0] === clave)?.[1] ?? clave;
-    if (f) {
-      f.li.dataset.state = "running";
-      f.marca.textContent = "›";
+  /** Marks the step as in progress and puts it on the status line. */
+  begin(key) {
+    const r = this.rows.get(key);
+    const label = STEPS.find((p) => p[0] === key)?.[1] ?? key;
+    if (r) {
+      r.li.dataset.state = "running";
+      r.mark.textContent = "›";
     }
-    const paso = $("splash-step");
-    if (paso) paso.textContent = `${etiqueta}…`;
+    const step = $("splash-step");
+    if (step) step.textContent = `${label}…`;
   }
 
-  /** Lo cierra en verde. `detalle` es el resumen corto de lo que encontró. */
-  terminar(clave, detalle) {
-    const f = this.filas.get(clave);
-    if (f) {
-      f.li.dataset.state = "ok";
-      f.marca.textContent = "✓";
-      if (detalle) f.nota.textContent = detalle;
+  /** Closes it green. `detail` is the short summary of what it found. */
+  finish(key, detail) {
+    const r = this.rows.get(key);
+    if (r) {
+      r.li.dataset.state = "ok";
+      r.mark.textContent = "✓";
+      if (detail) r.note.textContent = detail;
     }
-    this.hecho += 1;
-    const pct = Math.round((this.hecho / PASOS.length) * 100);
-    const fill = $("splash-fill");
-    if (fill) fill.style.width = `${pct}%`;
-    const etiqueta = $("splash-pct");
-    if (etiqueta) etiqueta.textContent = `${pct}%`;
+    this.done += 1;
+    const pct = Math.round((this.done / STEPS.length) * 100);
+    const bar = $("splash-fill");
+    if (bar) bar.style.width = `${pct}%`;
+    const label = $("splash-pct");
+    if (label) label.textContent = `${pct}%`;
   }
 
   /**
-   * Lo cierra en rojo y deja el error a la vista.
+   * Closes it red and leaves the error in sight.
    *
-   * No cierra la ventana ni sigue: si el paso 2 falla, los siguientes no
-   * pueden funcionar y fingir lo contrario solo produce un segundo error más
-   * confuso que el primero.
+   * It neither closes the window nor continues: if step 2 fails, the next
+   * ones cannot work, and pretending otherwise only produces a second error
+   * more confusing than the first.
    */
-  fallar(clave, error) {
-    const f = this.filas.get(clave);
-    if (f) {
-      f.li.dataset.state = "fail";
-      f.marca.textContent = "✕";
+  fail(key, error) {
+    const r = this.rows.get(key);
+    if (r) {
+      r.li.dataset.state = "fail";
+      r.mark.textContent = "✕";
     }
-    const paso = $("splash-step");
-    if (paso) paso.textContent = "Startup failed";
-    const barra = $("splash-fill");
-    if (barra) barra.style.background = "var(--status-error)";
+    const step = $("splash-step");
+    if (step) step.textContent = "Startup failed";
+    const bar = $("splash-fill");
+    if (bar) bar.style.background = "var(--status-error)";
 
-    const caja = $("splash-error");
-    if (caja) {
-      caja.textContent = error?.message ?? String(error);
-      caja.style.display = "block";
+    const box = $("splash-error");
+    if (box) {
+      box.textContent = error?.message ?? String(error);
+      box.style.display = "block";
     }
   }
 
   /**
-   * Corre un paso: lo marca, espera, y lo cierra en verde o en rojo.
-   * Devuelve lo que devolvió `fn`, o `null` si falló.
+   * Runs a step: marks it, awaits, and closes it green or red.
+   * Returns what `fn` returned; re-throws if it failed.
    */
-  async correr(clave, fn, resumen) {
-    this.empezar(clave);
+  async run(key, fn, summary) {
+    this.begin(key);
     try {
       const r = await fn();
-      this.terminar(clave, resumen ? resumen(r) : undefined);
+      this.finish(key, summary ? summary(r) : undefined);
       return r;
     } catch (e) {
-      this.fallar(clave, e);
+      this.fail(key, e);
       throw e;
     }
   }
 }
 
-/** Funde la pantalla de carga y la quita del DOM. */
-export function cerrarSplash() {
+/** Fades the loading screen out and removes it from the DOM. */
+export function closeSplash() {
   const s = $("splash");
   if (!s) return;
   s.classList.add("out");

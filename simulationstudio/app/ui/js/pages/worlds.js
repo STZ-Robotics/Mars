@@ -1,111 +1,111 @@
-// World Library: todos los .sdf de sim/worlds/, con lo que se pudo leer de
-// cada uno y las acciones que operan sobre el seleccionado.
+// World Library: every .sdf in sim/worlds/, with what could be read from each
+// one and the actions that operate on the selected one.
 //
-// La distinción que organiza la página es managed/external: un mundo creado
-// aquí tiene su .studio.json al lado y se abre en el árbol de propiedades; uno
-// escrito a mano solo se puede correr y editar como XML. Ver el tema de ayuda
-// "worlds.managed" para por qué el editor se niega a regenerar el segundo.
+// The distinction that organizes the page is managed/external: a world
+// created here has its .studio.json next to it and opens in the property
+// tree; one written by hand can only be run and edited as XML. See the help
+// topic "worlds.managed" for why the editor refuses to regenerate the latter.
 
-import { bytes, el, estado, guardarPrefs, invoke, num, pintar, recargarBibliotecas } from "./../core.js";
-import { navegar, refrescarPagina, reportar } from "./../shell.js";
-import { aviso, boton, chip, confirmar, modal, panel, prop, propTexto, texto, vacio } from "./../ui.js";
-import { elegirArchivo } from "./../browser.js";
-import { PLANTILLAS, specDePlantilla } from "./../worldspec.js";
+import { bytes, el, fill, invoke, num, reloadLibraries, savePrefs, state } from "./../core.js";
+import { navigate, refreshPage, report } from "./../shell.js";
+import { button, chip, confirmDialog, emptyState, modal, notice, panel, prop, propText, textInput } from "./../ui.js";
+import { pickFile } from "./../browser.js";
+import { TEMPLATES, specFromTemplate } from "./../worldspec.js";
 
-export function paginaWorlds() {
-  let seleccionada = estado.prefs.mundoSeleccionado ?? estado.prefs.mundo ?? estado.mundos[0]?.ruta ?? null;
-  if (!estado.mundos.some((m) => m.ruta === seleccionada)) seleccionada = estado.mundos[0]?.ruta ?? null;
+export function worldsPage() {
+  let selected = state.prefs.selectedWorld ?? state.prefs.world ?? state.worlds[0]?.path ?? null;
+  if (!state.worlds.some((m) => m.path === selected)) selected = state.worlds[0]?.path ?? null;
 
-  const detalle = el("div");
-  const cuerpo = el("div.stack");
+  const detail = el("div");
+  const body = el("div.stack");
 
-  function elegir(ruta) {
-    seleccionada = ruta;
-    guardarPrefs({ mundoSeleccionado: ruta });
-    pintarTabla();
-    pintarDetalle();
+  function choose(path) {
+    selected = path;
+    savePrefs({ selectedWorld: path });
+    drawTable();
+    drawDetail();
   }
 
-  const tabla = el("tbody");
+  const table = el("tbody");
 
-  function pintarTabla() {
-    pintar(
-      tabla,
-      ...estado.mundos.map((m) =>
+  function drawTable() {
+    fill(
+      table,
+      ...state.worlds.map((m) =>
         el(
           "tr",
-          { data: { selectable: "true", active: String(m.ruta === seleccionada) }, onclick: () => elegir(m.ruta) },
-          el("td", el("span.row", el("img", { src: "icons/scene.svg", width: 14, height: 14, alt: "" }), m.archivo)),
-          el("td", m.gestionado ? chip("managed", "accent") : chip("external")),
-          el("td.mono", m.mundo || "—"),
-          el("td.num", String(m.modelos)),
+          { data: { selectable: "true", active: String(m.path === selected) }, onclick: () => choose(m.path) },
+          el("td", el("span.row", el("img", { src: "icons/scene.svg", width: 14, height: 14, alt: "" }), m.file)),
+          el("td", m.managed ? chip("managed", "accent") : chip("external")),
+          el("td.mono", m.world || "—"),
+          el("td.num", String(m.models)),
           el("td.num", String(m.plugins)),
-          el("td.num", m.paso ? `${num(m.paso, 4)} s` : "—"),
+          el("td.num", m.step ? `${num(m.step, 4)} s` : "—"),
           el("td.num.dim", bytes(m.bytes)),
-          el("td", m.notas.length ? chip(`${m.notas.length} issue${m.notas.length > 1 ? "s" : ""}`, "warn") : chip("ok", "ok"))
+          el("td", m.notes.length ? chip(`${m.notes.length} issue${m.notes.length > 1 ? "s" : ""}`, "warn") : chip("ok", "ok"))
         )
       )
     );
   }
 
-  function pintarDetalle() {
-    const m = estado.mundos.find((x) => x.ruta === seleccionada);
-    if (!m) return pintar(detalle, vacio("Select a world above"));
+  function drawDetail() {
+    const m = state.worlds.find((x) => x.path === selected);
+    if (!m) return fill(detail, emptyState("Select a world above"));
 
-    const esLanzable = estado.prefs.mundo === m.ruta;
+    const isLaunchWorld = state.prefs.world === m.path;
 
-    pintar(
-      detalle,
+    fill(
+      detail,
       panel(
-        m.archivo,
+        m.file,
         {
           svg: "scene.svg",
           help: "worlds.library",
-          acciones: m.gestionado ? chip("managed", "accent") : chip("external", "warn"),
+          actions: m.managed ? chip("managed", "accent") : chip("external", "warn"),
         },
         el(
           "div",
-          propTexto("Path", m.ruta),
-          prop("World name", el("span.row", el("span.mono", m.mundo || "—"), m.mundo !== "mars" && chip("must be \"mars\"", "fail")), {
+          propText("Path", m.path),
+          prop("World name", el("span.row", el("span.mono", m.world || "—"), m.world !== "mars" && chip("must be \"mars\"", "fail")), {
             help: "worlds.name-mars",
           }),
-          m.descripcion ? propTexto("Description", m.descripcion) : null,
-          propTexto("Models / includes / lights", `${m.modelos} / ${m.incluye} / ${m.luces}`),
+          m.description ? propText("Description", m.description) : null,
+          propText("Models / includes / lights", `${m.models} / ${m.includes} / ${m.lights}`),
           prop("Plugins", el("span.mono", String(m.plugins)), { help: "world.plugins" }),
-          prop("Physics step", el("span.mono", m.paso ? `${m.paso} s  (${Math.round(1 / m.paso)} Hz)` : "—"), {
+          prop("Physics step", el("span.mono", m.step ? `${m.step} s  (${Math.round(1 / m.step)} Hz)` : "—"), {
             help: "world.physics.step",
           }),
           prop("Real-time factor", el("span.mono", m.rtf ?? "—"), { help: "world.physics.rtf" }),
-          propTexto("Size on disk", bytes(m.bytes))
+          propText("Size on disk", bytes(m.bytes))
         ),
         el(
           "div.row-wrap",
           { style: { marginTop: "10px" } },
-          boton(m.gestionado ? "Open in editor" : "Open source", {
+          button(m.managed ? "Open in editor" : "Open source", {
             svg: "grid.svg",
-            variante: "primary",
-            onclick: () => navegar("editor", { ruta: m.ruta }),
+            variant: "primary",
+            onclick: () => navigate("editor", { path: m.path }),
           }),
-          boton(esLanzable ? "Selected for launch" : "Use for launch", {
+          button(isLaunchWorld ? "Selected for launch" : "Use for launch", {
             svg: "play.svg",
-            disabled: esLanzable,
+            disabled: isLaunchWorld,
             onclick: () => {
-              guardarPrefs({ mundo: m.ruta });
-              navegar("launch");
+              savePrefs({ world: m.path });
+              navigate("launch");
             },
           }),
-          boton("Duplicate", { svg: "duplicate.svg", onclick: () => duplicar(m) }),
-          boton("Reveal in Explorer", { svg: "open-folder.svg", onclick: () => invoke("sim_revelar", { ruta: m.ruta }).catch(reportar) }),
-          boton("Delete", { svg: "delete.svg", variante: "danger", onclick: () => borrar(m) })
+          button("Duplicate", { svg: "duplicate.svg", onclick: () => duplicate(m) }),
+          button("Reveal in Explorer", { svg: "open-folder.svg", onclick: () => invoke("sim_reveal", { path: m.path }).catch(report) }),
+          button("Delete", { svg: "delete.svg", variant: "danger", onclick: () => remove(m) })
         ),
-        ...m.notas.map((n) => el("div", { style: { marginTop: "8px" } }, aviso(n, "warn")))
+        ...m.notes.map((n) => el("div", { style: { marginTop: "8px" } }, notice(n, "warn")))
       )
     );
   }
 
-  pintar(
-    cuerpo,
-    estado.mundos.length
+  fill(
+    body,
+    state.worlds.length
       ? panel(
           "Worlds",
           { svg: "scene.svg", help: "worlds.library", flush: true },
@@ -128,57 +128,57 @@ export function paginaWorlds() {
                   el("th", "Status")
                 )
               ),
-              tabla
+              table
             )
           )
         )
-      : vacio("No worlds in sim/worlds/", "Create one with New world, or import an existing .sdf"),
-    detalle
+      : emptyState("No worlds in sim/worlds/", "Create one with New world, or import an existing .sdf"),
+    detail
   );
 
-  pintarTabla();
-  pintarDetalle();
+  drawTable();
+  drawDetail();
 
   return {
-    titulo: "World Library",
-    meta: `${estado.mundos.length} world${estado.mundos.length === 1 ? "" : "s"} in sim/worlds/`,
+    title: "World Library",
+    meta: `${state.worlds.length} world${state.worlds.length === 1 ? "" : "s"} in sim/worlds/`,
     help: "worlds.library",
-    acciones: [
-      boton("New world", { svg: "add.svg", sm: true, onclick: () => nuevoMundo() }),
-      boton("Import", { svg: "import-model.svg", sm: true, onclick: () => importarMundo() }),
-      boton("Reload", { svg: "republish.svg", sm: true, onclick: () => refrescarPagina() }),
+    actions: [
+      button("New world", { svg: "add.svg", sm: true, onclick: () => newWorld() }),
+      button("Import", { svg: "import-model.svg", sm: true, onclick: () => importWorld() }),
+      button("Reload", { svg: "republish.svg", sm: true, onclick: () => refreshPage() }),
     ],
-    cuerpo,
+    body,
   };
 }
 
-// --- acciones ------------------------------------------------------------
+// --- actions -----------------------------------------------------------------
 
-function duplicar(m) {
-  const modelo = { nombre: `${m.archivo.replace(/\.sdf$/, "")}-copy` };
+function duplicate(m) {
+  const model = { name: `${m.file.replace(/\.sdf$/, "")}-copy` };
   modal({
-    titulo: "Duplicate world",
+    title: "Duplicate world",
     svg: "duplicate.svg",
-    ancho: 430,
-    cuerpo: el(
+    width: 430,
+    body: el(
       "div",
       el("label.field-label", "New file name"),
-      el("div.row", texto(modelo, "nombre", { placeholder: "my-world" }), el("span.unit", ".sdf")),
+      el("div.row", textInput(model, "name", { placeholder: "my-world" }), el("span.unit", ".sdf")),
       el("p.dim", { style: { marginTop: "8px", fontSize: "11px" } }, "Letters, digits, dash and underscore only.")
     ),
-    pie: (cerrar) => [
-      boton("Cancel", { onclick: cerrar }),
-      boton("Duplicate", {
-        variante: "primary",
+    footer: (close) => [
+      button("Cancel", { onclick: close }),
+      button("Duplicate", {
+        variant: "primary",
         onclick: async () => {
           try {
-            const ruta = await invoke("sim_duplicar_mundo", { ruta: m.ruta, nombre: modelo.nombre.trim() });
-            cerrar();
-            await recargarBibliotecas();
-            guardarPrefs({ mundoSeleccionado: ruta });
-            refrescarPagina();
+            const path = await invoke("sim_duplicate_world", { path: m.path, name: model.name.trim() });
+            close();
+            await reloadLibraries();
+            savePrefs({ selectedWorld: path });
+            refreshPage();
           } catch (e) {
-            reportar(e);
+            report(e);
           }
         },
       }),
@@ -186,98 +186,98 @@ function duplicar(m) {
   });
 }
 
-function borrar(m) {
-  confirmar({
-    titulo: "Delete world",
-    mensaje: `Delete ${m.archivo} from sim/worlds/? ${
-      m.gestionado ? "Its .studio.json goes with it. " : ""
+function remove(m) {
+  confirmDialog({
+    title: "Delete world",
+    message: `Delete ${m.file} from sim/worlds/? ${
+      m.managed ? "Its .studio.json goes with it. " : ""
     }This cannot be undone from inside the app.`,
-    alAceptar: async () => {
+    onAccept: async () => {
       try {
-        await invoke("sim_borrar_mundo", { ruta: m.ruta });
-        await recargarBibliotecas();
-        if (estado.prefs.mundo === m.ruta) guardarPrefs({ mundo: estado.mundos[0]?.ruta ?? "" });
-        refrescarPagina();
+        await invoke("sim_delete_world", { path: m.path });
+        await reloadLibraries();
+        if (state.prefs.world === m.path) savePrefs({ world: state.worlds[0]?.path ?? "" });
+        refreshPage();
       } catch (e) {
-        reportar(e);
+        report(e);
       }
     },
   });
 }
 
-/** Diálogo "New world": nombre, descripción y plantilla. */
-export function nuevoMundo() {
-  const modelo = { nombre: "new-world", descripcion: "" };
-  let plantilla = "frc";
+/** The "New world" dialog: name, description and template. */
+export function newWorld() {
+  const model = { name: "new-world", description: "" };
+  let template = "frc";
 
-  const lista = el("div.bevel");
-  const pintarLista = () =>
-    pintar(
-      lista,
+  const list = el("div.bevel");
+  const drawList = () =>
+    fill(
+      list,
       el("div.bevel-title", el("span.label", "Template")),
-      ...PLANTILLAS.map((p) =>
+      ...TEMPLATES.map((p) =>
         el(
           "div.list-row",
           {
-            data: { active: String(plantilla === p.id) },
+            data: { active: String(template === p.id) },
             onclick: () => {
-              plantilla = p.id;
-              pintarLista();
+              template = p.id;
+              drawList();
             },
           },
           el("img", { src: `icons/${p.svg}`, width: 15, height: 15, alt: "" }),
-          el("span", p.nombre),
+          el("span", p.name),
           el(
             "span.desc",
-            p.pideCampo && !(estado.campos ?? []).some((c) => c.instalado)
+            p.wantsField && !(state.fields ?? []).some((c) => c.installed)
               ? "No field installed — install one in Field Library first"
-              : p.resumen
+              : p.summary
           )
         )
       )
     );
-  pintarLista();
+  drawList();
 
   modal({
-    titulo: "New world",
+    title: "New world",
     svg: "add.svg",
-    ancho: 620,
-    cuerpo: el(
+    width: 620,
+    body: el(
       "div.stack",
       el(
         "div",
         el("label.field-label", "File name"),
-        el("div.row", texto(modelo, "nombre", { placeholder: "my-world" }), el("span.unit", ".sdf"))
+        el("div.row", textInput(model, "name", { placeholder: "my-world" }), el("span.unit", ".sdf"))
       ),
       el(
         "div",
         el("label.field-label", "Description (optional)"),
-        texto(modelo, "descripcion", { placeholder: "What this world is for" })
+        textInput(model, "description", { placeholder: "What this world is for" })
       ),
-      lista,
+      list,
       el("div.doc", {
         html: `<p class="note">Every world generated here declares <code>&lt;world name="mars"&gt;</code>,
                the physics system and the scene broadcaster. Those three are what the rest of the
                simulation assumes exists.</p>`,
       })
     ),
-    pie: (cerrar) => [
-      boton("Cancel", { onclick: cerrar }),
-      boton("Create and edit", {
-        variante: "primary",
+    footer: (close) => [
+      button("Cancel", { onclick: close }),
+      button("Create and edit", {
+        variant: "primary",
         svg: "add.svg",
         onclick: async () => {
-          const nombre = modelo.nombre.trim();
-          const spec = specDePlantilla(plantilla, nombre, (estado.campos ?? []).find((c) => c.instalado)?.ruta ?? "");
-          spec.descripcion = modelo.descripcion.trim();
+          const name = model.name.trim();
+          const spec = specFromTemplate(template, name, (state.fields ?? []).find((c) => c.installed)?.path ?? "");
+          spec.description = model.description.trim();
           try {
-            const ruta = await invoke("sim_guardar_mundo", { spec });
-            cerrar();
-            await recargarBibliotecas();
-            guardarPrefs({ mundoSeleccionado: ruta });
-            navegar("editor", { ruta });
+            const path = await invoke("sim_save_world", { spec });
+            close();
+            await reloadLibraries();
+            savePrefs({ selectedWorld: path });
+            navigate("editor", { path });
           } catch (e) {
-            reportar(e);
+            report(e);
           }
         },
       }),
@@ -285,28 +285,28 @@ export function nuevoMundo() {
   });
 }
 
-/** Importa un .sdf de cualquier parte del disco: elegir archivo, luego nombre. */
-export function importarMundo() {
-  elegirArchivo({
-    titulo: "Import world — pick an .sdf",
-    filtro: ["sdf", "world"],
-    alElegir: (origen) => {
-      const sugerido = (origen.split(/[\\/]/).pop() ?? "world")
+/** Imports an .sdf from anywhere on disk: pick the file, then the name. */
+export function importWorld() {
+  pickFile({
+    title: "Import world — pick an .sdf",
+    filter: ["sdf", "world"],
+    onPick: (origin) => {
+      const suggested = (origin.split(/[\\/]/).pop() ?? "world")
         .replace(/\.(sdf|world)$/i, "")
         .replace(/[^A-Za-z0-9_-]/g, "-");
-      const modelo = { nombre: sugerido };
+      const model = { name: suggested };
 
       modal({
-        titulo: "Import world",
+        title: "Import world",
         svg: "import-model.svg",
-        ancho: 520,
-        cuerpo: el(
+        width: 520,
+        body: el(
           "div.stack",
-          el("div", el("label.field-label", "Source"), el("div.mono.selectable", { style: { wordBreak: "break-all" } }, origen)),
+          el("div", el("label.field-label", "Source"), el("div.mono.selectable", { style: { wordBreak: "break-all" } }, origin)),
           el(
             "div",
             el("label.field-label", "Copy into sim/worlds/ as"),
-            el("div.row", texto(modelo, "nombre"), el("span.unit", ".sdf"))
+            el("div.row", textInput(model, "name"), el("span.unit", ".sdf"))
           ),
           el("div.doc", {
             html: `<p>Any <code>meshes/</code>, <code>materials/</code> or <code>models/</code> folder
@@ -315,22 +315,22 @@ export function importarMundo() {
                    <p class="warn">After importing, check that the world declares
                    <code>&lt;world name="mars"&gt;</code> and carries the physics and scene-broadcaster
                    plugins. The library flags both for you.</p>`,
-          })
+        })
         ),
-        pie: (cerrar) => [
-          boton("Cancel", { onclick: cerrar }),
-          boton("Import", {
-            variante: "primary",
+        footer: (close) => [
+          button("Cancel", { onclick: close }),
+          button("Import", {
+            variant: "primary",
             svg: "import-model.svg",
             onclick: async () => {
               try {
-                const ruta = await invoke("sim_importar_mundo", { origen, nombre: modelo.nombre.trim() });
-                cerrar();
-                await recargarBibliotecas();
-                guardarPrefs({ mundoSeleccionado: ruta });
-                navegar("worlds");
+                const path = await invoke("sim_import_world", { origin, name: model.name.trim() });
+                close();
+                await reloadLibraries();
+                savePrefs({ selectedWorld: path });
+                navigate("worlds");
               } catch (e) {
-                reportar(e);
+                report(e);
               }
             },
           }),
