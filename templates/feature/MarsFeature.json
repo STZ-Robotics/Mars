@@ -1,18 +1,18 @@
 {
   "featureId": "TemplateFeature",
-  "name": "Nombre de tu Feature",
+  "name": "Your Feature's name",
   "version": "1.0.0",
-  "groupId": "com.tu.equipo",
-  "author": "Tu Equipo",
-  "description": "Descripción de lo que hace tu nodo.",
+  "groupId": "com.your.team",
+  "author": "Your Team",
+  "description": "What your node does.",
   "marsCoreRequired": ">=1.6.0",
   "forgeMiniRequired": ">=1.1.0",
   "mavenUrls": [
-    "https://TU-USUARIO.github.io/TU-REPO/maven/"
+    "https://YOUR-USER.github.io/YOUR-REPO/maven/"
   ],
   "javaDependencies": [
     {
-      "groupId": "com.tu.equipo",
+      "groupId": "com.your.team",
       "artifactId": "TemplateFeature",
       "version": "1.0.0",
       "isProcessor": false

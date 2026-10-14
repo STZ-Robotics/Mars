@@ -19,36 +19,36 @@ public class GCSConsole {
     private static final String BOLD_GREEN = "\u001b[1;32m";
     private static final String GREEN = "\u001b[32m";
     private static final String GRAY = "\u001b[90m";
-    private static final String BG_GREEN_BLACK_TEXT = "\u001b[1;30;42m"; // Para alertas críticas
+    private static final String BG_GREEN_BLACK_TEXT = "\u001b[1;30;42m"; // For critical alerts
     
     private static int moduleCount = 0;
 
-    // Puente UDP para que funcione en Simulación (Windows/Mac)
+    // UDP bridge so it works in simulation (Windows/Mac)
     private static DatagramSocket simSocket;
     private static InetAddress localhost;
 
-    // Evita hacer spam en consola si el bridge UDP falla repetidamente
-    // (por ejemplo, si la extensión de simulación no está escuchando).
+    // Avoids spamming the console if the UDP bridge fails repeatedly
+    // (for example, if the simulation extension is not listening).
     private static boolean udpFailureLogged = false;
 
     public GCSConsole() {}
 
     /**
-     * Envía datos crudos al bridge UDP de simulación de forma segura.
-     * Si el envío falla, se registra el error una sola vez (no en cada ciclo)
-     * para evitar saturar la consola con excepciones repetidas de red.
+     * Sends raw data to the simulation UDP bridge safely.
+     * If sending fails, the error is logged only once (not on every cycle)
+     * to avoid flooding the console with repeated network exceptions.
      *
-     * @param data Los bytes a enviar por UDP.
+     * @param data The bytes to send over UDP.
      */
     private static void sendUdp(byte[] data) {
         if (simSocket == null || localhost == null) return;
 
         try {
             simSocket.send(new DatagramPacket(data, data.length, localhost, 6666));
-            udpFailureLogged = false; // Se recuperó, permite loggear si vuelve a fallar
+            udpFailureLogged = false; // Recovered: allow logging again if it fails later
         } catch (Exception e) {
             if (!udpFailureLogged) {
-                System.out.println(GRAY + "[GCSConsole] UDP bridge unavailable (¿extensión de sim no está escuchando?): "
+                System.out.println(GRAY + "[GCSConsole] UDP bridge unavailable (is the sim extension not listening?): "
                     + e.getMessage() + RESET);
                 udpFailureLogged = true;
             }
@@ -58,14 +58,14 @@ public class GCSConsole {
     private static String format(String type, String tag, String message) {
         double time = Timer.getFPGATimestamp();
         
-        // Estructura: [  12.345s] [INFO] [Core        ] Mensaje
+        // Layout: [  12.345s] [INFO] [Core        ] Message
         String formattedMsg = String.format("%s[%8.3fs]%s %s[%-4s]%s %s[%-12s]%s %s%s%s", 
             GRAY, time, RESET,
             BOLD_GREEN, type, RESET,
             GRAY, tag, RESET,
             GREEN, message, RESET);
 
-        // Si estamos en simulación, obligamos a Java a enviarlo por UDP a la extensión
+        // In simulation, Java is made to send it over UDP to the extension
         sendUdp((formattedMsg + "\n").getBytes());
 
         return formattedMsg;
@@ -143,7 +143,7 @@ public class GCSConsole {
     }
 
     public static void logError(String tag, String message) {
-        // En la terminal hacker, los errores invierten el color para llamar la atención
+        // In the hacker terminal, errors invert the color to draw attention
         String msg = format("FAIL", tag, BG_GREEN_BLACK_TEXT + " " + message + " " + RESET);
         System.out.println(msg);
         DriverStation.reportError(msg, false);

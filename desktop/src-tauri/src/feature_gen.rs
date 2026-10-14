@@ -424,7 +424,7 @@ fn scaffold_feature(config: FeatureWizardConfig) -> Result<CreateFeatureResult, 
     let maven_url = pages
         .as_ref()
         .map(|b| format!("{}/maven/", b))
-        .unwrap_or_else(|| "https://TU-USUARIO.github.io/TU-REPO/maven/".to_string());
+        .unwrap_or_else(|| "https://YOUR-USER.github.io/YOUR-REPO/maven/".to_string());
 
     let json = mars_feature_json(&config, &maven_url);
     fs::write(

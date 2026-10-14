@@ -39,7 +39,7 @@ def toGradleRange(String constraint) {
     } else if (constraint.startsWith("<")) {
         return "(,${constraint.substring(1).trim()})"
     }
-    // Sin operador: se asume versión exacta
+    // No operator: an exact version is assumed
     return constraint.trim()
 }
 

@@ -29,11 +29,11 @@ jobs:
         
       - name: Combine Javadoc and Maven
         run: |
-          # Creamos la carpeta de destino por si no existe
+          # Create the destination folder in case it does not exist
           mkdir -p build/docs/javadoc
-          # Copiamos la carpeta 'maven' adentro del Javadoc
+          # Copy the 'maven' folder inside the Javadoc
           cp -r maven build/docs/javadoc/maven
-          # Copiamos el JSON del Feature para que la CLI de MARS lo encuentre
+          # Copy the Feature's JSON so the MARS CLI can find it
           cp MarsFeature.json build/docs/javadoc/
         
       - name: Deploy to GitHub Pages

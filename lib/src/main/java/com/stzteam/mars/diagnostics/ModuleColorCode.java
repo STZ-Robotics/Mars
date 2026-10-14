@@ -3,8 +3,8 @@ package com.stzteam.mars.diagnostics;
 import edu.wpi.first.wpilibj.util.Color;
 
 /**
- * Un contenedor universal para códigos de diagnóstico.
- * Elimina la necesidad de crear un Enum por cada subsistema.
+ * A universal container for diagnostic codes.
+ * Removes the need to create an Enum per subsystem.
  */
 public record ModuleColorCode(
     String name,
@@ -19,7 +19,7 @@ public record ModuleColorCode(
     @Override public String getMessageTemplate() { return messageTemplate; }
 
     /**
-     * Factory method para crear un código de color sólido rápidamente.
+     * Factory method to quickly create a solid color code.
      */
     public static ModuleColorCode solid(String name, Severity severity, Color color, String template) {
         return new ModuleColorCode(name, severity, DiagnosticPattern.solid(color), template);
