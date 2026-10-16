@@ -49,6 +49,9 @@ pub struct FieldDoc {
     pub keep_out: Vec<ares_planner::KeepOutCircle>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub slow_zones: Vec<ares_planner::SlowZone>,
+    /// Where the pathfinder may not go (PathPlanner's navgrid).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub navgrid: Option<ares_planner::NavGrid>,
 }
 
 fn yes() -> bool {
@@ -57,8 +60,32 @@ fn yes() -> bool {
 
 impl Default for FieldDoc {
     fn default() -> Self {
-        FieldDoc { walls: true, keep_out: vec![], slow_zones: vec![] }
+        FieldDoc { walls: true, keep_out: vec![], slow_zones: vec![], navgrid: None }
     }
+}
+
+/// The field as a path's trajectory depends on it: the navgrid only steers
+/// the "?" segments, so moving its cells leaves every other path current.
+fn field_for(field: &FieldDoc, spec: &PathSpec) -> serde_json::Value {
+    let pathfinds = spec.waypoints.iter().any(|w| w.pathfind_next.is_some())
+        || spec.waypoints.first().is_some_and(|w| w.kind() == ares_core::path::WaypointKind::Unknown);
+    let mut f = field.clone();
+    if !pathfinds {
+        f.navgrid = None;
+    }
+    serde_json::to_value(&f).unwrap_or(serde_json::Value::Null)
+}
+
+/// PathPlanner's navgrid.json, written next to the project so AresLib (or
+/// PathPlannerLib's pathfinder, if the file is copied to deploy/pathplanner)
+/// reads the same cells.
+fn navgrid_json(grid: &ares_planner::NavGrid, size: FieldSize) -> serde_json::Value {
+    serde_json::json!({
+        "field_size": { "x": size.length_m, "y": size.width_m },
+        "nodeSizeMeters": grid.node_size_meters,
+        "grid": grid.grid,
+        "generatedBy": "Ares",
+    })
 }
 
 fn project_dir(robot_path: &str) -> PathBuf {
@@ -211,9 +238,47 @@ pub fn field_open(robot_path: String) -> FieldDoc {
 }
 
 #[tauri::command]
-pub fn field_save(robot_path: String, field: FieldDoc) -> Result<(), String> {
+pub fn field_save(robot_path: String, field: FieldDoc, field_size: Option<FieldSize>) -> Result<(), String> {
     let text = serde_json::to_string_pretty(&field).map_err(|e| e.to_string())?;
-    write(&project_dir(&robot_path).join("field.json"), &(text + "\n"))
+    write(&project_dir(&robot_path).join("field.json"), &(text + "\n"))?;
+    let nav = project_dir(&robot_path).join("navgrid.json");
+    // Without the field's size there is no navgrid.json to write: leave it.
+    let Some(size) = field_size else { return Ok(()) };
+    match &field.navgrid {
+        Some(g) if !g.is_empty() => {
+            let text = serde_json::to_string(&navgrid_json(g, size)).map_err(|e| e.to_string())?;
+            write(&nav, &(text + "\n"))
+        }
+        // Only ours goes: a navgrid.json someone put there by hand stays.
+        _ => {
+            let ours = fs::read_to_string(&nav).ok().is_some_and(|t| t.contains("\"generatedBy\":\"Ares\""));
+            if ours {
+                let _ = fs::remove_file(&nav);
+            }
+            Ok(())
+        }
+    }
+}
+
+/// A PathPlanner navgrid.json (theirs or ours), for importing.
+#[tauri::command]
+pub fn navgrid_import(path: String) -> Result<ares_planner::NavGrid, String> {
+    let text = fs::read_to_string(&path).map_err(|e| format!("Could not read {path}: {e}"))?;
+    let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("{path} is not JSON: {e}"))?;
+    let node = v["nodeSizeMeters"].as_f64().ok_or("Not a navgrid: it has no nodeSizeMeters")?;
+    let grid: Vec<Vec<bool>> = serde_json::from_value(v["grid"].clone()).map_err(|_| "Not a navgrid: its grid is not rows of true/false")?;
+    if node <= 0.0 || grid.is_empty() {
+        return Err("The navgrid is empty".into());
+    }
+    Ok(ares_planner::NavGrid { node_size_meters: node, grid })
+}
+
+/// The navgrid as PathPlanner's navgrid.json, wherever the user picks.
+#[tauri::command]
+pub fn navgrid_export(path: String, grid: ares_planner::NavGrid, field_size: FieldSize) -> Result<(), String> {
+    let mut v = navgrid_json(&grid, field_size);
+    v.as_object_mut().map(|o| o.remove("generatedBy"));
+    write(Path::new(&path), &(serde_json::to_string(&v).map_err(|e| e.to_string())? + "\n"))
 }
 
 /// The most samples the drag preview sends to the UI.
@@ -302,13 +367,13 @@ pub async fn path_plan(
         let started = Instant::now();
         // What it is generated from, before anything below changes it.
         let json = |v: serde_json::Result<serde_json::Value>| v.unwrap_or(serde_json::Value::Null);
-        let hash = source_hash(&[&json(serde_json::to_value(&spec)), &json(serde_json::to_value(&field)), &json(serde_json::to_value(&robot))]);
+        let hash = source_hash(&[&json(serde_json::to_value(&spec)), &field_for(&field, &spec), &json(serde_json::to_value(&robot))]);
         let mut spec = spec;
         let mut options = PlannerOptions::default();
         if let Some(rp) = robot_path.as_ref() {
             options.start_state = link_start(rp, &mut spec)?;
         }
-        let env = Environment { field: if field.walls { field_size } else { None }, keep_out: field.keep_out, slow_zones: field.slow_zones };
+        let env = Environment { field: if field.walls { field_size } else { None }, keep_out: field.keep_out, slow_zones: field.slow_zones, navgrid: field.navgrid };
         let token = CancelToken::default();
         options.cancel = Some(token.clone());
         RUNNING.lock().unwrap().push(token.clone());
@@ -355,13 +420,13 @@ pub struct PathStatus {
 #[tauri::command]
 pub fn paths_status(robot_path: String, robot: RobotConfig, field: FieldDoc) -> Vec<PathStatus> {
     let json = |v: serde_json::Result<serde_json::Value>| v.unwrap_or(serde_json::Value::Null);
-    let (field_json, robot_json) = (json(serde_json::to_value(&field)), json(serde_json::to_value(&robot)));
+    let robot_json = json(serde_json::to_value(&robot));
     paths_list(robot_path.clone())
         .into_iter()
         .filter_map(|e| e.spec)
         .map(|spec| {
             let traj = trajectory_open(robot_path.clone(), spec.name.clone());
-            let now = source_hash(&[&json(serde_json::to_value(&spec)), &field_json, &robot_json]);
+            let now = source_hash(&[&json(serde_json::to_value(&spec)), &field_for(&field, &spec), &robot_json]);
             PathStatus {
                 generated: traj.is_some(),
                 outdated: traj.as_ref().is_none_or(|t| t.source_hash.as_deref() != Some(now.as_str())),
@@ -587,7 +652,7 @@ mod tests {
         assert!(!paths_status(rp.clone(), robot.clone(), field.clone())[0].generated);
         let json = |v: serde_json::Result<serde_json::Value>| v.unwrap();
         let mut t = solve(&robot, &s, &SolverOptions::default()).unwrap();
-        t.source_hash = Some(source_hash(&[&json(serde_json::to_value(&s)), &json(serde_json::to_value(&field)), &json(serde_json::to_value(&robot))]));
+        t.source_hash = Some(source_hash(&[&json(serde_json::to_value(&s)), &field_for(&field, &s), &json(serde_json::to_value(&robot))]));
         write(&traj_file(&rp, "P").unwrap(), &serde_json::to_string(&t).unwrap()).unwrap();
         let st = &paths_status(rp.clone(), robot.clone(), field.clone())[0];
         assert!(st.generated && !st.outdated);

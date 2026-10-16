@@ -4,6 +4,7 @@ import type { RobotConfig } from "../robot/types"
 import type { FieldDoc, PathEntry } from "../paths/types"
 import { useVariables } from "./context"
 import { applyScope } from "./variables"
+import { FIELD_SIZE } from "../field/navgrid"
 
 /**
  * When a variable changes, every formula in the project gives a new number:
@@ -33,7 +34,7 @@ export function useProjectSync(robotPath: string | null, setRobot: (f: (r: Robot
       const field = await invoke<FieldDoc>("field_open", { robotPath }).catch(() => null)
       if (field) {
         const out = applyScope(field, scope)
-        if (out.changed) await invoke("field_save", { robotPath, field: out.doc }).catch(() => {})
+        if (out.changed) await invoke("field_save", { robotPath, field: out.doc, fieldSize: FIELD_SIZE }).catch(() => {})
       }
     })()
   }, [version, loaded, robotPath])

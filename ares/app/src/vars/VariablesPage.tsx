@@ -7,6 +7,7 @@ import { Card, MiniButton } from "../ui/controls"
 import { useVariables } from "./context"
 import { DIM_LABEL, DIM_UNIT, Dim, evaluate, isExpr } from "./expr"
 import { NAME_RE, Variable, renameInFormulas, renameVariable, usesOf } from "./variables"
+import { FIELD_SIZE } from "../field/navgrid"
 
 interface Props {
   robot: RobotConfig
@@ -70,7 +71,7 @@ export default function VariablesPage({ robot, robotPath, onRobot }: Props) {
     const field = await invoke<FieldDoc>("field_open", { robotPath }).catch(() => null)
     if (field) {
       const next = renameInFormulas(field, old, name)
-      if (JSON.stringify(next) !== JSON.stringify(field)) await invoke("field_save", { robotPath, field: next }).catch(() => {})
+      if (JSON.stringify(next) !== JSON.stringify(field)) await invoke("field_save", { robotPath, field: next, fieldSize: FIELD_SIZE }).catch(() => {})
     }
     setNote(`Renamed "${old}" to "${name}" everywhere`)
   }

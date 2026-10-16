@@ -8,6 +8,7 @@ import PathsPage from "./paths/PathsPage"
 import { newRobot, RobotConfig } from "./robot/types"
 import VariablesPage from "./vars/VariablesPage"
 import AutosPage from "./autos/AutosPage"
+import FieldPage from "./field/FieldPage"
 import { VariablesProvider } from "./vars/context"
 import { useProjectSync } from "./vars/sync"
 import { ToastProvider } from "./ui/toasts"
@@ -123,7 +124,7 @@ export default function App() {
         {page === "robot" && <RobotSettingsPage robot={robot} onChange={setRobot} robotPath={robotPath} />}
         {page === "paths" && <PathsPage robot={robot} robotPath={robotPath} onSaveRobot={fileSave} />}
         {page === "autos" && <AutosPage robot={robot} robotPath={robotPath} />}
-        {page === "field" && <ComingSoon page={page} />}
+        {page === "field" && <FieldPage robot={robot} robotPath={robotPath} />}
         {page === "variables" && <VariablesPage robot={robot} robotPath={robotPath} onRobot={setRobot} />}
       </div>
       <StatusBar robot={robot.name} dirty={dirty} status={status} />
@@ -201,7 +202,7 @@ const PAGES: { id: Page; label: string; icon: string; ready: boolean }[] = [
   { id: "robot", label: "Robot", icon: "ti-robot", ready: true },
   { id: "paths", label: "Paths", icon: "ti-route", ready: true },
   { id: "autos", label: "Autos", icon: "ti-list-details", ready: true },
-  { id: "field", label: "Field", icon: "ti-map-2", ready: false },
+  { id: "field", label: "Field", icon: "ti-map-2", ready: true },
   { id: "variables", label: "Variables", icon: "ti-variable", ready: true },
 ]
 
@@ -224,14 +225,6 @@ function Rail({ page, onSelect }: { page: Page; onSelect: (p: Page) => void }) {
           <span style={{ fontSize: 9.5 }}>{p.label}</span>
         </button>
       ))}
-    </div>
-  )
-}
-
-function ComingSoon(_: { page: Page }) {
-  return (
-    <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 13, background: "var(--bg-page)" }}>
-      The field editor is next: for now, keep-outs are drawn in Paths.
     </div>
   )
 }

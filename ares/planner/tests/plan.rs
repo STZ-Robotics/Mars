@@ -482,3 +482,31 @@ fn a_plan_can_be_stopped_from_another_thread() {
     assert!(matches!(out, Err(ares_planner::PlanError::Cancelled)), "{out:?}");
     assert!(started.elapsed() < std::time::Duration::from_secs(3), "took {:?} to stop", started.elapsed());
 }
+
+#[test]
+fn the_navgrid_steers_the_pathfind_estimate_and_nothing_else() {
+    use ares_core::path::PathfindOptions;
+    use ares_planner::NavGrid;
+    let r = robot();
+    // A wall of blocked cells at x in [5.7, 6.3), y below 6 m: the way is over the top.
+    let node = 0.3;
+    let (cols, rows) = (56, 27);
+    let grid: Vec<Vec<bool>> = (0..rows)
+        .map(|row| (0..cols).map(|col| col == 19 || col == 20).map(|b| b).zip(0..cols).map(|(b, _)| b && (row as f64) * node < 6.0).collect())
+        .collect();
+    let env = Environment {
+        field: Some(FieldSize { length_m: 16.535, width_m: 8.069 }),
+        navgrid: Some(NavGrid { node_size_meters: node, grid }),
+        ..Default::default()
+    };
+    let mut w = vec![wp(1.5, 3.0, Some(0.0)), wp(3.5, 3.0, Some(0.0)), wp(8.5, 3.0, Some(0.0)), wp(10.0, 3.0, Some(0.0))];
+    w[1].pathfind_next = Some(PathfindOptions::default());
+    let t = run(&r, &spec(w.clone()), &env).trajectory;
+    let span = &t.pathfind[0];
+    let est = &t.samples[span.start_sample..=span.end_sample];
+    assert!(est.iter().any(|q| q.y > 6.0), "the estimate should go over the wall");
+    // A drawn path (no "?") goes straight through: the navgrid is the pathfinder's.
+    w[1].pathfind_next = None;
+    let drawn = run(&r, &spec(w), &env).trajectory;
+    assert!(drawn.samples.iter().all(|q| q.y < 4.5));
+}

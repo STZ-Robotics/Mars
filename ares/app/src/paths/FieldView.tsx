@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react"
+import type { NavGrid } from "../field/navgrid"
+import { drawNavGrid } from "../field/drawNavGrid"
 import type { FieldConfig } from "@desktop/utils/field/fieldImages"
 import type { RobotConfig } from "../robot/types"
 import {
@@ -20,6 +22,8 @@ interface Props {
   /** The path changed since it was generated: drawn faded. */
   stale: boolean
   keepOut: KeepOut[]
+  /** Where the pathfinder may not go, drawn faintly when the view says so. */
+  navgrid?: NavGrid
   selected: Selection
   /** What the pointer is over in the lists: highlighted on the field. */
   hovered: Selection
@@ -195,6 +199,8 @@ export default function FieldView(props: Props) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     const plan = opts.fieldStyle === "blueprint"
     drawFieldBackground(ctx, size, toScreen, view.k, field, image, sketch, opts)
+
+    if (opts.navgrid && props.navgrid) drawNavGrid(ctx, toScreen, view.k, props.navgrid, false)
 
     // Keep-outs shared by every path.
     const reach = Math.hypot(robot.bumper.lengthM, robot.bumper.widthM) / 2
@@ -658,7 +664,7 @@ export default function FieldView(props: Props) {
       drawRobot(ctx, toScreen, view.k, s.x, s.y, s.heading, robot, topView, opts.robotColor, 1)
       moduleVectors(ctx, toScreen, s, robot)
     }
-  }, [view, size, image, sketch, spec, guess, generated, stale, keepOut, selected, hovered, playhead, robot, field, opts, topSpeed, tool, hoverWp, topView, box, ruler, guides, zoneDraft, props.multi, props.zones, props.poseMarks, props.branches])
+  }, [view, size, image, sketch, spec, guess, generated, stale, keepOut, selected, hovered, playhead, robot, field, opts, topSpeed, tool, hoverWp, topView, box, ruler, guides, zoneDraft, props.multi, props.zones, props.poseMarks, props.branches, props.navgrid])
 
   // --- Interaction -----------------------------------------------------------
   const waypointAt = (sx: number, sy: number): number | null => {

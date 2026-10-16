@@ -1,5 +1,6 @@
 // What the path editor exchanges with the backend. Mirrors ares-core's
 // PathSpec and Trajectory and the app's FieldDoc (serde, camelCase).
+import type { NavGrid } from "../field/navgrid"
 
 export type WaypointKind = "pose" | "translation" | "empty" | "unknown" | "continue"
 
@@ -158,7 +159,7 @@ export interface PathfindSpan {
 
 export interface KeepOut { x: number; y: number; radiusM: number; exprs?: Exprs }
 
-export interface FieldDoc { walls: boolean; keepOut: KeepOut[]; slowZones?: SlowZone[] }
+export interface FieldDoc { walls: boolean; keepOut: KeepOut[]; slowZones?: SlowZone[]; navgrid?: NavGrid }
 
 export interface PathEntry { name: string; spec: PathSpec | null; error: string | null }
 
@@ -212,12 +213,14 @@ export interface ViewOptions {
   snap: number
   /** Snap to other waypoints and poses when dragging, with guide lines. */
   guides: boolean
+  /** The navgrid's blocked cells, faintly, under the paths. */
+  navgrid: boolean
   gradient: Gradient
 }
 
 export const DEFAULT_VIEW: ViewOptions = {
   fieldStyle: "blueprint", robotColor: "#22d3ee", fieldFlip: "mirror",
-  field: true, grid: false, guess: true, trajectory: true, samples: false, waypoints: true, flipped: false, corridor: true, charts: true, snap: 0, guides: true, gradient: "velocity",
+  field: true, grid: false, guess: true, trajectory: true, samples: false, waypoints: true, flipped: false, corridor: true, charts: true, snap: 0, guides: true, navgrid: true, gradient: "velocity",
 }
 
 export const GRADIENTS: { id: Gradient; label: string; hint: string }[] = [

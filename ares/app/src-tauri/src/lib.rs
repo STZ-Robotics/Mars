@@ -282,6 +282,8 @@ pub fn run() {
             project::path_delete,
             project::field_open,
             project::field_save,
+            project::navgrid_import,
+            project::navgrid_export,
             project::path_time,
             project::path_plan,
             project::trajectory_open,

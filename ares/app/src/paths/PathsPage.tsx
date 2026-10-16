@@ -281,7 +281,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
 
   useEffect(() => {
     if (!fieldCommit) return
-    const t = setTimeout(() => { invoke("field_save", { robotPath, field: fieldDoc }).catch(e => setNote(String(e))) }, SAVE_DELAY_MS)
+    const t = setTimeout(() => { invoke("field_save", { robotPath, field: fieldDoc, fieldSize }).catch(e => setNote(String(e))) }, SAVE_DELAY_MS)
     return () => clearTimeout(t)
   }, [fieldCommit])
 
@@ -952,6 +952,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
             generated={traj}
             stale={stale}
             keepOut={fieldDoc.keepOut}
+            navgrid={fieldDoc.navgrid}
             selected={selected}
             hovered={hovered}
             tool={tool}
@@ -1152,6 +1153,7 @@ const VIEW_HELP: Partial<Record<keyof ViewOptions, string>> = {
   waypoints: "Waypoints, stops and constraint labels.",
   flipped: "The same trajectory as the other alliance would run it.",
   corridor: "Around a pathfind estimate, the band the robot can use: a bumper's reach each side.",
+  navgrid: "The cells the pathfinder keeps out of (drawn in the Field tab): only the \"?\" segments obey them.",
   charts: "Speed, acceleration, turn rate, heading, current and grip over time, under the field.",
 }
 
@@ -1216,7 +1218,7 @@ function ViewPanel({ view, onChange, onClose }: { view: ViewOptions; onChange: (
       </PropertyRow>
       {([
         ["field", "Field"], ["grid", "Grid (1 m)"], ["guess", "Guess (spline)"], ["trajectory", "Trajectory"],
-        ["samples", "Samples"], ["waypoints", "Waypoints & constraints"], ["corridor", "Pathfind corridor"], ["charts", "Charts"], ["flipped", "Other alliance (mirror)"],
+        ["samples", "Samples"], ["waypoints", "Waypoints & constraints"], ["corridor", "Pathfind corridor"], ["navgrid", "Navgrid (pathfinder)"], ["charts", "Charts"], ["flipped", "Other alliance (mirror)"],
       ] as [keyof ViewOptions, string][]).map(([key, label]) => (
         <div key={key} title={VIEW_HELP[key]}>
           <PropertyRow label={label}>
@@ -1397,7 +1399,7 @@ function headingAt(traj: Trajectory | null, w: Waypoint): number {
   return ((best.heading * 180 / Math.PI + 540) % 360) - 180
 }
 
-function loadView(): ViewOptions {
+export function loadView(): ViewOptions {
   try {
     const raw = localStorage.getItem(VIEW_KEY)
     if (raw) return { ...DEFAULT_VIEW, ...JSON.parse(raw) }

@@ -37,21 +37,35 @@ impl Obstacle {
     }
 }
 
-/// Where the guess may go: the field (if walls), minus the obstacles.
+/// Where the guess may go: the field (if walls), minus the obstacles, minus
+/// the navgrid's blocked cells when there is one.
 pub struct Free {
     pub obstacles: Vec<Obstacle>,
     /// [x0, y0, x1, y1] the robot's center must stay in.
     pub bounds: [f64; 4],
+    pub grid: Option<crate::NavGrid>,
 }
 
 impl Free {
     fn ok(&self, p: Vec2) -> bool {
         p.x >= self.bounds[0] && p.y >= self.bounds[1] && p.x <= self.bounds[2] && p.y <= self.bounds[3]
             && !self.obstacles.iter().any(|o| o.contains(p))
+            && !self.grid.as_ref().is_some_and(|g| g.blocked(p.x, p.y))
     }
 
     fn sees(&self, a: Vec2, b: Vec2) -> bool {
-        !self.obstacles.iter().any(|o| o.hits_segment(a, b))
+        if self.obstacles.iter().any(|o| o.hits_segment(a, b)) {
+            return false;
+        }
+        let Some(g) = &self.grid else { return true };
+        // Walk the segment finer than a cell, so it cannot step over a
+        // corner of one; its ends may sit in a blocked cell (A* lets them).
+        let step = (g.node_size_meters / 4.0).max(0.01);
+        let n = ((b - a).norm() / step).ceil() as usize;
+        (1..n).all(|i| {
+            let p = a + (b - a) * (i as f64 / n as f64);
+            !g.blocked(p.x, p.y)
+        })
     }
 }
 
@@ -232,14 +246,14 @@ mod tests {
 
     #[test]
     fn a_clear_line_needs_no_corners() {
-        let free = Free { obstacles: vec![], bounds: field() };
+        let free = Free { grid: None, obstacles: vec![], bounds: field() };
         assert_eq!(shortest_way(&free, Vec2::new(1.0, 1.0), Vec2::new(5.0, 5.0)).unwrap().len(), 0);
     }
 
     #[test]
     fn goes_around_a_circle_and_every_leg_is_clear() {
         let o = Obstacle { center: Vec2::new(5.0, 4.0), radius: 1.5 };
-        let free = Free { obstacles: vec![o], bounds: field() };
+        let free = Free { grid: None, obstacles: vec![o], bounds: field() };
         let (a, b) = (Vec2::new(1.0, 4.0), Vec2::new(9.0, 4.0));
         let corners = shortest_way(&free, a, b).unwrap();
         assert!(!corners.is_empty());
@@ -265,7 +279,7 @@ mod tests {
             ],
         );
         spec.scoped.push(ScopedConstraint { from: Target::Index(1), to: None, enabled: true, kind: ConstraintKind::StopPoint { wait_s: 0.0 }, exprs: Default::default() });
-        let free = Free { obstacles: vec![Obstacle { center: Vec2::new(5.0, 4.0), radius: 1.0 }], bounds: field() };
+        let free = Free { grid: None, obstacles: vec![Obstacle { center: Vec2::new(5.0, 4.0), radius: 1.0 }], bounds: field() };
         let r = route(&spec, &free, 0.39);
         assert!(r.spec.waypoints.len() > 3);
         assert_eq!(r.index_of[0], 0);

@@ -61,6 +61,40 @@ pub struct Environment {
     /// Areas every path drives slower through.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub slow_zones: Vec<SlowZone>,
+    /// Where the pathfinder may not take the robot. Only the "?" segments
+    /// (and the robot's pathfinder) obey it; a path the user drew goes where
+    /// it was drawn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub navgrid: Option<NavGrid>,
+}
+
+/// PathPlanner's navigation grid: square cells over the field, each one open
+/// or blocked to the robot's center (so a blocked area already includes the
+/// robot's reach). `grid[row][col]`: the row runs along y and the column
+/// along x, both from the field's origin, and cell (col, row) covers
+/// `[col, col + 1) x [row, row + 1)` cells of `node_size_meters`. Same
+/// layout as PathPlanner's `navgrid.json`, so one works for the other.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NavGrid {
+    pub node_size_meters: f64,
+    pub grid: Vec<Vec<bool>>,
+}
+
+impl NavGrid {
+    /// Whether the robot's center may not be at (x, y). Off the grid is open:
+    /// the walls are the field's business.
+    pub fn blocked(&self, x: f64, y: f64) -> bool {
+        if self.node_size_meters <= 0.0 || x < 0.0 || y < 0.0 {
+            return false;
+        }
+        let (col, row) = ((x / self.node_size_meters) as usize, (y / self.node_size_meters) as usize);
+        self.grid.get(row).and_then(|r| r.get(col)).copied().unwrap_or(false)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        !self.grid.iter().any(|r| r.iter().any(|&b| b))
+    }
 }
 
 /// An area of the field with its own speed and acceleration caps: every
@@ -474,10 +508,17 @@ fn pathfind_estimate(
 ) -> Result<Trajectory, PlanError> {
     use ares_core::path::{ScopedConstraint, Target, Waypoint};
     let reach = 0.5 * robot.bumper.length_m.hypot(robot.bumper.width_m);
-    let free = free_space(spec, env, reach);
+    let mut free = free_space(spec, env, reach);
+    // The pathfinder, unlike a drawn path, keeps out of the navgrid's cells.
+    free.grid = env.navgrid.clone().filter(|g| !g.is_empty());
     let (a, b) = (Vec2::new(from.x, from.y), Vec2::new(to.x, to.y));
-    let corners = route::shortest_way(&free, a, b)
-        .ok_or_else(|| PlanError::Core(AresError::Path("there is no way around the keep-outs".into())))?;
+    let corners = route::shortest_way(&free, a, b).ok_or_else(|| {
+        PlanError::Core(AresError::Path(if free.grid.is_some() {
+            "there is no way around the keep-outs and the navgrid's blocked cells".into()
+        } else {
+            "there is no way around the keep-outs".into()
+        }))
+    })?;
     let mut waypoints = vec![Waypoint { x: a.x, y: a.y, heading_deg: Some(from.heading.to_degrees()), ..Default::default() }];
     waypoints.extend(corners.iter().map(|c| Waypoint { x: c.x, y: c.y, ..Default::default() }));
     waypoints.push(Waypoint { x: b.x, y: b.y, heading_deg: Some(to.heading.to_degrees()), ..Default::default() });
@@ -989,7 +1030,7 @@ fn free_space(spec: &PathSpec, env: &Environment, reach: f64) -> route::Free {
             [x0 - 5.0, y0 - 5.0, x1 + 5.0, y1 + 5.0]
         }
     };
-    route::Free { obstacles, bounds }
+    route::Free { obstacles, bounds, grid: None }
 }
 
 /// Everything the optimizer promises, checked on what it returned: the
