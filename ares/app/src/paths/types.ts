@@ -17,7 +17,7 @@ export interface Waypoint {
 export type Target = "first" | "last" | { index: number }
 
 export type ConstraintKind =
-  | { type: "stopPoint" }
+  | { type: "stopPoint"; waitS?: number }
   | { type: "maxVelocity"; mps: number }
   | { type: "maxAcceleration"; mps2: number }
   | { type: "maxAngularVelocity"; dps: number }
@@ -265,6 +265,20 @@ export function toggleStop(spec: PathSpec, i: number): PathSpec {
   return { ...spec, scoped: [...spec.scoped, { type: "stopPoint", from }] }
 }
 
+/** How long the robot waits at waypoint `i` (0 if it does not stop or wait). */
+export function waitAt(spec: PathSpec, i: number): number {
+  const k = stopAt(spec, i)
+  const c = k >= 0 ? spec.scoped[k] : null
+  return c && c.type === "stopPoint" ? c.waitS ?? 0 : 0
+}
+
+/** Sets the wait on waypoint `i`'s stop, adding the stop if needed. */
+export function setWait(spec: PathSpec, i: number, waitS: number): PathSpec {
+  const s = stopAt(spec, i) >= 0 ? spec : toggleStop(spec, i)
+  const k = stopAt(s, i)
+  return { ...s, scoped: s.scoped.map((c, j) => (j === k ? { ...c, waitS: waitS > 0 ? waitS : undefined } as ScopedConstraint : c)) }
+}
+
 /** The waypoint-scope constraints on `i`, other than a stop. */
 export function constraintsOn(spec: PathSpec, i: number): ScopedConstraint[] {
   const n = spec.waypoints.length
@@ -274,7 +288,7 @@ export function constraintsOn(spec: PathSpec, i: number): ScopedConstraint[] {
 /** A constraint's few-word summary, for chips on the field and list rows. */
 export function constraintChip(c: ScopedConstraint): string {
   switch (c.type) {
-    case "stopPoint": return "Stop"
+    case "stopPoint": return c.waitS ? `Stop ${c.waitS} s` : "Stop"
     case "maxVelocity": return `≤ ${c.mps} m/s`
     case "maxAcceleration": return `≤ ${c.mps2} m/s²`
     case "maxAngularVelocity": return `≤ ${c.dps} °/s`

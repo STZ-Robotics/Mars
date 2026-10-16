@@ -113,11 +113,20 @@ fn yes() -> bool {
     true
 }
 
+fn is_zero(v: &f64) -> bool {
+    *v == 0.0
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ConstraintKind {
-    /// At rest: no linear or angular velocity. Waypoint scope only.
-    StopPoint,
+    /// At rest: no linear or angular velocity. Waypoint scope only. With a
+    /// wait, the robot stays still that long before moving on (to score,
+    /// to intake), and everything after it shifts by that much.
+    StopPoint {
+        #[serde(default, skip_serializing_if = "is_zero")]
+        wait_s: f64,
+    },
     MaxVelocity { mps: f64 },
     MaxAcceleration { mps2: f64 },
     MaxAngularVelocity { dps: f64 },
@@ -157,8 +166,8 @@ pub struct EventMarker {
 /// Files from before scoped constraints stopped at both ends implicitly.
 pub fn default_scoped() -> Vec<ScopedConstraint> {
     vec![
-        ScopedConstraint { from: Target::First, to: None, enabled: true, kind: ConstraintKind::StopPoint },
-        ScopedConstraint { from: Target::Last, to: None, enabled: true, kind: ConstraintKind::StopPoint },
+        ScopedConstraint { from: Target::First, to: None, enabled: true, kind: ConstraintKind::StopPoint { wait_s: 0.0 } },
+        ScopedConstraint { from: Target::Last, to: None, enabled: true, kind: ConstraintKind::StopPoint { wait_s: 0.0 } },
     ]
 }
 

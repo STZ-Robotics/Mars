@@ -219,7 +219,7 @@ pub fn plan(
         let (from, to) = (start[a] as i32, start[b] as i32);
         let rec = |kind, p: [f64; 5]| ffi::Constraint { kind, from, to, p };
         match c.kind {
-            ConstraintKind::StopPoint => {
+            ConstraintKind::StopPoint { .. } => {
                 for j in a..=b {
                     wp_flags[j] |= ffi::WP_STOP;
                 }
@@ -298,7 +298,6 @@ pub fn plan(
     let mut in_seg = 0;
     // Headings come back wrapped; unwrap them so they read like the core's.
     let mut heading = sol.theta[0];
-    let mut sample_t = Vec::with_capacity(times.len());
     for k in 0..times.len() {
         if k > 0 {
             heading += wrap_angle(sol.theta[k] - sol.theta[k - 1]);
@@ -309,7 +308,6 @@ pub fn plan(
                 in_seg = 0;
             }
         }
-        sample_t.push(t);
         let (c, s) = (heading.cos(), heading.sin());
         let modules = (0..m)
             .map(|i| {
@@ -347,15 +345,68 @@ pub fn plan(
         });
     }
 
+    // Waits at stop points: the robot holds still where it stopped, and the
+    // rest of the trajectory moves later. The optimizer never sees them; they
+    // are exact here (at rest, nothing changes while it waits).
+    let mut waits: Vec<(usize, f64)> = work
+        .scoped
+        .iter()
+        .filter(|c| c.enabled)
+        .filter_map(|c| match c.kind {
+            ConstraintKind::StopPoint { wait_s } if wait_s > 0.0 => Some((start[c.range(n_wp).0], wait_s)),
+            _ => None,
+        })
+        .collect();
+    waits.sort_by_key(|w| w.0);
+    // Where each solver sample (its arrival) ends up after the holds.
+    let mut new_index = Vec::with_capacity(samples.len());
+    if !waits.is_empty() {
+        let mut out = Vec::with_capacity(samples.len() + waits.len());
+        let mut shift = 0.0;
+        let mut w = waits.iter().peekable();
+        for (k, mut q) in samples.into_iter().enumerate() {
+            q.t += shift;
+            new_index.push(out.len());
+            let mut hold = 0.0;
+            while let Some(&&(wk, ws)) = w.peek() {
+                if wk != k {
+                    break;
+                }
+                hold += ws;
+                w.next();
+            }
+            if hold > 0.0 {
+                // Arrival: at rest, nothing pushing.
+                let mut arrive = q.clone();
+                arrive.ax = 0.0;
+                arrive.ay = 0.0;
+                arrive.alpha = 0.0;
+                for m in &mut arrive.modules {
+                    m.force_n = 0.0;
+                    m.grip_used = 0.0;
+                    m.current_a = 0.0;
+                }
+                out.push(arrive);
+                shift += hold;
+                q.t += hold;
+            }
+            out.push(q);
+        }
+        t += shift;
+        samples = out;
+    } else {
+        new_index = (0..samples.len()).collect();
+    }
+
     // What the robot code needs besides the samples: when each of the user's
-    // waypoints is passed, where to split, when the events fire.
-    let waypoint_times: Vec<f64> = routed.index_of.iter().map(|&j| sample_t[start[j]]).collect();
+    // waypoints is passed (arrives), where to split, when the events fire.
+    let waypoint_times: Vec<f64> = routed.index_of.iter().map(|&j| samples[new_index[start[j]]].t).collect();
     let splits = spec
         .waypoints
         .iter()
         .enumerate()
         .filter(|(i, w)| w.split && *i > 0 && *i + 1 < spec.waypoints.len())
-        .map(|(i, _)| start[routed.index_of[i]])
+        .map(|(i, _)| new_index[start[routed.index_of[i]]])
         .collect();
     let events = spec
         .events
@@ -406,7 +457,7 @@ fn validate(spec: &PathSpec) -> Result<(), PlanError> {
     for c in spec.scoped.iter().filter(|c| c.enabled) {
         let (a, b) = c.range(n);
         match c.kind {
-            ConstraintKind::StopPoint if a != b => return bad("a stop point goes on one waypoint, not a segment".into()),
+            ConstraintKind::StopPoint { .. } if a != b => return bad("a stop point goes on one waypoint, not a segment".into()),
             ConstraintKind::KeepInLane { .. } if a == b => return bad("a lane needs a segment, not one waypoint".into()),
             ConstraintKind::MaxVelocity { mps } if mps <= 0.0 => return bad("a max velocity has to be positive".into()),
             ConstraintKind::MaxAcceleration { mps2 } if mps2 <= 0.0 => {
@@ -414,7 +465,7 @@ fn validate(spec: &PathSpec) -> Result<(), PlanError> {
             }
             _ => {}
         }
-        if c.kind == ConstraintKind::StopPoint || matches!(c.kind, ConstraintKind::PointAt { .. }) {
+        if matches!(c.kind, ConstraintKind::PointAt { .. }) {
             // Choreo's rule: a point-at on a pose waypoint fights its heading.
             if matches!(c.kind, ConstraintKind::PointAt { .. })
                 && (a..=b).any(|j| spec.waypoints[j].kind() == WaypointKind::Pose)
@@ -500,7 +551,7 @@ pub fn check_physics(robot: &RobotConfig, spec: &PathSpec, env: &Environment, t:
         let span = s.iter().filter(|q| q.t >= ta - 1e-9 && q.t <= tb + 1e-9);
         for q in span {
             let ok = match c.kind {
-                ConstraintKind::StopPoint => q.vx.hypot(q.vy) <= VEL_TOL && q.omega.abs() <= VEL_TOL * 3.0,
+                ConstraintKind::StopPoint { .. } => q.vx.hypot(q.vy) <= VEL_TOL && q.omega.abs() <= VEL_TOL * 3.0,
                 ConstraintKind::MaxVelocity { mps } => q.vx.hypot(q.vy) <= mps * LIMIT_TOL,
                 ConstraintKind::MaxAcceleration { mps2 } => q.ax.hypot(q.ay) <= mps2 * LIMIT_TOL,
                 ConstraintKind::MaxAngularVelocity { dps } => q.omega.abs() <= dps.to_radians() * LIMIT_TOL,
@@ -559,7 +610,7 @@ pub fn check_physics(robot: &RobotConfig, spec: &PathSpec, env: &Environment, t:
 
 fn constraint_name(k: &ConstraintKind) -> &'static str {
     match k {
-        ConstraintKind::StopPoint => "stop point",
+        ConstraintKind::StopPoint { .. } => "stop point",
         ConstraintKind::MaxVelocity { .. } => "max velocity",
         ConstraintKind::MaxAcceleration { .. } => "max acceleration",
         ConstraintKind::MaxAngularVelocity { .. } => "max angular velocity",

@@ -558,7 +558,7 @@ mod tests {
         use crate::path::{ConstraintKind, ScopedConstraint, Target};
         let robot = offseason2026();
         let mut s = spec(vec![wp(0.0, 0.0, Some(0.0)), wp(4.0, 0.0, None), wp(8.0, 0.0, Some(0.0))]);
-        s.scoped.push(ScopedConstraint { from: Target::Index(1), to: None, enabled: true, kind: ConstraintKind::StopPoint });
+        s.scoped.push(ScopedConstraint { from: Target::Index(1), to: None, enabled: true, kind: ConstraintKind::StopPoint { wait_s: 0.0 } });
         s.scoped.push(ScopedConstraint {
             from: Target::Index(1), to: Some(Target::Last), enabled: true, kind: ConstraintKind::MaxVelocity { mps: 1.5 },
         });
@@ -602,7 +602,7 @@ fn apply_scoped(spec: &PathSpec, path: &GeometricPath, pts: &mut [Point]) {
         for k in ka..=kb {
             let (p, pt) = (&path.points[k], &mut pts[k]);
             match c.kind {
-                K::StopPoint => pt.x_cap = 0.0,
+                K::StopPoint { .. } => pt.x_cap = 0.0,
                 K::MaxVelocity { mps } if p.d_pos.norm2() > 1e-12 => pt.x_cap = pt.x_cap.min(mps * mps / p.d_pos.norm2()),
                 K::MaxAngularVelocity { dps } if p.d_theta.abs() > 1e-9 => {
                     let w = dps.to_radians();

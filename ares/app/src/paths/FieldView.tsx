@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import type { FieldConfig } from "@desktop/utils/field/fieldImages"
 import type { RobotConfig } from "../robot/types"
 import {
-  KeepOut, PathSpec, Sample, ScopedConstraint, Selection, Tool, Trajectory, ViewOptions, constraintChip, kindOf, rangeOf, sampleAt, stopAt,
+  KeepOut, PathSpec, Sample, ScopedConstraint, Selection, Tool, Trajectory, ViewOptions, constraintChip, kindOf, rangeOf, sampleAt, stopAt, waitAt,
 } from "./types"
 import { GLYPH, drawChip, drawHeadingTriangle, drawStop, positionColor } from "./glyphs"
 
@@ -332,6 +332,8 @@ export default function FieldView(props: Props) {
         let by = cy - Math.max(13, robot.bumper.widthM * view.k * 0.5 + 4)
         if (stopAt(spec, i) >= 0) {
           drawStop(ctx, bx, by, 7.5)
+          const wait = waitAt(spec, i)
+          if (wait > 0) drawChip(ctx, bx + 30, by, `wait ${wait} s`, GLYPH.stop)
           by += 18
         }
         spec.scoped.forEach((c, j) => {

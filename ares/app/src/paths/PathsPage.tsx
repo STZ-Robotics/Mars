@@ -12,7 +12,7 @@ import { StopIcon, WaypointIcon, GLYPH } from "./glyphs"
 import {
   CONSTRAINTS, ConstraintType, DEFAULT_VIEW, EventMarker, FieldDoc, GRADIENTS, KeepOut, PathEntry, PathSpec, PlanResult,
   ScopedConstraint, Selection, Target, Tool, Trajectory, ViewOptions, Waypoint, WaypointKind, afterInsert, afterMove,
-  afterRemove, constraintMeta, kindOf, newConstraint, newPathSpec, stopAt, toggleStop,
+  afterRemove, constraintMeta, kindOf, newConstraint, newPathSpec, setWait, stopAt, toggleStop, waitAt,
 } from "./types"
 
 interface Props {
@@ -556,6 +556,8 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
               onSetKind={setKind}
               onToggleStop={i => editSpec(s => toggleStop(s, i), true)}
               stopOn={i => stopAt(spec, i) >= 0}
+              waitOn={i => waitAt(spec, i)}
+              onSetWait={(i, w) => editSpec(s => setWait(s, i, w), true)}
               onConstraint={(i, patch) => editConstraint(i, patch, true)}
               onEvent={editEvent}
               onKeepOut={(i, patch) => editKeepOut(i, patch, true)}

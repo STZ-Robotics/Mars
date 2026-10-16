@@ -19,6 +19,8 @@ interface Props {
   onSetKind: (i: number, kind: WaypointKind) => void
   onToggleStop: (i: number) => void
   stopOn: (i: number) => boolean
+  waitOn: (i: number) => number
+  onSetWait: (i: number, s: number) => void
   onConstraint: (i: number, patch: Partial<ScopedConstraint>) => void
   onEvent: (i: number, patch: Partial<EventMarker>) => void
   onKeepOut: (i: number, patch: Partial<KeepOut>) => void
@@ -78,6 +80,10 @@ export default function ConfigPanel(p: Props) {
             <span style={{ color: "var(--text-muted)" }}>{p.stopOn(i) ? "at rest here" : "passes through"}</span>
           </label>
         </PropertyRow>
+        {p.stopOn(i) && (
+          <Q label="Wait here" dim="plain" unit="s" value={p.waitOn(i)} onChange={v => p.onSetWait(i, Math.max(0, v))}
+            hint="How long the robot stays stopped before moving on (to score, to intake). Everything after it happens that much later." />
+        )}
         {i < n - 1 && (
           <PropertyRow label="Samples to next">
             <div style={{ display: "flex", alignItems: "center", gap: 6, width: "100%" }} title="How many intervals the optimizer uses up to the next waypoint. More is finer and slower to solve.">
@@ -177,6 +183,10 @@ function ConstraintFields({ c, n, onChange }: { c: ScopedConstraint; n: number; 
         <PropertyRow label="To">
           <TargetSelect value={c.to} n={n} allowNone={meta.scope === "both"} onChange={to => set({ to })} />
         </PropertyRow>
+      )}
+      {c.type === "stopPoint" && (
+        <Q label="Wait" dim="plain" unit="s" value={c.waitS ?? 0} onChange={v => set({ waitS: v > 0 ? v : undefined })}
+          hint="How long the robot stays stopped before moving on. Everything after it happens that much later." />
       )}
       {c.type === "maxVelocity" && <Q label="Max velocity" dim="plain" unit="m/s" value={c.mps} onChange={v => set({ mps: v })} />}
       {c.type === "maxAcceleration" && <Q label="Max acceleration" dim="plain" unit="m/s²" value={c.mps2} onChange={v => set({ mps2: v })} />}

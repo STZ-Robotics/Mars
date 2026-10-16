@@ -189,7 +189,7 @@ fn an_intermediate_stop_point_stops() {
     use ares_core::path::ConstraintKind;
     let r = robot();
     let mut s = spec(vec![wp(1.0, 1.0, Some(0.0)), wp(4.0, 2.0, None), wp(7.0, 1.0, Some(0.0))]);
-    s.scoped.push(scoped(1, None, ConstraintKind::StopPoint));
+    s.scoped.push(scoped(1, None, ConstraintKind::StopPoint { wait_s: 0.0 }));
     let p = run(&r, &s, &Environment::default());
     let t1 = p.trajectory.waypoint_times[1];
     let q = p.trajectory.samples.iter().min_by(|a, b| (a.t - t1).abs().total_cmp(&(b.t - t1).abs())).unwrap();
@@ -267,4 +267,30 @@ fn an_empty_end_is_refused() {
     let mut w = vec![wp(1.0, 1.0, Some(0.0)), wp(4.0, 2.0, None)];
     w[1].kind = Some(WaypointKind::Empty);
     assert!(plan(&robot(), &spec(w), &Environment::default(), &PlannerOptions::default()).is_err());
+}
+
+#[test]
+fn a_wait_at_a_stop_holds_still_and_shifts_the_rest() {
+    use ares_core::path::{ConstraintKind, EventMarker, Target};
+    let r = robot();
+    let base = {
+        let mut s = spec(vec![wp(1.0, 1.0, Some(0.0)), wp(4.0, 2.0, None), wp(7.0, 1.0, Some(0.0))]);
+        s.scoped.push(scoped(1, None, ConstraintKind::StopPoint { wait_s: 0.0 }));
+        s.events.push(EventMarker { name: "after".into(), target: Target::Index(2), offset_s: 0.0 });
+        s
+    };
+    let mut waiting = base.clone();
+    waiting.scoped.last_mut().unwrap().kind = ConstraintKind::StopPoint { wait_s: 1.5 };
+    let (a, b) = (run(&r, &base, &Environment::default()), run(&r, &waiting, &Environment::default()));
+    let (ta, tb) = (&a.trajectory, &b.trajectory);
+    assert!((tb.duration_s - ta.duration_s - 1.5).abs() < 1e-6, "{} vs {}", tb.duration_s, ta.duration_s);
+    assert!((tb.waypoint_times[1] - ta.waypoint_times[1]).abs() < 1e-6, "arrival should not move");
+    assert!((tb.events[0].t - ta.events[0].t - 1.5).abs() < 1e-6);
+    // Still for the whole wait.
+    let t1 = tb.waypoint_times[1];
+    let p1 = tb.sample_at(t1);
+    for q in tb.samples.iter().filter(|q| q.t >= t1 - 1e-9 && q.t <= t1 + 1.5 + 1e-9) {
+        assert!((q.x - p1.x).abs() < 1e-6 && (q.y - p1.y).abs() < 1e-6 && q.vx.hypot(q.vy) < 1e-3);
+    }
+    assert_physical(&r, tb);
 }

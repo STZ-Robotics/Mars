@@ -1,7 +1,7 @@
 import { ReactNode, useState } from "react"
 import { GLYPH, StopIcon, WaypointIcon, positionColor } from "./glyphs"
 import {
-  PathEntry, PathSpec, Selection, WaypointKind, constraintChip, constraintMeta, kindOf, rangeOf, stopAt, targetLabel,
+  PathEntry, PathSpec, Selection, WaypointKind, constraintChip, constraintMeta, kindOf, rangeOf, stopAt, targetLabel, waitAt,
 } from "./types"
 
 interface Props {
@@ -97,6 +97,7 @@ export default function Sidebar(p: Props) {
                   <Label>
                     {KIND_LABEL[kind]}
                     {kind === "pose" && w.headingDeg !== undefined && <Dim sel={sel}> {Math.round(w.headingDeg)}°</Dim>}
+                    {waitAt(spec, i) > 0 && <Dim sel={sel}> · waits {waitAt(spec, i)} s</Dim>}
                     {w.split && <Dim sel={sel}> · split</Dim>}
                     {w.intervals !== undefined && <Dim sel={sel}> · {w.intervals} samples</Dim>}
                   </Label>
