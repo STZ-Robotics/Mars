@@ -286,7 +286,12 @@ pub fn run() {
             project::path_plan,
             project::trajectory_open,
             project::variables_open,
-            project::variables_save
+            project::variables_save,
+            project::autos_list,
+            project::auto_save,
+            project::auto_delete,
+            project::index_write,
+            project::paths_status
         ])
         .run(tauri::generate_context!())
         .expect("error while running Ares");

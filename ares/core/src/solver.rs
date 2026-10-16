@@ -452,6 +452,9 @@ pub fn solve_between(
         pathfind: vec![],
         start: Default::default(),
         continues_from: None,
+        sections: vec![],
+        variant: None,
+        source_hash: None,
         samples,
     })
 }

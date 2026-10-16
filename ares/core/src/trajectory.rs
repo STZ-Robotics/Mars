@@ -70,6 +70,26 @@ pub struct Trajectory {
     /// The path it continues, when its start is linked to one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub continues_from: Option<String>,
+    /// The named parts between splits, in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sections: Vec<Section>,
+    /// The variant of the path this was generated for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variant: Option<String>,
+    /// A fingerprint of what it was generated from (path, field, robot): a
+    /// different one means it is out of date.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_hash: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Section {
+    pub name: String,
+    pub start_sample: usize,
+    pub end_sample: usize,
+    pub start_t: f64,
+    pub end_t: f64,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

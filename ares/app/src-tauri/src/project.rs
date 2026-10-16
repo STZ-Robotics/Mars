@@ -72,7 +72,31 @@ fn path_file(robot_path: &str, name: &str) -> Result<PathBuf, String> {
 }
 
 fn traj_file(robot_path: &str, name: &str) -> Result<PathBuf, String> {
-    Ok(project_dir(robot_path).join("trajectories").join(format!("{}{TRAJ_EXT}", file_stem(name)?)))
+    // "Path@variant" names a variant's trajectory.
+    let stem = match name.split_once('@') {
+        Some((path, variant)) => format!("{}@{}", file_stem(path)?, file_stem(variant)?),
+        None => file_stem(name)?,
+    };
+    Ok(project_dir(robot_path).join("trajectories").join(format!("{stem}{TRAJ_EXT}")))
+}
+
+const AUTO_EXT: &str = ".auto.json";
+
+fn auto_file(robot_path: &str, name: &str) -> Result<PathBuf, String> {
+    Ok(project_dir(robot_path).join("autos").join(format!("{}{AUTO_EXT}", file_stem(name)?)))
+}
+
+/// A fingerprint of what a trajectory comes from. FNV-1a over the JSON: not
+/// cryptographic, only "did anything change".
+pub fn source_hash(parts: &[&serde_json::Value]) -> String {
+    let mut h: u64 = 0xcbf29ce484222325;
+    for p in parts {
+        for b in p.to_string().bytes() {
+            h ^= b as u64;
+            h = h.wrapping_mul(0x100000001b3);
+        }
+    }
+    format!("{h:016x}")
 }
 
 fn write(path: &Path, text: &str) -> Result<(), String> {
@@ -186,9 +210,21 @@ const PREVIEW_SAMPLES: usize = 250;
 /// changes.
 pub fn link_start(robot_path: &str, spec: &mut PathSpec) -> Result<Option<[f64; 3]>, String> {
     let Some(prev) = spec.continues_from.clone() else { return Ok(None) };
-    let end = trajectory_open(robot_path.to_string(), prev.clone())
-        .and_then(|t| t.samples.last().cloned())
+    let traj = trajectory_open(robot_path.to_string(), prev.clone())
         .ok_or_else(|| format!("\"{prev}\" has no generated trajectory to continue from: generate it first"))?;
+    // From its end, or (a branch) from one of its waypoints, at the state the
+    // robot has there.
+    let end = match spec.continues_at {
+        Some(j) => {
+            let t = traj
+                .waypoint_times
+                .get(j)
+                .copied()
+                .ok_or_else(|| format!("\"{prev}\" has no waypoint {}", j + 1))?;
+            traj.sample_at(t)
+        }
+        None => traj.samples.last().cloned().ok_or_else(|| format!("\"{prev}\" has an empty trajectory"))?,
+    };
     if let Some(w) = spec.waypoints.first_mut() {
         w.x = end.x;
         w.y = end.y;
@@ -245,19 +281,30 @@ pub async fn path_plan(
     field: FieldDoc,
     field_size: Option<FieldSize>,
     robot_path: Option<String>,
+    variant: Option<String>,
 ) -> Result<PlanResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let started = Instant::now();
+        // What it is generated from, before anything below changes it.
+        let json = |v: serde_json::Result<serde_json::Value>| v.unwrap_or(serde_json::Value::Null);
+        let hash = source_hash(&[&json(serde_json::to_value(&spec)), &json(serde_json::to_value(&field)), &json(serde_json::to_value(&robot))]);
         let mut spec = spec;
         let mut options = PlannerOptions::default();
         if let Some(rp) = robot_path.as_ref() {
             options.start_state = link_start(rp, &mut spec)?;
         }
         let env = Environment { field: if field.walls { field_size } else { None }, keep_out: field.keep_out, slow_zones: field.slow_zones };
-        let planned = plan(&robot, &spec, &env, &options).map_err(|e| e.to_string())?;
+        let mut planned = plan(&robot, &spec, &env, &options).map_err(|e| e.to_string())?;
+        planned.trajectory.variant = variant.clone();
+        planned.trajectory.source_hash = Some(hash);
         if let Some(rp) = robot_path {
             let text = serde_json::to_string(&planned.trajectory).map_err(|e| e.to_string())?;
-            write(&traj_file(&rp, &spec.name)?, &text)?;
+            let name = match &variant {
+                Some(v) => format!("{}@{v}", spec.name),
+                None => spec.name.clone(),
+            };
+            write(&traj_file(&rp, &name)?, &text)?;
+            let _ = index_write(rp);
         }
         Ok(PlanResult {
             trajectory: planned.trajectory,
@@ -268,6 +315,119 @@ pub async fn path_plan(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PathStatus {
+    name: String,
+    generated: bool,
+    /// Generated from something else than what is there now.
+    outdated: bool,
+    duration_s: Option<f64>,
+}
+
+/// For each path: is there a trajectory, and was it generated from what the
+/// path, the field and the robot are now.
+#[tauri::command]
+pub fn paths_status(robot_path: String, robot: RobotConfig, field: FieldDoc) -> Vec<PathStatus> {
+    let json = |v: serde_json::Result<serde_json::Value>| v.unwrap_or(serde_json::Value::Null);
+    let (field_json, robot_json) = (json(serde_json::to_value(&field)), json(serde_json::to_value(&robot)));
+    paths_list(robot_path.clone())
+        .into_iter()
+        .filter_map(|e| e.spec)
+        .map(|spec| {
+            let traj = trajectory_open(robot_path.clone(), spec.name.clone());
+            let now = source_hash(&[&json(serde_json::to_value(&spec)), &field_json, &robot_json]);
+            PathStatus {
+                generated: traj.is_some(),
+                outdated: traj.as_ref().is_none_or(|t| t.source_hash.as_deref() != Some(now.as_str())),
+                duration_s: traj.as_ref().map(|t| t.duration_s),
+                name: spec.name,
+            }
+        })
+        .collect()
+}
+
+/// Every auto in the project, sorted by name, as stored.
+#[tauri::command]
+pub fn autos_list(robot_path: String) -> Vec<serde_json::Value> {
+    let dir = project_dir(&robot_path).join("autos");
+    let Ok(entries) = fs::read_dir(&dir) else { return vec![] };
+    let mut out: Vec<serde_json::Value> = entries
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().ends_with(AUTO_EXT))
+        .filter_map(|e| fs::read_to_string(e.path()).ok())
+        .filter_map(|t| serde_json::from_str(&t).ok())
+        .collect();
+    out.sort_by_key(|a| a["name"].as_str().unwrap_or("").to_lowercase());
+    out
+}
+
+#[tauri::command]
+pub fn auto_save(robot_path: String, auto: serde_json::Value, previous: Option<String>) -> Result<(), String> {
+    let name = auto["name"].as_str().ok_or("An auto needs a name")?.to_string();
+    let target = auto_file(&robot_path, &name)?;
+    if let Some(prev) = previous.filter(|p| file_stem(p).ok() != file_stem(&name).ok()) {
+        if target.exists() {
+            return Err(format!("There is already an auto called \"{name}\""));
+        }
+        let _ = fs::remove_file(auto_file(&robot_path, &prev)?);
+    }
+    let text = serde_json::to_string_pretty(&auto).map_err(|e| e.to_string())?;
+    write(&target, &(text + "\n"))?;
+    let _ = index_write(robot_path);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn auto_delete(robot_path: String, name: String) -> Result<(), String> {
+    fs::remove_file(auto_file(&robot_path, &name)?).map_err(|e| e.to_string())?;
+    let _ = index_write(robot_path);
+    Ok(())
+}
+
+/// `ares-index.json`: everything the robot code needs to find its way, in
+/// one file. Each path with its trajectory file, sections, variants and the
+/// branches that leave it (with their conditions); and every auto as
+/// written. Rewritten after every generate and every auto save.
+#[tauri::command]
+pub fn index_write(robot_path: String) -> Result<(), String> {
+    let entries = paths_list(robot_path.clone());
+    let specs: Vec<&PathSpec> = entries.iter().filter_map(|e| e.spec.as_ref()).collect();
+    let rel = |name: &str| traj_file(&robot_path, name).ok().map(|p| {
+        p.strip_prefix(project_dir(&robot_path)).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_default()
+    });
+    let paths: Vec<serde_json::Value> = specs
+        .iter()
+        .map(|s| {
+            let traj = trajectory_open(robot_path.clone(), s.name.clone());
+            let branches: Vec<serde_json::Value> = specs
+                .iter()
+                .filter(|c| c.continues_from.as_deref() == Some(s.name.as_str()) && c.continues_at.is_some())
+                .map(|c| serde_json::json!({
+                    "atWaypoint": c.continues_at,
+                    "atTime": traj.as_ref().and_then(|t| t.waypoint_times.get(c.continues_at.unwrap()).copied()),
+                    "condition": c.condition,
+                    "path": c.name,
+                }))
+                .collect();
+            serde_json::json!({
+                "name": s.name,
+                "trajectory": rel(&s.name),
+                "generated": traj.is_some(),
+                "sections": traj.as_ref().map(|t| serde_json::to_value(&t.sections).unwrap_or_default()),
+                "variants": s.variants.iter().map(|v| serde_json::json!({ "name": v.name, "trajectory": rel(&format!("{}@{}", s.name, v.name)) })).collect::<Vec<_>>(),
+                "continuesFrom": s.continues_from,
+                "continuesAt": s.continues_at,
+                "condition": s.condition,
+                "branches": branches,
+            })
+        })
+        .collect();
+    let index = serde_json::json!({ "format": 1, "paths": paths, "autos": autos_list(robot_path.clone()) });
+    let text = serde_json::to_string_pretty(&index).map_err(|e| e.to_string())?;
+    write(&project_dir(&robot_path).join("ares-index.json"), &(text + "\n"))
 }
 
 #[cfg(test)]
@@ -336,6 +496,70 @@ mod tests {
         let mut orphan = spec("Orphan");
         orphan.continues_from = Some("Missing".into());
         assert!(link_start(&rp, &mut orphan).is_err());
+    }
+
+    #[test]
+    fn a_branch_starts_at_its_parents_waypoint_state() {
+        let rp = temp_project("branch");
+        let parent = PathSpec::new("Parent", vec![
+            Waypoint { x: 1.0, y: 1.0, heading_deg: Some(0.0), ..Default::default() },
+            Waypoint { x: 4.0, y: 1.0, ..Default::default() },
+            Waypoint { x: 7.0, y: 1.0, heading_deg: Some(0.0), ..Default::default() },
+        ]);
+        let traj = solve(&crate::tests_robot(), &parent, &SolverOptions::default()).unwrap();
+        write(&traj_file(&rp, "Parent").unwrap(), &serde_json::to_string(&traj).unwrap()).unwrap();
+        let mut child = spec("Child");
+        child.continues_from = Some("Parent".into());
+        child.continues_at = Some(1);
+        let v = link_start(&rp, &mut child).unwrap().unwrap();
+        assert!((child.waypoints[0].x - 4.0).abs() < 1e-3, "{}", child.waypoints[0].x);
+        assert!(v[0] > 1.0, "a branch leaves moving, at {} m/s", v[0]);
+    }
+
+    #[test]
+    fn variants_have_their_own_trajectory_files() {
+        let rp = temp_project("variant");
+        assert!(traj_file(&rp, "Pick up@note 2").unwrap().ends_with("trajectories/Pick-up@note-2.traj.json"));
+    }
+
+    #[test]
+    fn autos_crud_and_the_index() {
+        let rp = temp_project("autos");
+        path_save(rp.clone(), spec("Out"), None).unwrap();
+        let mut b = spec("Branch");
+        b.continues_from = Some("Out".into());
+        b.continues_at = Some(0);
+        b.condition = Some("hasNote".into());
+        path_save(rp.clone(), b, None).unwrap();
+        auto_save(rp.clone(), serde_json::json!({ "name": "Four piece", "steps": [{ "type": "path", "path": "Out" }] }), None).unwrap();
+        assert_eq!(autos_list(rp.clone()).len(), 1);
+        index_write(rp.clone()).unwrap();
+        let index: serde_json::Value = serde_json::from_str(&fs::read_to_string(project_dir(&rp).join("ares-index.json")).unwrap()).unwrap();
+        let out = index["paths"].as_array().unwrap().iter().find(|p| p["name"] == "Out").unwrap();
+        assert_eq!(out["branches"][0]["condition"], "hasNote");
+        assert_eq!(index["autos"][0]["name"], "Four piece");
+        auto_delete(rp.clone(), "Four piece".into()).unwrap();
+        assert!(autos_list(rp).is_empty());
+    }
+
+    #[test]
+    fn status_says_when_a_trajectory_is_out_of_date() {
+        let rp = temp_project("status");
+        let s = spec("P");
+        path_save(rp.clone(), s.clone(), None).unwrap();
+        let robot = crate::tests_robot();
+        let field = FieldDoc::default();
+        assert!(!paths_status(rp.clone(), robot.clone(), field.clone())[0].generated);
+        let json = |v: serde_json::Result<serde_json::Value>| v.unwrap();
+        let mut t = solve(&robot, &s, &SolverOptions::default()).unwrap();
+        t.source_hash = Some(source_hash(&[&json(serde_json::to_value(&s)), &json(serde_json::to_value(&field)), &json(serde_json::to_value(&robot))]));
+        write(&traj_file(&rp, "P").unwrap(), &serde_json::to_string(&t).unwrap()).unwrap();
+        let st = &paths_status(rp.clone(), robot.clone(), field.clone())[0];
+        assert!(st.generated && !st.outdated);
+        let mut moved = s.clone();
+        moved.waypoints[1].x += 0.5;
+        path_save(rp.clone(), moved, Some("P".into())).unwrap();
+        assert!(paths_status(rp, robot, field)[0].outdated);
     }
 
     #[test]

@@ -52,6 +52,10 @@ pub struct Waypoint {
     /// separately (and do something in between).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub split: bool,
+    /// The name of the section that starts here (and so a split). The robot
+    /// code can run a section on its own: `path.section("score")`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub section: Option<String>,
     /// The segment to the next waypoint is drawn by hand, PathPlanner style:
     /// a cubic Bézier through this waypoint's `next_control` and the next
     /// one's `prev_control`. The optimizer keeps the robot on that curve and
@@ -294,6 +298,38 @@ pub struct PathSpec {
     /// run back to back without stopping. The start pose comes from it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub continues_from: Option<String>,
+    /// With `continues_from`: start at that path's waypoint (index) instead
+    /// of its end, at the state it has there. A branch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continues_at: Option<usize>,
+    /// For a branch: the robot code's named condition that takes it. The
+    /// parent keeps going when no branch's condition holds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub condition: Option<String>,
+    /// The name of the first section, when the path has sections.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_section: Option<String>,
+    /// Versions of the path that change some variables (the app evaluates
+    /// them; each generates its own trajectory).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub variants: Vec<PathVariant>,
+}
+
+/// A version of a path: the same path with some variables set otherwise.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PathVariant {
+    pub name: String,
+    /// Variable name to its value or formula, for this variant only.
+    #[serde(default)]
+    pub overrides: BTreeMap<String, String>,
+}
+
+impl Waypoint {
+    /// Whether the trajectory is split here (a plain split or a named section).
+    pub fn is_split(&self) -> bool {
+        self.split || self.section.is_some()
+    }
 }
 
 impl PathSpec {
@@ -307,6 +343,10 @@ impl PathSpec {
             events: vec![],
             rotation_targets: vec![],
             continues_from: None,
+            continues_at: None,
+            condition: None,
+            first_section: None,
+            variants: vec![],
         }
     }
 }

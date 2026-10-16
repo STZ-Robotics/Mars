@@ -445,3 +445,23 @@ fn a_continued_start_is_marked_and_start_only_kinds_stay_first() {
     bad[1].kind = Some(WaypointKind::Unknown);
     assert!(plan(&r, &spec(bad), &Environment::default(), &PlannerOptions::default()).is_err());
 }
+
+#[test]
+fn named_sections_cover_the_trajectory_in_order() {
+    let r = robot();
+    let mut w = vec![wp(1.0, 1.0, Some(0.0)), wp(3.0, 2.0, None), wp(5.0, 1.0, None), wp(7.0, 2.0, Some(0.0))];
+    w[1].section = Some("intake".into());
+    w[2].split = true;
+    let mut s = spec(w);
+    s.first_section = Some("leave".into());
+    let p = run(&r, &s, &Environment::default());
+    let names: Vec<&str> = p.trajectory.sections.iter().map(|q| q.name.as_str()).collect();
+    assert_eq!(names, ["leave", "intake", "part 3"]);
+    let secs = &p.trajectory.sections;
+    assert_eq!(secs[0].start_sample, 0);
+    assert_eq!(secs.last().unwrap().end_sample, p.trajectory.samples.len() - 1);
+    for k in 1..secs.len() {
+        assert_eq!(secs[k].start_sample, secs[k - 1].end_sample);
+        assert!((secs[k].start_t - p.trajectory.waypoint_times[k]).abs() < 1e-9);
+    }
+}

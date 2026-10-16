@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 use ares_core::geometry::{wrap_angle, Vec2};
 use ares_core::path::{ConstraintKind, WaypointKind};
 use ares_core::robot::{GRAVITY, MIN_LOAD_FRACTION};
-use ares_core::trajectory::{ModuleSample, PathfindSpan, Sample, TimedEvent, TrajectoryStart};
+use ares_core::trajectory::{ModuleSample, PathfindSpan, Sample, Section, TimedEvent, TrajectoryStart};
 use ares_core::{AresError, PathSpec, RobotConfig, SolverOptions, Trajectory};
 use serde::{Deserialize, Serialize};
 
@@ -207,6 +207,29 @@ pub fn plan(
         _ => TrajectoryStart::Known,
     };
     t.continues_from = spec.continues_from.clone();
+    // Sections: the parts between splits, by the waypoints' arrival times.
+    let n = spec.waypoints.len();
+    let cuts: Vec<usize> = (1..n.saturating_sub(1)).filter(|&i| spec.waypoints[i].is_split()).collect();
+    let index_at = |time: f64| t.samples.partition_point(|q| q.t < time - 1e-9).min(t.samples.len() - 1);
+    t.splits = cuts.iter().map(|&i| index_at(t.waypoint_times[i])).collect();
+    if !cuts.is_empty() || spec.first_section.is_some() {
+        let mut starts = vec![0usize];
+        starts.extend(t.splits.iter().copied());
+        let last = t.samples.len() - 1;
+        t.sections = starts
+            .iter()
+            .enumerate()
+            .map(|(k, &a)| {
+                let b = starts.get(k + 1).copied().unwrap_or(last);
+                let name = if k == 0 {
+                    spec.first_section.clone().unwrap_or_else(|| "part 1".into())
+                } else {
+                    spec.waypoints[cuts[k - 1]].section.clone().unwrap_or_else(|| format!("part {}", k + 1))
+                };
+                Section { name, start_sample: a, end_sample: b, start_t: t.samples[a].t, end_t: t.samples[b].t }
+            })
+            .collect();
+    }
     Ok(planned)
 }
 
@@ -331,6 +354,9 @@ fn plan_path(
             pathfind,
             start: Default::default(),
             continues_from: None,
+            sections: vec![],
+            variant: None,
+            source_hash: None,
         },
         spline_duration_s: spline,
         iterations,
@@ -403,6 +429,10 @@ fn sub_spec(spec: &PathSpec, a: usize, b: usize, cuts: &[usize]) -> PathSpec {
         events,
         rotation_targets,
         continues_from: if a == 0 { spec.continues_from.clone() } else { None },
+        continues_at: if a == 0 { spec.continues_at } else { None },
+        condition: None,
+        first_section: None,
+        variants: vec![],
     }
 }
 
@@ -821,7 +851,7 @@ fn plan_fixed(
         .waypoints
         .iter()
         .enumerate()
-        .filter(|(i, w)| w.split && *i > 0 && *i + 1 < spec.waypoints.len())
+        .filter(|(i, w)| w.is_split() && *i > 0 && *i + 1 < spec.waypoints.len())
         .map(|(i, _)| new_index[start[routed.index_of[i]]])
         .collect();
     let events = spec
@@ -844,6 +874,9 @@ fn plan_fixed(
         pathfind: vec![],
         start: Default::default(),
         continues_from: None,
+        sections: vec![],
+        variant: None,
+        source_hash: None,
     };
     if let Err(problem) = check_physics(robot, work, env, &trajectory) {
         if std::env::var("ARES_TRACE").is_ok() {
