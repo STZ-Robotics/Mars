@@ -11,8 +11,8 @@ interface Props {
   suffix: string
 }
 
-// Convención de ángulo: 0° = arriba (12 en punto), sentido horario positivo (CW+),
-// igual a como Elastic documenta sus start_angle/end_angle.
+// Angle convention: 0° = up (12 o'clock), clockwise positive (CW+), the same
+// as Elastic documents its start_angle/end_angle.
 function angleToPoint(cx: number, cy: number, r: number, angleDeg: number) {
   const rad = (angleDeg * Math.PI) / 180
   return { x: cx + r * Math.sin(rad), y: cy - r * Math.cos(rad) }

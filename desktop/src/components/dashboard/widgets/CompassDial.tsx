@@ -4,9 +4,9 @@ interface Props {
   valueLabel: string
 }
 
-// Primitiva de brújula compartida por NumberWidget (estilo "Compass" en doubles)
-// y RotationWidget (Rotation2d en modo "Compass"). Antes eran dos copias
-// del mismo SVG con distinto color de aguja.
+// Compass primitive shared by NumberWidget ("Compass" style on doubles) and
+// RotationWidget (Rotation2d in "Compass" mode). They used to be two copies of
+// the same SVG with a different needle color.
 export default function CompassDial({ angleDeg, needleColor = "var(--mars-red)", valueLabel }: Props) {
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>

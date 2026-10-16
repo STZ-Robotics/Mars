@@ -11,7 +11,7 @@ import type { TimelineMarker } from "../../store/markerStore"
 export interface TimelineCanvasHandle {
   goLive: () => void
   pause: () => void
-  /** Suelta el seguimiento del presente sin tocar selectedTime. */
+  /** Stops following the present without touching selectedTime. */
   stopFollowingLive: () => void
 }
 
@@ -30,10 +30,10 @@ interface Props {
   setHovered: (t: number | null) => void
 }
 
-// Motor de dibujo + interacción de la timeline: canvas, drag-para-scrubbear
-// y scroll/pinch para paneo y zoom. Todo lo que es "chrome" (botones,
-// badge de estado) vive en TimelineGlobal, que es quien monta este
-// componente y controla goLive()/pause() a través del ref imperativo.
+// The timeline's drawing + interaction engine: canvas, drag-to-scrub and
+// scroll/pinch for panning and zoom. Everything that is "chrome" (buttons,
+// status badge) lives in TimelineGlobal, which is what mounts this component
+// and controls goLive()/pause() through the imperative ref.
 const TimelineCanvas = forwardRef<TimelineCanvasHandle, Props>(function TimelineCanvas(
   { isConnected, hasData, startUs, getEstimatedNowUs, isLive, selectedTime, markers, onMarkerContextMenu, goLive, pauseAt, scrubTo, setHovered },
   ref
@@ -46,9 +46,9 @@ const TimelineCanvas = forwardRef<TimelineCanvasHandle, Props>(function Timeline
   const rangeStartUsRef = useRef(0)
   const spanUsRef = useRef(DEFAULT_SPAN_US)
   const followLiveRef = useRef(true)
-  // Espejo en estado del ref de arriba: el ref es lo que lee el loop de
-  // dibujo (60fps, sin re-render), y este es lo único que puede hacer
-  // aparecer el botón "BACK TO LIVE".
+  // A state mirror of the ref above: the ref is what the draw loop reads (60fps,
+  // no re-render), and this is the only thing that can make the "BACK TO LIVE"
+  // button appear.
   const [followingLive, setFollowingLive] = useState(true)
   const setFollowLive = useCallback((value: boolean) => {
     followLiveRef.current = value
@@ -62,20 +62,20 @@ const TimelineCanvas = forwardRef<TimelineCanvasHandle, Props>(function Timeline
   const rafRef = useRef<number | null>(null)
 
   // --- "Latest ref" ------------------------------------------------------
-  // El loop de dibujo y el ScrollSensor se crean UNA sola vez (al montar) y
-  // viven mientras el componente exista, igual que Timeline.ts en
-  // AdvantageScope: la instancia es única y en cada frame lee el estado
-  // ACTUAL (window.selection, this.CONTAINER, etc.), nunca un closure
-  // viejo. Acá replicamos eso con un ref que se actualiza en cada render:
-  // así draw() y el callback del ScrollSensor siempre ven el valor más
-  // reciente sin necesidad de recrear el loop / los listeners cada vez que
-  // cambia isConnected, hasData, isLive, etc.
+  // The draw loop and the ScrollSensor are created ONCE (on mount) and live
+  // as long as the component exists, just like Timeline.ts in AdvantageScope:
+  // the instance is unique and on every frame it reads the CURRENT state
+  // (window.selection, this.CONTAINER, etc.), never an old closure. Here
+  // we replicate that with a ref updated on every render: that way draw() and
+  // the ScrollSensor's callback always see the most recent value without
+  // recreating the loop / the listeners every time isConnected, hasData,
+  // isLive, etc. change.
   //
-  // Antes, el ScrollSensor se recreaba en cada cambio de [isConnected,
-  // hasData] SIN limpiar los listeners anteriores -> se iban acumulando
-  // varios ScrollSensor escuchando el mismo scroll, y cada gesto disparaba
-  // el callback 2-3 veces (eso era el "shaky"). Y el loop de rAF se cortaba
-  // al desconectar sin volver a dibujar, dejando el canvas congelado.
+  // Before, the ScrollSensor was recreated on every change of [isConnected,
+  // hasData] WITHOUT cleaning up the previous listeners -> several
+  // ScrollSensors piled up listening to the same scroll, and each gesture fired
+  // the callback 2-3 times (that was the "shaky"). And the rAF loop stopped
+  // on disconnecting without drawing again, leaving the canvas frozen.
   const latestRef = useRef({
     isConnected,
     hasData,
@@ -89,16 +89,16 @@ const TimelineCanvas = forwardRef<TimelineCanvasHandle, Props>(function Timeline
     latestRef.current = { isConnected, hasData, startUs, isLive, selectedTime, getEstimatedNowUs, markers }
   })
 
-  // Rectángulos de las banderitas en pantalla, para poder saber sobre cuál se
-  // hizo click sin volver a calcular la proyección.
+  // Screen rectangles of the little flags, to know which one was clicked
+  // without recomputing the projection.
   const markerHitboxesRef = useRef<{ id: string; x0: number; x1: number }[]>([])
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current
     const container = containerRef.current
     if (!canvas || !container) return
-    // Igual que Timeline.isHidden() en AdvantageScope: si no es visible no
-    // se puede leer el scroll ni tiene sentido dibujar.
+    // Same as Timeline.isHidden() in AdvantageScope: if it is not visible the
+    // scroll cannot be read and drawing makes no sense.
     if (container.clientWidth === 0 || container.clientHeight === 0) return
 
     scrollSensorRef.current?.periodic()
@@ -119,8 +119,8 @@ const TimelineCanvas = forwardRef<TimelineCanvasHandle, Props>(function Timeline
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, width, height)
 
-    // El canvas 2D no resuelve var(--token) por sí solo: hay que leer el
-    // valor real vía getComputedStyle, igual para los 4 colores.
+    // The 2D canvas does not resolve var(--token) on its own: the real value has
+    // to be read via getComputedStyle, the same for the 4 colors.
     const style = getComputedStyle(container)
     const cssBorder = style.getPropertyValue("--border-main").trim()
     const cssMuted = style.getPropertyValue("--text-header-eyebrow").trim()
@@ -149,10 +149,9 @@ const TimelineCanvas = forwardRef<TimelineCanvasHandle, Props>(function Timeline
     const scaleX = (us: number) => scaleValue((us - t0) / 1e6, elapsedRange, [0, width])
     const unscaleX = (x: number) => t0 + scaleValue(x, [0, width], elapsedRange) * 1e6
 
-    // Regla plana tipo AdvantageScope: sin eje central, ticks colgando de un
-    // solo borde (arriba) y la etiqueta debajo de cada tick — nada de línea
-    // divisoria a mitad de barra, que la hacía leerse como gráfico y no
-    // como regla.
+    // An AdvantageScope-style flat ruler: no central axis, ticks hanging from a
+    // single edge (the top) and the label under each tick — no dividing line
+    // halfway through the bar, which made it read as a plot and not as a ruler.
     const stepSize = calcAxisStepSize(elapsedRange, width, STEP_TARGET_PX)
     ctx.font = "500 11px ui-monospace, SFMono-Regular, monospace"
     ctx.textAlign = "center"
@@ -178,8 +177,8 @@ const TimelineCanvas = forwardRef<TimelineCanvasHandle, Props>(function Timeline
     }
     ctx.globalAlpha = 1
 
-    // Las marcas van DEBAJO del cursor: el cursor es lo que se mueve y tiene
-    // que quedar legible cuando pasa justo por encima de una.
+    // The marks go UNDER the cursor: the cursor is what moves and it has to stay
+    // readable when it passes right over one.
     markerHitboxesRef.current = []
     markers.forEach(marker => {
       if (marker.timeUs < rangeStartUs || marker.timeUs > rangeEndUs) return
@@ -214,9 +213,9 @@ const TimelineCanvas = forwardRef<TimelineCanvasHandle, Props>(function Timeline
     }
   }, [])
 
-  // Loop de dibujo: se crea UNA vez y corre mientras el componente esté
-  // montado. draw() lee todo lo que necesita de latestRef, así que no hace
-  // falta (ni conviene) recrear el rAF cuando cambia isConnected/isLive/etc.
+  // The draw loop: created ONCE and runs while the component is mounted.
+  // draw() reads everything it needs from latestRef, so there is no need (nor is
+  // it advisable) to recreate the rAF when isConnected/isLive/etc. change.
   useEffect(() => {
     let cancelled = false
     const loop = () => {
@@ -240,9 +239,9 @@ const TimelineCanvas = forwardRef<TimelineCanvasHandle, Props>(function Timeline
     return () => observer.disconnect()
   }, [draw])
 
-  // ScrollSensor: instancia única sobre el overlay, igual que en el
-  // constructor de Timeline.ts. El callback lee latestRef en cada llamada,
-  // así nunca queda pegado a un startUs/isConnected viejo.
+  // ScrollSensor: a single instance over the overlay, just like in
+  // Timeline.ts' constructor. The callback reads latestRef on every call, so it
+  // never gets stuck to an old startUs/isConnected.
   useEffect(() => {
     if (!scrollOverlayRef.current) return
     const sensor = new ScrollSensor(scrollOverlayRef.current, (dx, dy) => {
@@ -251,10 +250,10 @@ const TimelineCanvas = forwardRef<TimelineCanvasHandle, Props>(function Timeline
       const t0 = startUs
       const nowUs = getEstimatedNowUs() ?? t0
 
-      // Si la ventana visible es MÁS LARGA que los datos que hay, el tope de
-      // paneo (nowUs - span) queda por detrás del inicio. clampValue con
-      // min > max devuelve el max, o sea que se podía panear antes del primer
-      // dato y quedaba media pantalla vacía.
+      // If the visible window is LONGER than the data there is, the pan cap
+      // (nowUs - span) lands behind the start. clampValue with min > max returns
+      // max, so you could pan before the first data point and half the screen was
+      // left empty.
       const maxRangeStart = (span: number) => Math.max(t0, nowUs - span)
 
       if (dy !== 0) {
@@ -278,9 +277,9 @@ const TimelineCanvas = forwardRef<TimelineCanvasHandle, Props>(function Timeline
       }
     }, false)
     scrollSensorRef.current = sensor
-    // Sin cleanup a propósito: igual que en AdvantageScope, ScrollSensor no
-    // tiene destroy() y está pensado para vivir tanto como el contenedor.
-    // Se crea una sola vez (deps vacías) para no duplicar listeners.
+    // No cleanup on purpose: just like in AdvantageScope, ScrollSensor has no
+    // destroy() and is meant to live as long as the container.
+    // It is created only once (empty deps) so listeners are not duplicated.
   }, [])
 
   const timeFromClientX = useCallback((clientX: number): number | null => {
@@ -302,16 +301,16 @@ const TimelineCanvas = forwardRef<TimelineCanvasHandle, Props>(function Timeline
     if (!draggingRef.current) return
     const wasMoved = dragMovedRef.current
     if (Math.abs(e.clientX - dragStartXRef.current) > 5) dragMovedRef.current = true
-    if (!dragMovedRef.current) return // todavía no cruzó el umbral de "esto es un arrastre"
+    if (!dragMovedRef.current) return // it has not crossed the "this is a drag" threshold yet
 
     const t = timeFromClientX(e.clientX)
     if (t === null) return
     setFollowLive(false)
 
     if (!wasMoved && latestRef.current.isLive) {
-      pauseAt(t)   // primer frame de arrastre: si estaba en vivo, pausa justo ahí
+      pauseAt(t)   // first drag frame: if it was live, pause right there
     } else {
-      scrubTo(t)    // resto del arrastre: solo mueve el cursor, como un scrubber de video
+      scrubTo(t)    // rest of the drag: only moves the cursor, like a video scrubber
     }
   }, [timeFromClientX, pauseAt, scrubTo])
 
@@ -336,9 +335,9 @@ const TimelineCanvas = forwardRef<TimelineCanvasHandle, Props>(function Timeline
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (!isConnected || e.button !== 0 || e.shiftKey) return
-    // CRÍTICO: sin esto, el navegador inicia su propia selección nativa de
-    // arrastre (el rectángulo azul translúcido que veías cubriendo todo
-    // el toolbar). preventDefault() lo bloquea en el origen.
+    // CRITICAL: without this, the browser starts its own native drag selection
+    // (the translucent blue rectangle you saw covering the whole toolbar).
+    // preventDefault() blocks it at the source.
     e.preventDefault()
     draggingRef.current = true
     dragMovedRef.current = false
@@ -458,7 +457,7 @@ function drawTimeMarker(ctx: CanvasRenderingContext2D, x: number, height: number
   ctx.stroke()
 }
 
-// Banderita: línea punteada de arriba a abajo + etiqueta en la parte alta.
+// A little flag: a dashed line from top to bottom + a label at the top.
 function drawMarkerFlag(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -478,7 +477,7 @@ function drawMarkerFlag(
   ctx.setLineDash([])
   ctx.globalAlpha = 1
 
-  // Triangulito de mástil, para que se lea como bandera y no como otro cursor.
+  // A little mast triangle, so it reads as a flag and not as another cursor.
   ctx.fillStyle = color
   ctx.beginPath()
   ctx.moveTo(x, 0)

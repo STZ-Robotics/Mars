@@ -1,8 +1,8 @@
-// Lee las fuentes de una pestaña de swerve y las convierte en los sets que
-// dibujan tanto el canvas 2D como la escena 3D.
+// Reads a swerve tab's sources and turns them into the sets both the 2D canvas
+// and the 3D scene draw.
 //
-// Vive acá y no en cada página porque las dos vistas consumen EXACTAMENTE las
-// mismas fuentes: lo único que cambia es cómo se dibujan.
+// It lives here and not in each page because both views consume EXACTLY the
+// same sources: the only thing that changes is how they are drawn.
 
 import { useMemo } from "react"
 import { SwerveSourceConfig } from "../store/appStore"
@@ -24,12 +24,12 @@ export interface SwerveSourceData {
   moduleSets: ModuleSet[]
   positionSets: PositionSet[]
   chassisSets: ChassisSet[]
-  /** Heading del chasis en radianes; 0 si ninguna fuente lo publica. */
+  /** The chassis' heading in radians; 0 if no source publishes it. */
   rotation: number
 }
 
-// Reordena los módulos del topic a las esquinas dibujadas (FL, FR, BL, BR)
-// según el "arrangement" elegido.
+// Reorders the topic's modules to the drawn corners (FL, FR, BL, BR) according
+// to the chosen "arrangement".
 export function applyArrangement<T>(values: T[], arrangement: string): T[] {
   const order = arrangement.split(",").map(n => parseInt(n, 10))
   if (order.length !== 4 || order.some(isNaN)) return values
@@ -76,8 +76,8 @@ export function useSwerveSources(sources: SwerveSourceConfig[], intervalMs = 33)
 const SOURCE_COLORS = ["#2f6fdb", "#d63b3b", "#1f9e4a", "#d4a94a", "#8a4fd1", "#0e9aa7"]
 
 /**
- * Fuente que corresponde a un topic recién soltado sobre una vista de swerve,
- * o null si ese topic no sirve o ya estaba agregado.
+ * The source that matches a topic just dropped on a swerve view, or null if
+ * that topic is no use or was already added.
  */
 export function swerveSourceFromDrop(
   topicName: string,
@@ -93,7 +93,7 @@ export function swerveSourceFromDrop(
   const color = SOURCE_COLORS.find(c => !usedColors.has(c))
     ?? SOURCE_COLORS[existing.length % SOURCE_COLORS.length]
 
-  // El primer set de módulos se asume medido; el segundo, el comandado.
+  // The first set of modules is assumed measured; the second, commanded.
   const alreadyHasMeasured = existing.some(s => s.type === "modules" && s.role === "measured")
 
   return {

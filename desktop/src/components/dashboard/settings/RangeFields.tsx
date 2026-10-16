@@ -8,7 +8,7 @@ interface Props {
   onChangeMax: (v: number) => void
 }
 
-// MIN solo aplica a "Bar" (Deviation es simétrico alrededor de 0, solo usa MAX como rango).
+// MIN only applies to "Bar" (Deviation is symmetric about 0, it only uses MAX as the range).
 export default function RangeFields({ style, min, max, onChangeMin, onChangeMax }: Props) {
   return (
     <div style={{ display: "flex", gap: 8 }}>

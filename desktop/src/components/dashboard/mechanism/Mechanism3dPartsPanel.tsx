@@ -1,13 +1,13 @@
-// Árbol de piezas del Mechanism 3D y el inspector de la pieza seleccionada.
+// The Mechanism 3D's part tree and the selected part's inspector.
 //
-// Es el equivalente al panel "Displays" de RViz: arriba la jerarquía, abajo
-// todas las propiedades de lo que esté seleccionado. El topic de cada
-// articulación se enlaza arrastrándolo desde el Data Directory, igual que en
-// el resto de la app.
+// It is the equivalent of RViz's "Displays" panel: the hierarchy on top, and
+// below every property of whatever is selected. Each joint's topic is bound by
+// dragging it from the Data Directory, like in the rest of the app.
 //
-// Cada control lleva su botón "?" con lo que hace de verdad: son ajustes que
-// se parecen entre sí (offset del modelo vs. centro de rotación, colocación vs.
-// eje) y sin decirlo explícitamente es imposible adivinar cuál toca.
+// Each control carries its "?" button with what it really does: they are
+// settings that look alike (model offset vs. center of rotation, placement vs.
+// axis) and without saying it explicitly it is impossible to guess which one to
+// touch.
 
 import React, { useState } from "react"
 import {
@@ -34,12 +34,12 @@ interface Props {
   onRemove: (id: string) => void
   onUpdate: (id: string, updates: Partial<Mechanism3dPart>) => void
   onPickModel: (id: string) => void
-  /** Crea una rutina de ida y vuelta para la pieza seleccionada y la arranca. */
+  /** Creates a back-and-forth routine for the selected part and starts it. */
   onAnimate: () => void
   models: Map<string, LoadedModel>
   modelErrors: Map<string, string>
   loadingPaths: Set<string>
-  /** Valor en vivo de cada topic enlazado, para el readout del inspector. */
+  /** Live value of each bound topic, for the inspector's readout. */
   values: Record<string, any>
   manualOverride: boolean
 }
@@ -177,7 +177,7 @@ export default function Mechanism3dPartsPanel({
   )
 }
 
-// --- Fila del árbol -----------------------------------------------------------
+// --- Tree row -----------------------------------------------------------
 
 function PartRow({
   node, selected, missing, onSelect, onToggleVisible, onToggleLocked,
@@ -645,7 +645,7 @@ function JointTopicField({
   )
 }
 
-/** Un límite puede estar vacío (sin tope), así que no alcanza con un Num. */
+/** A limit can be empty (no stop), so a Num is not enough. */
 function LimitField({
   label, value, onChange,
 }: { label: string; value: number | null; onChange: (v: number | null) => void }) {
@@ -672,8 +672,8 @@ function LimitField({
 function ManualControl({
   joint, onUpdate,
 }: { joint: Mechanism3dJoint; onUpdate: (updates: Partial<Mechanism3dJoint>) => void }) {
-  // El rango del slider sale de los límites; sin límites se usa un rango
-  // razonable según lo que la articulación hace.
+  // The slider's range comes from the limits; without limits a reasonable range
+  // is used according to what the joint does.
   const kind = jointKind(joint)
   const fallback = kind === "length" ? 1 : joint.units === "radians" ? Math.PI : joint.units === "rotations" ? 1 : 180
   const min = joint.min ?? -fallback
@@ -735,14 +735,14 @@ function JointReadout({
   )
 }
 
-// --- Unidades según el tipo -------------------------------------------------------
+// --- Units by type -------------------------------------------------------
 
 function unitOptionsFor(joint: Mechanism3dJoint): { value: Mechanism3dJointUnits; label: string }[] {
   const list = jointKind(joint) === "length" ? LINEAR_UNITS : ANGULAR_UNITS
   return list.map(u => ({ value: u, label: `${u} (${unitLabel(u)})` }))
 }
 
-/** Cambiar de revolute a prismatic tiene que arrastrar la unidad al otro grupo. */
+/** Changing from revolute to prismatic has to carry the unit over to the other group. */
 function unitsForType(type: Mechanism3dJointType, current: Mechanism3dJointUnits): Mechanism3dJointUnits {
   if (type === "prismatic") return LINEAR_UNITS.includes(current) ? current : "meters"
   if (type === "revolute" || type === "continuous") return ANGULAR_UNITS.includes(current) ? current : "degrees"

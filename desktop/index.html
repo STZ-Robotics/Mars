@@ -7,13 +7,14 @@
     <title>MARS — Modular Architecture for Robot Systems</title>
 
     <!--
-      La pantalla de carga vive acá y no en React a propósito: el bundle pesa
-      un par de MB y hay que descargarlo, parsearlo y evaluarlo ANTES de que
-      React pinte su primer cuadro. Cualquier splash escrito en React aparece
-      justo cuando ya no hace falta. Este, en cambio, se pinta con el HTML.
+      The loading screen lives here and not in React on purpose: the bundle
+      weighs a couple of MB and has to be downloaded, parsed and evaluated
+      BEFORE React paints its first frame. Any splash written in React shows up
+      right when it is no longer needed. This one, instead, is painted with the
+      HTML.
 
-      El esqueleto está acá; los pasos y el porcentaje los rellena
-      src/utils/splash.ts conforme el arranque ocurre de verdad.
+      The skeleton is here; src/utils/splash.ts fills in the steps and the
+      percentage as the startup really happens.
     -->
     <style>
       #mars-splash {
@@ -43,11 +44,11 @@
         box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.1);
         animation: mars-splash-pop 420ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
       }
-      /* El logotipo es la marca completa, así que no lleva un título al lado:
-         repetir "MARS" en texto debajo del wordmark solo lo dice dos veces.
-         Grande a propósito, como el splash de MATLAB o Wolfram: el logo ES la
-         pantalla, y al lado va lo único que hace falta saber además del
-         nombre, que es qué versión se está abriendo. */
+      /* The logo is the whole brand, so it carries no title next to it:
+         repeating "MARS" as text under the wordmark only says it twice.
+         Big on purpose, like MATLAB's or Wolfram's splash: the logo IS the
+         screen, and next to it goes the only thing worth knowing besides the
+         name, which is the version being opened. */
       .mars-splash-head {
         display: flex;
         align-items: center;
@@ -81,9 +82,9 @@
         background: #f7f7f8;
         border: 1px solid #d4d4d8;
       }
-      /* Determinada, no indeterminada: la anterior era una barra que se
-         deslizaba sola y solo decía "sigue trabajando". Esta cuenta los pasos
-         reales del arranque, así que el porcentaje significa algo. */
+      /* Determinate, not indeterminate: the previous one was a bar that slid
+         on its own and only said "still working". This one counts the real
+         startup steps, so the percentage means something. */
       .mars-splash-bar span {
         display: block;
         width: 0;
@@ -108,9 +109,9 @@
         font-variant-numeric: tabular-nums;
       }
 
-      /* La lista de pasos no es decoración: hasta que el arranque no termina
-         no existe ninguna otra superficie donde escribir, así que si algo
-         tarda o falla, esto es lo único que lo dice. */
+      /* The list of steps is not decoration: until the startup finishes there
+         is no other surface to write on, so if something takes long or fails,
+         this is the only thing that says so. */
       #mars-splash-steps {
         list-style: none;
         margin: 14px 0 0;
@@ -179,8 +180,8 @@
   <body>
     <div id="mars-splash">
       <div class="mars-splash-card">
-        <!-- __MARS_VERSION__ lo sustituye el plugin `mars-version` de
-             vite.config.ts con la constante de src/constants/version.ts. -->
+        <!-- __MARS_VERSION__ is replaced by vite.config.ts' `mars-version`
+             plugin with the constant in src/constants/version.ts. -->
         <div class="mars-splash-head">
           <img src="/marsblacklogo2.png" alt="MARS" />
           <div class="mars-splash-version">__MARS_VERSION__</div>

@@ -23,12 +23,12 @@ interface JitterStats {
 }
 
 const WINDOW_OPTIONS_S = [1, 3, 5, 10, 30]
-const POLL_MS = 500 // no hace falta más rápido, es una vista de diagnóstico
+const POLL_MS = 500 // no need for faster, it is a diagnostic view
 
-// Coeficiente de variación (stddev/mean): la métrica que de verdad importa acá.
-// Un topic a 50Hz con stddev de 2ms es normal; el mismo stddev en un topic a
-// 500Hz sería carísimo. Normalizar por la media es lo que hace comparable la
-// "salud" de topics con frecuencias muy distintas entre sí.
+// Coefficient of variation (stddev/mean): the metric that really matters here.
+// A topic at 50Hz with a 2ms stddev is normal; the same stddev on a 500Hz topic
+// would be very costly. Normalizing by the mean is what makes the "health" of
+// topics with very different frequencies comparable.
 function severity(s: JitterStats): "good" | "warn" | "bad" {
   const cv = s.mean_dt_ms > 0 ? s.stddev_dt_ms / s.mean_dt_ms : 0
   const spike = s.mean_dt_ms > 0 ? s.max_dt_ms / s.mean_dt_ms : 0
@@ -83,7 +83,7 @@ export default function JitterAnalyzerPage({ connection, topics }: Props) {
       .filter(([name]) => searchQuery.trim() === "" || name.toLowerCase().includes(searchQuery.toLowerCase()))
       .map(([name, s]) => ({ name, stats: s, sev: severity(s) }))
 
-    // Peor primero: lo que más necesita atención arriba de todo.
+    // Worst first: whatever needs attention the most at the very top.
     const rank = { bad: 0, warn: 1, good: 2 }
     list.sort((a, b) => rank[a.sev] - rank[b.sev] || b.stats.stddev_dt_ms - a.stats.stddev_dt_ms)
     return list
@@ -125,7 +125,7 @@ export default function JitterAnalyzerPage({ connection, topics }: Props) {
               </PropertyRow>
             </div>
             <div style={{ fontSize: 9, color: "var(--text-muted)", lineHeight: 1.4, padding: 8 }}>
-              Ventanas cortas reaccionan rápido a problemas nuevos; ventanas largas suavizan ruido puntual.
+              Short windows react quickly to new problems; long windows smooth out one-off noise.
             </div>
             <div style={{ padding: 8, paddingTop: 0 }}>
               <button

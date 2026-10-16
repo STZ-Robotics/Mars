@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest"
 import { extractPose3d, extractPoses3d, isPose3dTopic, isSinglePoseTopic } from "./pose3d"
 import { yawOf } from "./frames"
 
-// Los structs de WPILib se serializan como doubles LITTLE ENDIAN pegados uno
-// detrás del otro, que es lo que llega en `liveValue.Raw`.
+// WPILib structs serialize as LITTLE ENDIAN doubles packed one after the other,
+// which is what arrives in `liveValue.Raw`.
 function structBytes(...values: number[]): { Raw: number[] } {
   const buffer = new ArrayBuffer(values.length * 8)
   const view = new DataView(buffer)
@@ -15,8 +15,8 @@ function expectClose(actual: number, expected: number, precision = 9) {
   expect(actual).toBeCloseTo(expected, precision)
 }
 
-describe("qué topics acepta la cancha 3D", () => {
-  it("acepta la geometría de WPILib, suelta y en array", () => {
+describe("which topics the 3D field accepts", () => {
+  it("accepts WPILib geometry, loose and in an array", () => {
     for (const type of [
       "struct:Pose3d", "struct:Pose3d[]", "struct:Pose2d", "struct:Translation3d[]",
       "struct:Transform3d", "struct:Translation2d",
@@ -25,27 +25,27 @@ describe("qué topics acepta la cancha 3D", () => {
     }
   })
 
-  it("acepta los arrays numéricos, que es el formato heredado de Field2d", () => {
+  it("accepts numeric arrays, which is the format inherited from Field2d", () => {
     expect(isPose3dTopic("double[]")).toBe(true)
     expect(isPose3dTopic("float[]")).toBe(true)
   })
 
-  it("rechaza lo que no es geometría", () => {
+  it("rejects what is not geometry", () => {
     for (const type of ["double", "boolean", "string[]", "struct:SwerveModuleState[]"]) {
       expect(isPose3dTopic(type)).toBe(false)
     }
   })
 
-  it("distingue un struct suelto de un array", () => {
+  it("tells a loose struct from an array", () => {
     expect(isSinglePoseTopic("struct:Pose3d")).toBe(true)
     expect(isSinglePoseTopic("struct:Pose3d[]")).toBe(false)
   })
 })
 
 describe("Pose3d", () => {
-  it("lee traslación y cuaternión crudos", () => {
-    // (x, y, z, qw, qx, qy, qz) — Pose3d serializa Rotation3d como cuaternión,
-    // no como roll/pitch/yaw.
+  it("reads raw translation and quaternion", () => {
+    // (x, y, z, qw, qx, qy, qz) — Pose3d serializes Rotation3d as a quaternion,
+    // not as roll/pitch/yaw.
     const value = structBytes(1.5, -2.25, 0.75, Math.SQRT1_2, 0, 0, Math.SQRT1_2)
     const pose = extractPose3d(value, "struct:Pose3d")!
 
@@ -55,7 +55,7 @@ describe("Pose3d", () => {
     expectClose(yawOf([pose.qw, pose.qx, pose.qy, pose.qz]), Math.PI / 2)
   })
 
-  it("trocea un array por el tamaño del struct", () => {
+  it("slices an array by the struct's size", () => {
     const first = structBytes(1, 2, 3, 1, 0, 0, 0).Raw
     const second = structBytes(4, 5, 6, 1, 0, 0, 0).Raw
     const poses = extractPoses3d({ Raw: [...first, ...second] }, "struct:Pose3d[]")
@@ -65,16 +65,16 @@ describe("Pose3d", () => {
     expectClose(poses[1].z, 6)
   })
 
-  it("normaliza un cuaternión sin norma en vez de dejar la malla degenerada", () => {
+  it("normalizes a zero-norm quaternion instead of leaving the mesh degenerate", () => {
     const pose = extractPose3d(structBytes(0, 0, 0, 0, 0, 0, 0), "struct:Pose3d")!
     expect(pose.qw).toBe(1)
   })
 })
 
 describe("Pose2d levantada a 3D", () => {
-  it("deja z en cero y convierte θ a un giro sobre +Z", () => {
-    // El struct guarda θ en RADIANES; el decodificador genérico lo pasa a
-    // grados y este módulo lo devuelve a radianes.
+  it("leaves z at zero and turns θ into a turn around +Z", () => {
+    // The struct stores θ in RADIANS; the generic decoder takes it to degrees
+    // and this module brings it back to radians.
     const pose = extractPose3d(structBytes(3, 4, Math.PI / 3), "struct:Pose2d")!
 
     expectClose(pose.x, 3)
@@ -83,15 +83,15 @@ describe("Pose2d levantada a 3D", () => {
     expectClose(yawOf([pose.qw, pose.qx, pose.qy, pose.qz]), Math.PI / 3, 6)
   })
 
-  it("una Translation2d no aporta orientación", () => {
+  it("a Translation2d provides no orientation", () => {
     const pose = extractPose3d(structBytes(1, 2), "struct:Translation2d")!
     expect(pose.qw).toBe(1)
     expect(pose.z).toBe(0)
   })
 })
 
-describe("arrays numéricos", () => {
-  it("lee tripletas [x, y, θ°] — el formato de Field2d", () => {
+describe("numeric arrays", () => {
+  it("reads [x, y, θ°] triples — the Field2d format", () => {
     const poses = extractPoses3d({ NumberArray: [1, 2, 90, 3, 4, -90] }, "double[]")
 
     expect(poses).toHaveLength(2)
@@ -100,40 +100,40 @@ describe("arrays numéricos", () => {
     expectClose(yawOf([poses[1].qw, poses[1].qx, poses[1].qy, poses[1].qz]), -Math.PI / 2)
   })
 
-  it("lee septetos cuando el largo solo puede ser 3D", () => {
-    // 7 números no encajan en tripletas, así que no hace falta pista alguna.
+  it("reads septets when the length can only be 3D", () => {
+    // 7 numbers do not fit in triples, so no hint at all is needed.
     const poses = extractPoses3d({ NumberArray: [1, 2, 3, 1, 0, 0, 0] }, "double[]")
     expect(poses).toHaveLength(1)
     expectClose(poses[0].z, 3)
   })
 
-  it("en el empate prefiere tripletas, que es el formato viejo", () => {
-    // 21 números encajan en los dos (7 tripletas o 3 septetos).
+  it("on a tie it prefers triples, which is the old format", () => {
+    // 21 numbers fit both (7 triples or 3 septets).
     const array = Array.from({ length: 21 }, (_, i) => i)
     expect(extractPoses3d({ NumberArray: array }, "double[]")).toHaveLength(7)
   })
 
-  it("respeta el formato fijado a mano cuando la heurística no alcanza", () => {
+  it("respects the format pinned by hand when the heuristic is not enough", () => {
     const array = Array.from({ length: 21 }, (_, i) => i)
     expect(extractPoses3d({ NumberArray: array }, "double[]", "pose3d")).toHaveLength(3)
   })
 
-  it("descarta la cola incompleta en vez de inventar ceros", () => {
+  it("drops the incomplete tail instead of making up zeros", () => {
     expect(extractPoses3d({ NumberArray: [1, 2, 0, 4, 5] }, "double[]")).toHaveLength(1)
   })
 })
 
-describe("valores que no se pueden leer", () => {
-  it("devuelve una lista vacía en vez de romper", () => {
+describe("values that cannot be read", () => {
+  it("returns an empty list instead of breaking", () => {
     expect(extractPoses3d(null, "struct:Pose3d")).toEqual([])
     expect(extractPoses3d({ Raw: [] }, "struct:Pose3d")).toEqual([])
     expect(extractPoses3d({ NumberArray: [] }, "double[]")).toEqual([])
     expect(extractPoses3d({ Number: 5 }, "double")).toEqual([])
-    // Un struct que la app no sabe leer no debe colarse como pose vacía.
+    // A struct the app cannot read must not slip in as an empty pose.
     expect(extractPoses3d({ Raw: [1, 2, 3] }, "struct:Desconocido")).toEqual([])
   })
 
-  it("filtra las poses con NaN, que dejarían la malla sin dibujar", () => {
+  it("filters out poses with NaN, which would leave the mesh undrawn", () => {
     expect(extractPoses3d({ NumberArray: [NaN, 1, 0] }, "double[]")).toEqual([])
   })
 })

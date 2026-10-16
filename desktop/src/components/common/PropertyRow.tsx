@@ -2,16 +2,16 @@ import { ReactNode } from "react"
 
 interface Props {
   label: string
-  children: ReactNode // el control/valor: input, select, texto, badge...
+  children: ReactNode // the control/value: input, select, text, badge...
   indent?: number
 }
 
-// Fila de árbol de propiedades estilo RViz (panel "Displays"/"Views"): dos
-// columnas fijas — nombre a la izquierda, valor/control a la derecha —
-// separadas por un hairline vertical, filas densas de 24px con hairline
-// horizontal entre cada una. Esto reemplaza el patrón "label arriba, input
-// abajo" que se usaba en los sidebars — RViz nunca apila así, todo es
-// label:valor en una sola fila.
+// RViz-style property tree row ("Displays"/"Views" panel): two fixed
+// columns — name on the left, value/control on the right — separated by a
+// vertical hairline, dense 24px rows with a horizontal hairline between each
+// one. This replaces the "label above, input below" pattern the sidebars
+// used — RViz never stacks like that, everything is label:value on a single
+// row.
 export default function PropertyRow({ label, children, indent = 0 }: Props) {
   return (
     <div style={{ display: "flex", alignItems: "stretch", minHeight: 24, borderBottom: "1px solid var(--border-light)" }}>

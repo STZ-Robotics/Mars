@@ -4,14 +4,14 @@ import { invoke } from "@tauri-apps/api/core"
 interface TimeBounds { start: number | null; end: number | null }
 
 /**
- * Única fuente de verdad del reloj de datos. Consulta a Rust el rango REAL
- * de timestamps del buffer (NTBuffer.start_time / end_time) — nunca el
- * reloj del navegador. Esto es lo que hace que el timeline muestre el
- * tiempo real de conexión (sobrevive a remounts, no se desincroniza si el
- * reloj del cliente difiere del de la fuente NT).
+ * The single source of truth for the data clock. It asks Rust for the buffer's
+ * REAL timestamp range (NTBuffer.start_time / end_time) — never the browser's
+ * clock. This is what makes the timeline show the real connection time (it
+ * survives remounts, it does not drift if the client's clock differs from the
+ * NT source's).
  *
- * Entre cada poll, interpola con performance.now() para que el marcador
- * "LIVE" siga avanzando suave en vez de saltar a trompicones cada 200ms.
+ * Between polls, it interpolates with performance.now() so the "LIVE" marker
+ * keeps advancing smoothly instead of jumping in fits every 200ms.
  */
 export function useNTLiveClock(pollMs = 200) {
   const [bounds, setBounds] = useState<TimeBounds>({ start: null, end: null })
@@ -27,14 +27,14 @@ export function useNTLiveClock(pollMs = 200) {
           setBounds(data)
           lastPollPerfRef.current = performance.now()
         }
-      } catch { /* backend puede no estar listo aún, se reintenta */ }
+      } catch { /* the backend may not be ready yet, it retries */ }
       if (!cancelled) setTimeout(poll, pollMs)
     }
     poll()
     return () => { cancelled = true }
   }, [pollMs])
 
-  /** "Ahora" estimado en microsegundos, interpolado suavemente entre polls. */
+  /** The estimated "now" in microseconds, smoothly interpolated between polls. */
   const getEstimatedNowUs = (): number | null => {
     if (bounds.end === null) return null
     const elapsedSincePollMs = performance.now() - lastPollPerfRef.current

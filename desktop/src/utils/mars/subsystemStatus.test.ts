@@ -11,22 +11,22 @@ const topic = (name: string, type = "string"): [string, TopicAnnounce] => [
 ]
 
 describe("hexToHsl", () => {
-  it("convierte los colores base", () => {
+  it("converts the base colors", () => {
     expect(hexToHsl("#ff0000")!.h).toBeCloseTo(0, 5)
     expect(hexToHsl("#00ff00")!.h).toBeCloseTo(120, 5)
     expect(hexToHsl("#0000ff")!.h).toBeCloseTo(240, 5)
   })
 
-  it("acepta con y sin almohadilla, y la forma corta", () => {
+  it("accepts with and without the hash, and the short form", () => {
     expect(hexToHsl("00ff00")!.h).toBeCloseTo(120, 5)
     expect(hexToHsl("#0f0")!.h).toBeCloseTo(120, 5)
   })
 
-  it("marca los grises como sin saturación", () => {
+  it("marks greys as unsaturated", () => {
     expect(hexToHsl("#808080")!.s).toBe(0)
   })
 
-  it("devuelve null si no es un hex válido", () => {
+  it("returns null if it is not a valid hex", () => {
     expect(hexToHsl("rojo")).toBeNull()
     expect(hexToHsl("#12345")).toBeNull()
     expect(hexToHsl("")).toBeNull()
@@ -34,7 +34,7 @@ describe("hexToHsl", () => {
 })
 
 describe("severityFromHex", () => {
-  it("clasifica los cuatro colores de GlobalColorCode", () => {
+  it("classifies GlobalColorCode's four colors", () => {
     // NOMINAL verde, WORKING amarillo, TIMEOUT naranja, HARDWARE_FAULT rojo.
     expect(severityFromHex("#00ff00")).toBe("ok")
     expect(severityFromHex("#ffff00")).toBe("warning")
@@ -42,14 +42,14 @@ describe("severityFromHex", () => {
     expect(severityFromHex("#ff0000")).toBe("critical")
   })
 
-  it("reconoce tonos oscuros del mismo color", () => {
-    // Los equipos usan cosas como DarkGreen para IDLE.
+  it("recognizes dark shades of the same color", () => {
+    // Teams use things like DarkGreen for IDLE.
     expect(severityFromHex("#006400")).toBe("ok")
     expect(severityFromHex("#8b0000")).toBe("critical")
   })
 
-  it("no fuerza una severidad sobre colores que no la comunican", () => {
-    // Pintar de rojo un estado que el equipo eligió celeste sería mentir.
+  it("does not force a severity on colors that do not convey one", () => {
+    // Painting red a state the team chose to be light blue would be lying.
     expect(severityFromHex("#0000ff")).toBe("unknown")
     expect(severityFromHex("#00ffff")).toBe("unknown")
     expect(severityFromHex("#800080")).toBe("unknown")
@@ -57,25 +57,25 @@ describe("severityFromHex", () => {
     expect(severityFromHex("#000000")).toBe("unknown")
   })
 
-  it("devuelve unknown sin color", () => {
+  it("returns unknown without a color", () => {
     expect(severityFromHex(null)).toBe("unknown")
-    expect(severityFromHex("no-soy-un-color")).toBe("unknown")
+    expect(severityFromHex("not-a-color")).toBe("unknown")
   })
 })
 
 describe("severityOf", () => {
-  it("el nombre del código global gana sobre el color", () => {
-    // Si el robot dice HARDWARE_FAULT, es crítico aunque haya mandado verde.
+  it("the global code's name wins over the color", () => {
+    // If the robot says HARDWARE_FAULT, it is critical even if it sent green.
     expect(severityOf("HARDWARE_FAULT", "#00ff00")).toBe("critical")
     expect(severityOf("NOMINAL", "#ff0000")).toBe("ok")
     expect(severityOf("TIMEOUT", null)).toBe("error")
   })
 
-  it("no distingue mayúsculas en el código", () => {
+  it("is case-insensitive on the code", () => {
     expect(severityOf("nominal", null)).toBe("ok")
   })
 
-  it("cae al color con códigos propios del equipo", () => {
+  it("falls back to the color with the team's own codes", () => {
     // ModuleColorCode.solid(...) define nombres arbitrarios.
     expect(severityOf("INTAKING", "#ffff00")).toBe("warning")
     expect(severityOf("ON_TARGET", "#00ff00")).toBe("ok")
@@ -83,7 +83,7 @@ describe("severityOf", () => {
 })
 
 describe("findStatusSubsystems", () => {
-  it("detecta los subsistemas por su topic Hex", () => {
+  it("detects the subsystems by their Hex topic", () => {
     const topics = new Map([
       topic("/Arm/Status/Hex"),
       topic("/Arm/Status/Name"),
@@ -94,13 +94,13 @@ describe("findStatusSubsystems", () => {
     expect(findStatusSubsystems(topics)).toEqual(["/Arm", "/Drive"])
   })
 
-  it("ignora topics que no son strings", () => {
-    // Un double llamado igual no es un estado de subsistema.
+  it("ignores topics that are not strings", () => {
+    // A double with the same name is not a subsystem state.
     const topics = new Map([topic("/Fake/Status/Hex", "double")])
     expect(findStatusSubsystems(topics)).toEqual([])
   })
 
-  it("ordena con orden natural", () => {
+  it("sorts in natural order", () => {
     const topics = new Map([
       topic("/Module10/Status/Hex"),
       topic("/Module9/Status/Hex"),
@@ -108,13 +108,13 @@ describe("findStatusSubsystems", () => {
     expect(findStatusSubsystems(topics)).toEqual(["/Module9", "/Module10"])
   })
 
-  it("devuelve vacío si no hay ninguno", () => {
+  it("returns empty if there are none", () => {
     expect(findStatusSubsystems(new Map([topic("/Otro/Cosa")]))).toEqual([])
   })
 })
 
 describe("statusTopicNames", () => {
-  it("pide los tres topics de cada subsistema", () => {
+  it("asks for each subsystem's three topics", () => {
     expect(statusTopicNames(["/Arm"])).toEqual([
       "/Arm/Status/Name", "/Arm/Status/Hex", "/Arm/Status/Message",
     ])
@@ -122,7 +122,7 @@ describe("statusTopicNames", () => {
 })
 
 describe("readSubsystemStatus", () => {
-  it("arma el estado desde los valores de NT", () => {
+  it("builds the state from the NT values", () => {
     const values = {
       "/Arm/Status/Name": { String: "ON_TARGET" },
       "/Arm/Status/Hex": { String: "#00ff00" },
@@ -135,19 +135,19 @@ describe("readSubsystemStatus", () => {
     expect(status.severity).toBe("ok")
   })
 
-  it("usa el último segmento como nombre visible", () => {
+  it("uses the last segment as the display name", () => {
     const status = readSubsystemStatus({}, "/Robot/Subsystems/Intake")
     expect(status.name).toBe("Intake")
   })
 
-  it("sobrevive a un subsistema sin valores todavía", () => {
+  it("survives a subsystem with no values yet", () => {
     const status = readSubsystemStatus({}, "/Arm")
     expect(status.code).toBeNull()
     expect(status.hex).toBeNull()
     expect(status.severity).toBe("unknown")
   })
 
-  it("trata el string vacío como ausente", () => {
+  it("treats the empty string as missing", () => {
     const status = readSubsystemStatus({ "/Arm/Status/Hex": { String: "" } }, "/Arm")
     expect(status.hex).toBeNull()
   })
@@ -159,8 +159,8 @@ const make = (name: string, severity: SubsystemStatus["severity"]): SubsystemSta
   prefix: `/${name}`, name, code: null, hex: null, message: null, severity,
 })
 
-describe("orden y conteos", () => {
-  it("pone los más graves primero", () => {
+describe("sorting and counts", () => {
+  it("puts the most severe first", () => {
     const sorted = sortBySeverity([
       make("A", "ok"), make("B", "critical"), make("C", "warning"),
       make("D", "unknown"), make("E", "error"),
@@ -168,19 +168,19 @@ describe("orden y conteos", () => {
     expect(sorted.map(s => s.severity)).toEqual(["critical", "error", "warning", "ok", "unknown"])
   })
 
-  it("desempata alfabéticamente dentro de la misma severidad", () => {
+  it("breaks ties alphabetically within the same severity", () => {
     const sorted = sortBySeverity([make("Zeta", "ok"), make("Alfa", "ok")])
     expect(sorted.map(s => s.name)).toEqual(["Alfa", "Zeta"])
   })
 
-  it("cuenta por severidad", () => {
+  it("counts by severity", () => {
     const counts = countBySeverity([make("A", "ok"), make("B", "ok"), make("C", "critical")])
     expect(counts.ok).toBe(2)
     expect(counts.critical).toBe(1)
     expect(counts.error).toBe(0)
   })
 
-  it("hasCriticalAlerts es el gate antes de habilitar", () => {
+  it("hasCriticalAlerts is the gate before enabling", () => {
     expect(hasCriticalAlerts([make("A", "ok"), make("B", "error")])).toBe(false)
     expect(hasCriticalAlerts([make("A", "ok"), make("B", "critical")])).toBe(true)
   })
@@ -191,16 +191,16 @@ describe("pushStatusChange", () => {
     prefix: "/Arm", name: "Arm", code, hex, message, severity: "ok",
   })
 
-  it("no agrega nada si el estado no cambió", () => {
-    // A 4Hz de poll, sin esto el historial se llena de entradas idénticas y
-    // tapa los cambios que importan.
+  it("adds nothing if the state did not change", () => {
+    // At a 4Hz poll, without this the history fills with identical entries and
+    // hides the changes that matter.
     const first = pushStatusChange([], status("A", "#0f0", "m"), 1000)
     const second = pushStatusChange(first, status("A", "#0f0", "m"), 2000)
     expect(second).toHaveLength(1)
     expect(second).toBe(first) // misma referencia: no re-renderiza
   })
 
-  it("agrega cuando cambia el código, el color o el mensaje", () => {
+  it("adds when the code, the color or the message changes", () => {
     let h: StatusChange[] = []
     h = pushStatusChange(h, status("A", "#0f0", "m"), 1000)
     h = pushStatusChange(h, status("B", "#0f0", "m"), 2000)
@@ -209,11 +209,11 @@ describe("pushStatusChange", () => {
     expect(h).toHaveLength(4)
   })
 
-  it("recorta el historial al límite", () => {
+  it("trims the history to the limit", () => {
     let h: StatusChange[] = []
     for (let i = 0; i < 20; i++) h = pushStatusChange(h, status(`C${i}`, "#0f0", "m"), i)
     expect(h).toHaveLength(12)
-    // Se conservan los MÁS RECIENTES.
+    // The MOST RECENT ones are kept.
     expect(h[h.length - 1].code).toBe("C19")
   })
 })

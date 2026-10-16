@@ -5,15 +5,15 @@ import {
   SysIdSample, SysIdTestRun, SysIdTestType, MechanismType, ALL_TESTS, TEST_COLORS,
 } from "./feedforward"
 
-// --- Generación de datos sintéticos ----------------------------------------
+// --- Synthetic data generation ----------------------------------------
 //
-// La estrategia: partir de gains CONOCIDOS, generar el voltaje exacto que
-// predice el modelo, y comprobar que el ajuste los recupera. Si la matemática
-// está mal, los números no vuelven.
+// The strategy: start from KNOWN gains, generate the exact voltage the model
+// predicts, and check that the fit recovers them. If the math is wrong, the
+// numbers do not come back.
 //
-// La velocidad se hace LINEAL en t a propósito: su derivada por diferencias
-// centradas es exacta en todos los puntos (incluidos los extremos), así que
-// el error del ajuste no se mezcla con el error de derivar.
+// The velocity is made LINEAR in t on purpose: its centered-difference
+// derivative is exact at every point (the ends included), so the fit's error
+// does not mix with the differentiation error.
 
 interface TrueGains { kS: number; kV: number; kA: number; kG?: number }
 
@@ -27,7 +27,7 @@ function makeRun(
   for (let i = 0; i < opts.count; i++) {
     const t = i * opts.dt
     const velocity = opts.v0 + opts.accel * t
-    // θ avanza con la velocidad; solo lo mira el modelo de brazo.
+    // θ advances with the velocity; only the arm model looks at it.
     const position = (opts.theta0 ?? 0) + opts.v0 * t + 0.5 * opts.accel * t * t
 
     let voltage = gains.kS * Math.sign(velocity) + gains.kV * velocity + gains.kA * opts.accel
@@ -39,7 +39,7 @@ function makeRun(
   return { type, samples }
 }
 
-/** Las cuatro corridas estándar: cuasi-estáticas (a≈0) y dinámicas (a alta). */
+/** The four standard runs: quasistatic (a≈0) and dynamic (high a). */
 function fullTestSet(mechanism: MechanismType, gains: TrueGains): SysIdTestRun[] {
   return [
     makeRun(mechanism, "quasistatic-forward", gains, { accel: 0.02, v0: 0.05, count: 200, dt: 0.02, theta0: 0.1 }),
@@ -52,20 +52,20 @@ function fullTestSet(mechanism: MechanismType, gains: TrueGains): SysIdTestRun[]
 // ---------------------------------------------------------------------------
 
 describe("solveLinearSystem", () => {
-  it("resuelve un sistema conocido", () => {
+  it("solves a known system", () => {
     // 2x + y = 5 ; x + 3y = 10  ->  x = 1, y = 3
     const out = solveLinearSystem([[2, 1], [1, 3]], [5, 10])!
     expect(out[0]).toBeCloseTo(1, 10)
     expect(out[1]).toBeCloseTo(3, 10)
   })
 
-  it("devuelve null si la matriz es singular", () => {
+  it("returns null if the matrix is singular", () => {
     // Segunda fila = 2× la primera: infinitas soluciones.
     expect(solveLinearSystem([[1, 2], [2, 4]], [3, 6])).toBeNull()
   })
 
-  it("sobrevive a un pivote inicial cero gracias al pivoteo parcial", () => {
-    // Sin intercambio de filas esto dividiría por cero.
+  it("survives a zero initial pivot thanks to partial pivoting", () => {
+    // Without row swapping this would divide by zero.
     const out = solveLinearSystem([[0, 1], [1, 0]], [2, 3])!
     expect(out[0]).toBeCloseTo(3, 10)
     expect(out[1]).toBeCloseTo(2, 10)
@@ -73,7 +73,7 @@ describe("solveLinearSystem", () => {
 })
 
 describe("solveOls", () => {
-  it("recupera exactamente una relación lineal", () => {
+  it("recovers a linear relation exactly", () => {
     // y = 2·a + 3·b
     const x = [[1, 0], [0, 1], [1, 1], [2, 1], [1, 2]]
     const y = x.map(([a, b]) => 2 * a + 3 * b)
@@ -84,42 +84,42 @@ describe("solveOls", () => {
     expect(r.rmse).toBeCloseTo(0, 9)
   })
 
-  it("baja el R² cuando los datos no siguen el modelo", () => {
+  it("lowers R² when the data does not follow the model", () => {
     const x = [[1], [2], [3], [4], [5]]
     const y = [1, 5, 2, 8, 3] // ruido puro
     const r = solveOls(x, y)!
     expect(r.rSquared).toBeLessThan(0.5)
   })
 
-  it("devuelve null con menos muestras que incógnitas", () => {
+  it("returns null with fewer samples than unknowns", () => {
     expect(solveOls([[1, 2, 3]], [1])).toBeNull()
   })
 
-  it("devuelve null si una columna es constante cero", () => {
-    // Un test que no movió el mecanismo deja la columna de aceleración en 0.
+  it("returns null if a column is constant zero", () => {
+    // A test that did not move the mechanism leaves the acceleration column at 0.
     expect(solveOls([[1, 0], [2, 0], [3, 0]], [1, 2, 3])).toBeNull()
   })
 
-  it("no devuelve NaN cuando y es constante", () => {
-    // ssTot = 0 dividiría por cero al calcular R².
+  it("does not return NaN when y is constant", () => {
+    // ssTot = 0 would divide by zero when computing R².
     const r = solveOls([[1], [2], [3]], [5, 5, 5])!
     expect(isNaN(r.rSquared)).toBe(false)
   })
 
-  it("rechaza valores no finitos", () => {
+  it("rejects non-finite values", () => {
     expect(solveOls([[1, NaN], [2, 1]], [1, 2])).toBeNull()
   })
 })
 
 describe("accelerationOf", () => {
-  it("es exacta con velocidad lineal, incluidos los extremos", () => {
+  it("is exact with linear velocity, ends included", () => {
     const samples: SysIdSample[] = Array.from({ length: 10 }, (_, i) => ({
       t: i * 0.02, voltage: 0, position: 0, velocity: 1 + 2.5 * (i * 0.02),
     }))
     accelerationOf(samples).forEach(a => expect(a).toBeCloseTo(2.5, 9))
   })
 
-  it("no divide por cero con timestamps repetidos", () => {
+  it("does not divide by zero with repeated timestamps", () => {
     const samples: SysIdSample[] = [
       { t: 0, voltage: 0, position: 0, velocity: 0 },
       { t: 0, voltage: 0, position: 0, velocity: 1 },
@@ -131,7 +131,7 @@ describe("accelerationOf", () => {
 describe("fitFeedforward — simple motor", () => {
   const truth = { kS: 0.22, kV: 2.4, kA: 0.31 }
 
-  it("recupera kS, kV y kA de datos sintéticos", () => {
+  it("recovers kS, kV and kA from synthetic data", () => {
     const fit = fitFeedforward("simple", fullTestSet("simple", truth))!
     expect(fit.gains.kS).toBeCloseTo(truth.kS, 6)
     expect(fit.gains.kV).toBeCloseTo(truth.kV, 6)
@@ -140,33 +140,33 @@ describe("fitFeedforward — simple motor", () => {
     expect(fit.gains.kG).toBeUndefined()
   })
 
-  it("no avisa nada cuando el ajuste es bueno y están los cuatro tests", () => {
+  it("warns about nothing when the fit is good and all four tests are there", () => {
     const fit = fitFeedforward("simple", fullTestSet("simple", truth))!
     expect(fit.warnings).toEqual([])
   })
 
-  it("avisa si falta alguna de las cuatro corridas", () => {
-    // Se saca UNA sola: con las otras tres el sistema sigue siendo resoluble.
+  it("warns if any of the four runs is missing", () => {
+    // Only ONE is removed: with the other three the system is still solvable.
     const runs = fullTestSet("simple", truth).filter(r => r.type !== "dynamic-backward")
     const fit = fitFeedforward("simple", runs)!
     expect(fit.warnings.some(w => w.includes("Dynamic backward"))).toBe(true)
-    // Con tres corridas los gains todavía salen bien; el aviso es preventivo.
+    // With three runs the gains still come out right; the warning is preventive.
     expect(fit.gains.kV).toBeCloseTo(truth.kV, 5)
   })
 
-  it("no inventa gains si solo se corrieron los tests cuasi-estáticos", () => {
-    // Sin las corridas dinámicas la aceleración es proporcional a sgn(v), así
-    // que kS y kA son matemáticamente indistinguibles. Devolver cualquier par
-    // de números sería peor que no devolver nada: el usuario los cargaría al
-    // robot creyendo que sirven.
+  it("does not make up gains if only the quasistatic tests were run", () => {
+    // Without the dynamic runs the acceleration is proportional to sgn(v), so
+    // kS and kA are mathematically indistinguishable. Returning any pair of
+    // numbers would be worse than returning nothing: the user would load them
+    // onto the robot believing they work.
     const runs = fullTestSet("simple", truth).filter(r => r.type.startsWith("quasistatic"))
     expect(fitFeedforward("simple", runs)).toBeNull()
   })
 
-  it("avisa cuando los términos son casi indistinguibles", () => {
-    // Igual que arriba pero con un poquito de ruido en la aceleración: ya no
-    // es singular, así que el ajuste "cierra" y el R² se ve alto — pero los
-    // gains están mal repartidos. Esto es lo que pasa con datos reales.
+  it("warns when the terms are almost indistinguishable", () => {
+    // Same as above but with a little noise in the acceleration: it is no longer
+    // singular, so the fit "closes" and R² looks high — but the gains are badly
+    // split. This is what happens with real data.
     const runs = fullTestSet("simple", truth)
       .filter(r => r.type.startsWith("quasistatic"))
       .map(r => ({
@@ -186,10 +186,10 @@ describe("fitFeedforward — simple motor", () => {
 describe("fitFeedforward — elevator", () => {
   const truth = { kS: 0.15, kV: 3.1, kA: 0.42, kG: 0.85 }
 
-  it("separa la gravedad constante de la fricción estática", () => {
-    // kG y kS son el caso difícil: los dos son términos "constantes" salvo que
-    // kS cambia de signo con la velocidad. Sin corridas en los dos sentidos
-    // serían indistinguibles.
+  it("separates constant gravity from static friction", () => {
+    // kG and kS are the hard case: both are "constant" terms except that kS
+    // changes sign with the velocity. Without runs in both directions they
+    // would be indistinguishable.
     const fit = fitFeedforward("elevator", fullTestSet("elevator", truth))!
     expect(fit.gains.kG).toBeCloseTo(truth.kG, 6)
     expect(fit.gains.kS).toBeCloseTo(truth.kS, 6)
@@ -209,9 +209,9 @@ describe("fitFeedforward — arm", () => {
     expect(fit.gains.kA).toBeCloseTo(truth.kA, 5)
   })
 
-  it("el modelo de brazo y el de elevador no dan lo mismo", () => {
-    // Datos generados con gravedad dependiente del ángulo: ajustarlos como
-    // elevador (gravedad constante) tiene que empeorar el ajuste.
+  it("the arm model and the elevator model do not give the same result", () => {
+    // Data generated with angle-dependent gravity: fitting it as an elevator
+    // (constant gravity) has to make the fit worse.
     const runs = fullTestSet("arm", truth)
     const asArm = fitFeedforward("arm", runs)!
     const asElevator = fitFeedforward("elevator", runs)!
@@ -220,8 +220,8 @@ describe("fitFeedforward — arm", () => {
 })
 
 describe("fitFeedforward — casos degenerados", () => {
-  it("descarta las muestras con el mecanismo quieto", () => {
-    // Con v ≈ 0 el signo salta entre -1 y 1 por ruido y arruina kS.
+  it("drops the samples with the mechanism still", () => {
+    // With v ≈ 0 the sign jumps between -1 and 1 from noise and ruins kS.
     const runs = fullTestSet("simple", { kS: 0.2, kV: 2, kA: 0.3 })
     const still: SysIdTestRun = {
       type: "dynamic-forward",
@@ -230,11 +230,11 @@ describe("fitFeedforward — casos degenerados", () => {
       })),
     }
     const fit = fitFeedforward("simple", [...runs, still])!
-    // Las quietas no entran, así que los gains no se mueven.
+    // The still ones do not count, so the gains do not move.
     expect(fit.gains.kV).toBeCloseTo(2, 5)
   })
 
-  it("devuelve null si no hay ninguna muestra utilizable", () => {
+  it("returns null if there is no usable sample at all", () => {
     const dead: SysIdTestRun = {
       type: "dynamic-forward",
       samples: Array.from({ length: 20 }, (_, i) => ({
@@ -244,19 +244,19 @@ describe("fitFeedforward — casos degenerados", () => {
     expect(fitFeedforward("simple", [dead])).toBeNull()
   })
 
-  it("devuelve null con corridas demasiado cortas", () => {
+  it("returns null with runs that are too short", () => {
     expect(fitFeedforward("simple", [{ type: "dynamic-forward", samples: [] }])).toBeNull()
   })
 
-  it("avisa cuando kV o kA salen no positivos", () => {
-    // Voltaje invertido respecto de la velocidad: kV sale negativo.
+  it("warns when kV or kA come out non-positive", () => {
+    // Voltage inverted relative to the velocity: kV comes out negative.
     const runs = fullTestSet("simple", { kS: 0.2, kV: -2, kA: -0.3 })
     const fit = fitFeedforward("simple", runs)!
     expect(fit.warnings.some(w => w.includes("kV is not positive"))).toBe(true)
     expect(fit.warnings.some(w => w.includes("kA is not positive"))).toBe(true)
   })
 
-  it("cubre los cuatro tipos de test declarados", () => {
+  it("covers the four declared test types", () => {
     expect(ALL_TESTS).toHaveLength(4)
     const fit = fitFeedforward("simple", fullTestSet("simple", { kS: 0.2, kV: 2, kA: 0.3 }))!
     expect(fit.sampleCount).toBeGreaterThan(600)
@@ -264,8 +264,8 @@ describe("fitFeedforward — casos degenerados", () => {
 })
 
 describe("buildSamples", () => {
-  it("interpola posición y velocidad sobre la grilla del voltaje", () => {
-    // Los tres topics se publican por separado y no comparten timestamps.
+  it("interpolates position and velocity over the voltage's grid", () => {
+    // The three topics are published separately and do not share timestamps.
     const voltage = [{ t: 0.5, v: 6 }]
     const position = [{ t: 0, v: 0 }, { t: 1, v: 10 }]
     const velocity = [{ t: 0, v: 0 }, { t: 1, v: 4 }]
@@ -276,15 +276,15 @@ describe("buildSamples", () => {
     expect(out[0].voltage).toBe(6)
   })
 
-  it("descarta los instantes sin velocidad conocida", () => {
-    // Sin extrapolar: fuera del rango medido no hay dato real.
+  it("drops the instants with no known velocity", () => {
+    // No extrapolation: outside the measured range there is no real data.
     const voltage = [{ t: 0, v: 1 }, { t: 5, v: 1 }]
     const velocity = [{ t: 0, v: 0 }, { t: 1, v: 1 }]
     expect(buildSamples(voltage, [], velocity)).toHaveLength(1)
   })
 
-  it("usa 0 de posición si no hay topic de posición", () => {
-    // Un motor simple no necesita posición; el modelo no la mira.
+  it("uses 0 for position if there is no position topic", () => {
+    // A simple motor does not need position; the model does not look at it.
     const out = buildSamples([{ t: 0.5, v: 3 }], [], [{ t: 0, v: 0 }, { t: 1, v: 2 }])
     expect(out[0].position).toBe(0)
   })
@@ -293,7 +293,7 @@ describe("buildSamples", () => {
 describe("buildDiagnostics", () => {
   const truth = { kS: 0.22, kV: 2.4, kA: 0.31 }
 
-  it("predice exactamente lo medido cuando el ajuste es perfecto", () => {
+  it("predicts exactly what was measured when the fit is perfect", () => {
     const runs = fullTestSet("simple", truth)
     const fit = fitFeedforward("simple", runs)!
     const diag = buildDiagnostics("simple", fit.gains, runs)
@@ -307,17 +307,17 @@ describe("buildDiagnostics", () => {
     }
   })
 
-  it("conserva el tipo de cada corrida para poder colorearlas", () => {
+  it("keeps each run's type so they can be colored", () => {
     const runs = fullTestSet("simple", truth)
     const diag = buildDiagnostics("simple", fitFeedforward("simple", runs)!.gains, runs)
     expect(diag.map(d => d.type).sort()).toEqual([...ALL_TESTS].sort())
-    // Cada tipo tiene su color, si no dos corridas se verían iguales.
+    // Each type has its color, otherwise two runs would look the same.
     expect(new Set(Object.values(TEST_COLORS)).size).toBe(4)
   })
 
-  it("descarta las mismas muestras que el ajuste", () => {
-    // Si el gráfico mostrara puntos que el ajuste no usó, el usuario vería
-    // desviaciones que no influyeron en los gains.
+  it("drops the same samples as the fit", () => {
+    // If the plot showed points the fit did not use, the user would see
+    // deviations that did not influence the gains.
     const still: SysIdTestRun = {
       type: "dynamic-forward",
       samples: Array.from({ length: 30 }, (_, i) => ({
@@ -328,17 +328,17 @@ describe("buildDiagnostics", () => {
     expect(diag).toHaveLength(0)
   })
 
-  it("muestra residuos grandes cuando los gains no corresponden", () => {
+  it("shows large residuals when the gains do not match", () => {
     const runs = fullTestSet("simple", truth)
-    // Gains inventados: el residuo tiene que dejar de ser cero.
+    // Made-up gains: the residual has to stop being zero.
     const diag = buildDiagnostics("simple", { kS: 5, kV: 0.1, kA: 9 }, runs)
     const worst = Math.max(...diag.flatMap(r => r.points.map(p => Math.abs(p.residual))))
     expect(worst).toBeGreaterThan(1)
   })
 
-  it("delata el modelo equivocado con residuos estructurados", () => {
-    // Datos de brazo (gravedad ~ cos θ) ajustados como elevador: el residuo
-    // deja de ser ruido y toma forma. Eso es justo lo que el gráfico muestra.
+  it("gives away the wrong model with structured residuals", () => {
+    // Arm data (gravity ~ cos θ) fit as an elevator: the residual stops being
+    // noise and takes shape. That is exactly what the plot shows.
     const armRuns = fullTestSet("arm", { kS: 0.19, kV: 1.7, kA: 0.26, kG: 1.05 })
     const asElevator = fitFeedforward("elevator", armRuns)!
     const diag = buildDiagnostics("elevator", asElevator.gains, armRuns)
@@ -348,27 +348,27 @@ describe("buildDiagnostics", () => {
 })
 
 describe("predictVoltage", () => {
-  it("reproduce el modelo de motor simple", () => {
+  it("reproduces the simple motor model", () => {
     // V = 0.2·sgn(v) + 2·v + 0.3·a  con v=1.5, a=4
     const v = predictVoltage("simple", { kS: 0.2, kV: 2, kA: 0.3 },
       { t: 0, voltage: 0, position: 0, velocity: 1.5 }, 4)
     expect(v).toBeCloseTo(0.2 + 3 + 1.2, 9)
   })
 
-  it("suma kG constante en el elevador", () => {
+  it("adds a constant kG on the elevator", () => {
     const v = predictVoltage("elevator", { kS: 0, kV: 0, kA: 0, kG: 0.9 },
       { t: 0, voltage: 0, position: 0, velocity: 1 }, 0)
     expect(v).toBeCloseTo(0.9, 9)
   })
 
-  it("escala kG por cos(θ) en el brazo", () => {
+  it("scales kG by cos(θ) on the arm", () => {
     // θ = π/3 -> cos θ = 0.5
     const v = predictVoltage("arm", { kS: 0, kV: 0, kA: 0, kG: 2 },
       { t: 0, voltage: 0, position: Math.PI / 3, velocity: 1 }, 0)
     expect(v).toBeCloseTo(1, 9)
   })
 
-  it("invierte el signo de kS con la velocidad", () => {
+  it("flips kS's sign with the velocity", () => {
     const gains = { kS: 0.5, kV: 0, kA: 0 }
     const fwd = predictVoltage("simple", gains, { t: 0, voltage: 0, position: 0, velocity: 1 }, 0)
     const back = predictVoltage("simple", gains, { t: 0, voltage: 0, position: 0, velocity: -1 }, 0)

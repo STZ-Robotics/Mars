@@ -1,13 +1,12 @@
-// Historial de poses por objeto, en el marco EN QUE PUBLICA EL ROBOT.
+// Pose history per object, in the frame THE ROBOT PUBLISHES IN.
 //
-// De acá salen las estelas y los mapas de calor. Se guarda el dato crudo y no
-// el ya convertido al marco interno a propósito: cambiar la cancha, el sistema
-// de coordenadas o la vista de alianza remapea todo el historial en el
-// siguiente dibujo, en vez de dejar una estela que quedó pegada al encuadre
-// viejo.
+// The trails and heat maps come from here. The raw value is stored and not the
+// one already converted to the internal frame on purpose: changing the field,
+// the coordinate system or the alliance view remaps the whole history on the
+// next draw, instead of leaving a trail stuck to the old framing.
 //
-// No hay logs de por medio: esto se llena con lo que va llegando por NT
-// mientras la pestaña está abierta, y se puede vaciar a mano.
+// There are no logs involved: this is filled with what arrives over NT while
+// the tab is open, and it can be cleared by hand.
 
 import { FieldPose } from "./poseExtraction"
 
@@ -15,22 +14,22 @@ export interface PoseSample {
   x: number
   y: number
   theta: number
-  /** Milisegundos de reloj de pared (Date.now()). */
+  /** Wall-clock milliseconds (Date.now()). */
   t: number
 }
 
-/** Techo duro de muestras por objeto: ~25 min a 20 Hz. */
+/** Hard cap on samples per object: ~25 min at 20 Hz. */
 const MAX_SAMPLES = 30000
-/** Cuántas se tiran de golpe al llegar al techo (un shift por muestra sería O(n²)). */
+/** How many are dropped at once when reaching the cap (a shift per sample would be O(n²)). */
 const DROP_CHUNK = 5000
-/** Período mínimo entre muestras. Por encima de esto el poll solo repite dato. */
+/** Minimum period between samples. Faster than this the poll only repeats data. */
 const MIN_PERIOD_MS = 45
-/** Un objeto con más poses que esto es un camino, no algo que deje estela. */
+/** An object with more poses than this is a path, not something that leaves a trail. */
 const MAX_TRACKED_POSES = 4
 
 export class PoseHistory {
   private samples: PoseSample[] = []
-  /** Sube con cada muestra aceptada; sirve para invalidar caches derivadas. */
+  /** Goes up with every accepted sample; used to invalidate derived caches. */
   version = 0
 
   push(poses: FieldPose[], t: number): void {
@@ -42,9 +41,9 @@ export class PoseHistory {
     let added = false
     for (const pose of poses) {
       if (!isFinite(pose.x) || !isFinite(pose.y)) continue
-      // El poll corre a 30 Hz y el robot puede publicar más lento: sin esto,
-      // un valor repetido pesaría en el mapa de calor como si el robot
-      // hubiera estado ahí de verdad todo ese rato.
+      // The poll runs at 30 Hz and the robot may publish slower: without this, a
+      // repeated value would weigh on the heat map as if the robot had really
+      // been there all that time.
       if (last && last.x === pose.x && last.y === pose.y && last.theta === pose.theta) continue
       this.samples.push({ x: pose.x, y: pose.y, theta: pose.theta, t })
       added = true
@@ -55,12 +54,12 @@ export class PoseHistory {
     this.version++
   }
 
-  /** Las muestras de los últimos `seconds`, en orden cronológico. */
+  /** The samples of the last `seconds`, in chronological order. */
   since(seconds: number, now: number): PoseSample[] {
     if (seconds <= 0) return []
     const cutoff = now - seconds * 1000
-    // Búsqueda binaria: con 30 000 muestras y 30 fps, recorrer de atrás para
-    // adelante en cada frame se nota.
+    // Binary search: with 30 000 samples and 30 fps, walking back to front on
+    // every frame is noticeable.
     let lo = 0
     let hi = this.samples.length
     while (lo < hi) {
@@ -75,7 +74,7 @@ export class PoseHistory {
     return this.samples
   }
 
-  /** Se queda con una copia de otro historial (duplicar no debe empezar de cero). */
+  /** Keeps a copy of another history (duplicating must not start from zero). */
   adopt(samples: readonly PoseSample[]): void {
     this.samples = samples.slice()
     this.version++
@@ -85,7 +84,7 @@ export class PoseHistory {
     return this.samples.length
   }
 
-  /** Segundos cubiertos por lo acumulado. */
+  /** Seconds covered by what was accumulated. */
   get spanSeconds(): number {
     if (this.samples.length < 2) return 0
     return (this.samples[this.samples.length - 1].t - this.samples[0].t) / 1000
@@ -97,7 +96,7 @@ export class PoseHistory {
   }
 }
 
-/** Un historial por objeto, con limpieza de los que ya no están en la lista. */
+/** One history per object, cleaning up the ones no longer in the list. */
 export class HistoryStore {
   private byId = new Map<string, PoseHistory>()
 
@@ -110,7 +109,7 @@ export class HistoryStore {
     return hit
   }
 
-  /** Descarta el historial de los objetos que se quitaron del panel. */
+  /** Discards the history of the objects removed from the panel. */
   prune(aliveIds: Iterable<string>): void {
     const alive = new Set(aliveIds)
     for (const id of Array.from(this.byId.keys())) {
@@ -124,11 +123,11 @@ export class HistoryStore {
   }
 
   /**
-   * Copia lo acumulado de un objeto al nuevo que lo duplica.
+   * Copies what an object accumulated to the new one that duplicates it.
    *
-   * Sin esto, duplicar el robot para verlo como mapa de calor arrancaría el
-   * mapa vacío aunque el original llevara media práctica juntando muestras,
-   * que es justo lo que uno quiere mirar.
+   * Without this, duplicating the robot to see it as a heat map would start
+   * the map empty even if the original had been collecting samples for half a
+   * practice, which is exactly what you want to look at.
    */
   copy(fromId: string, toId: string): void {
     const source = this.byId.get(fromId)

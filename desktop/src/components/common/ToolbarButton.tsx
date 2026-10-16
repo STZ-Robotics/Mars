@@ -2,13 +2,13 @@ import { useState } from "react"
 
 interface Props {
   icon: string
-  label?: string // visible en size "lg"; siempre usado como title/tooltip
+  label?: string // visible at size "lg"; always used as the title/tooltip
   variant?: "default" | "green" | "red"
-  size?: "lg" | "sm" // lg = icono+label vertical (ToolBar), sm = icono solo, cuadrado compacto (controles de Timeline)
+  size?: "lg" | "sm" // lg = icon+label stacked (ToolBar), sm = icon only, compact square (Timeline controls)
   active?: boolean
   disabled?: boolean
   onClick?: () => void
-  iconColor?: string // acento por categoría de función (wayfinding), solo para variant="default"
+  iconColor?: string // accent per function category (wayfinding), only for variant="default"
 }
 
 const VARIANT_TOKENS = {
@@ -17,9 +17,9 @@ const VARIANT_TOKENS = {
   red: { bg: "var(--variant-red-bg)", bgHover: "var(--variant-red-bg-hover)", bgActive: "var(--variant-red-bg-active)", border: "var(--variant-red-border)", borderHover: "var(--variant-red-border-hover)", text: "var(--status-error)", icon: "var(--status-error)" },
 }
 
-// Botón de toolbar/controles, con las mismas variantes de color que hoy
-// están duplicadas (con literales hex distintos) en ToolBar.tsx y en los
-// botones live/pause de TimelineGlobal.
+// Toolbar/control button, with the same color variants that are currently
+// duplicated (with different hex literals) in ToolBar.tsx and in
+// TimelineGlobal's live/pause buttons.
 export default function ToolbarButton({ icon, label, variant = "default", size = "lg", active = false, disabled = false, onClick, iconColor }: Props) {
   const [hovered, setHovered] = useState(false)
   const t = VARIANT_TOKENS[variant]
@@ -55,8 +55,8 @@ export default function ToolbarButton({ icon, label, variant = "default", size =
     )
   }
 
-  // "lg" = fila compacta ícono+label horizontal, estilo barra de herramientas
-  // de RViz/Qt (no el ribbon grande de ícono-arriba-label-abajo que tenía antes).
+  // "lg" = compact horizontal icon+label row, RViz/Qt toolbar style (not the big
+  // icon-above-label-below ribbon it used to have).
   return (
     <button
       onClick={onClick}

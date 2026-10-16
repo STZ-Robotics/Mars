@@ -3,7 +3,7 @@ interface Props {
   label?: string
 }
 
-// Cabecera "ARRAY[n]" / "ARRAY[n] · Pose2d" repetida en StructArrayWidget y
+// The "ARRAY[n]" / "ARRAY[n] · Pose2d" header repeated in StructArrayWidget and
 // NumberArrayWidget.
 export default function ArrayHeader({ count, label }: Props) {
   return (

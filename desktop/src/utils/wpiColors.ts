@@ -1,8 +1,8 @@
-// Lista de TODAS las constantes públicas de edu.wpi.first.wpilibj.util.Color
-// `name` = nombre exacto del campo estático en WPILib (Color.kXxx), usado tal cual en el código generado.
-// `hex`  = valor aproximado para el swatch visual del wizard (no se usa en el Java generado).
+// List of ALL the public constants of edu.wpi.first.wpilibj.util.Color
+// `name` = the exact name of the static field in WPILib (Color.kXxx), used as is in the generated code.
+// `hex`  = an approximate value for the wizard's visual swatch (not used in the generated Java).
 export interface WpiColorEntry {
-  name: string // sin el prefijo "k", ej. "DarkGreen" -> Color.kDarkGreen
+  name: string // without the "k" prefix, e.g. "DarkGreen" -> Color.kDarkGreen
   hex: string
 }
 

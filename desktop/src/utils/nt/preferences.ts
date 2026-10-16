@@ -1,17 +1,17 @@
-// Tabla /Preferences de WPILib.
+// WPILib's /Preferences table.
 //
-// Es la única tabla de NetworkTables que SÍ sobrevive un reinicio: cuando el
-// robot llama `Preferences.initDouble(...)`, WPILib le marca al topic la
-// propiedad `persistent` y el servidor lo guarda en `networktables.json` del
-// roboRIO. Por eso es donde viven las constantes que se calibran una vez y no
-// se quieren perder — offsets de encoder, ganancias, límites.
+// It is the only NetworkTables table that DOES survive a restart: when the
+// robot calls `Preferences.initDouble(...)`, WPILib marks the topic with the
+// `persistent` property and the server saves it in the roboRIO's
+// `networktables.json`. That is why it is where the constants that are
+// calibrated once and should not be lost live — encoder offsets, gains, limits.
 //
-// Un detalle que cambia cómo se usa esta página: las preferencias las DECLARA
-// el robot, no el dashboard. Desde acá se pueden cambiar valores (y eso sí
-// persiste, porque el topic ya viene marcado) y crear entradas nuevas, pero una
-// entrada creada desde el dashboard no queda marcada como persistente hasta que
-// el código del robot la declare. Lo mismo con borrar: sacar una preferencia de
-// verdad es `Preferences.remove(...)` del lado del robot.
+// A detail that changes how this page is used: preferences are DECLARED by the
+// robot, not the dashboard. From here values can be changed (and that does
+// persist, because the topic already comes marked) and new entries created, but
+// an entry created from the dashboard is not marked as persistent until the
+// robot code declares it. Same with deleting: really removing a preference is
+// `Preferences.remove(...)` on the robot side.
 
 import { TopicAnnounce } from "../../store/appStore"
 import { classifyTopic } from "../dashboard/topicClassification"
@@ -19,26 +19,26 @@ import { classifyTopic } from "../dashboard/topicClassification"
 export const PREFERENCES_TABLE = "Preferences"
 const PREFIX = `/${PREFERENCES_TABLE}/`
 
-/** Los tipos que `Preferences` sabe guardar. */
+/** The types `Preferences` knows how to store. */
 export type PreferenceKind = "double" | "int" | "boolean" | "string" | "float"
 
 export const PREFERENCE_KINDS: PreferenceKind[] = ["double", "int", "boolean", "string", "float"]
 
 export interface PreferenceRow {
   topicName: string
-  /** La clave tal como la usa el código del robot, sin el prefijo. */
+  /** The key as the robot code uses it, without the prefix. */
   key: string
   kind: PreferenceKind
   topicType: string
 }
 
-/** La clave de una preferencia, o null si el topic no es una. */
+/** A preference's key, or null if the topic is not one. */
 export function preferenceKeyOf(topicName: string): string | null {
   if (!topicName.startsWith(PREFIX)) return null
   const key = topicName.slice(PREFIX.length)
 
-  // WPILib publica `/Preferences/.type = "RobotPreferences"` para marcar la
-  // tabla. No es una preferencia y no debe aparecer en la lista.
+  // WPILib publishes `/Preferences/.type = "RobotPreferences"` to mark the
+  // table. It is not a preference and must not appear in the list.
   if (key.length === 0 || key.startsWith(".")) return null
   return key
 }
@@ -51,9 +51,9 @@ export function preferenceKind(topicType: string): PreferenceKind | null {
     case "boolean": return "boolean"
     case "string": return "string"
     default: {
-      // Un tipo raro (un array, un struct) no lo produce Preferences, pero si
-      // alguien escribió ahí a mano igual conviene mostrarlo antes que
-      // esconderlo.
+      // An odd type (an array, a struct) is not produced by Preferences, but if
+      // someone wrote there by hand it is still better to show it than to hide
+      // it.
       const c = classifyTopic(topicType)
       if (c.isNumber) return "double"
       if (c.isBoolean) return "boolean"
@@ -63,7 +63,7 @@ export function preferenceKind(topicType: string): PreferenceKind | null {
   }
 }
 
-/** Todo lo que hay bajo /Preferences ahora mismo, ordenado por clave. */
+/** Everything under /Preferences right now, sorted by key. */
 export function collectPreferences(topics: Map<string, TopicAnnounce>): PreferenceRow[] {
   const rows: PreferenceRow[] = []
 
@@ -93,8 +93,8 @@ export function defaultValueFor(kind: PreferenceKind): PreferenceValue {
 }
 
 /**
- * Convierte lo que se escribió en la caja al valor del tipo, o null si no es
- * válido todavía (a medio escribir, vacío, letras en un número).
+ * Converts what was typed in the box into the type's value, or null if it is
+ * not valid yet (half typed, empty, letters in a number).
  */
 export function parsePreferenceValue(kind: PreferenceKind, text: string): PreferenceValue | null {
   if (kind === "string") return text
@@ -111,7 +111,7 @@ export function parsePreferenceValue(kind: PreferenceKind, text: string): Prefer
   return kind === "int" ? Math.round(value) : value
 }
 
-/** Cómo se muestra un valor en la caja de edición. */
+/** How a value is shown in the edit box. */
 export function formatPreferenceValue(value: PreferenceValue | null | undefined): string {
   if (value === null || value === undefined) return ""
   if (typeof value === "boolean") return value ? "true" : "false"
@@ -145,7 +145,7 @@ function javaLiteral(kind: PreferenceKind, value: PreferenceValue): string {
   const num = typeof value === "number" ? value : 0
   if (kind === "int") return String(Math.round(num))
 
-  // Java infiere int de un literal sin punto, y un float necesita su sufijo.
+  // Java infers int from a literal without a dot, and a float needs its suffix.
   const trimmed = Number(num.toFixed(6)).toString()
   const withPoint = /[.eE]/.test(trimmed) ? trimmed : `${trimmed}.0`
   return kind === "float" ? `${withPoint}f` : withPoint
@@ -156,21 +156,21 @@ function javaKey(key: string): string {
 }
 
 /**
- * La línea que DECLARA la preferencia. Es la que hace que la entrada exista y
- * quede marcada como persistente; sin ella, una clave creada desde el
- * dashboard desaparece cuando el servidor se reinicia.
+ * The line that DECLARES the preference. It is the one that makes the entry
+ * exist and be marked as persistent; without it, a key created from the
+ * dashboard disappears when the server restarts.
  */
 export function javaInit(key: string, kind: PreferenceKind, value: PreferenceValue): string {
   return `Preferences.init${JAVA_SUFFIX[kind]}(${javaKey(key)}, ${javaLiteral(kind, value)});`
 }
 
-/** La línea que la LEE, con el valor actual como respaldo. */
+/** The line that READS it, with the current value as the fallback. */
 export function javaGet(key: string, kind: PreferenceKind, value: PreferenceValue, variable?: string): string {
   const name = variable && variable.length > 0 ? variable : javaVariableName(key)
   return `${JAVA_TYPE[kind]} ${name} = Preferences.get${JAVA_SUFFIX[kind]}(${javaKey(key)}, ${javaLiteral(kind, value)});`
 }
 
-/** Lo único que borra de verdad una preferencia: corre del lado del robot. */
+/** The only thing that really deletes a preference: it runs on the robot side. */
 export function javaRemove(key: string): string {
   return `Preferences.remove(${javaKey(key)});`
 }
@@ -191,14 +191,14 @@ export interface PreferenceSnapshot {
   value: PreferenceValue
 }
 
-/** Todas las declaraciones juntas, con el import arriba. */
+/** All the declarations together, with the import on top. */
 export function javaInitBlock(rows: PreferenceSnapshot[]): string {
   if (rows.length === 0) return ""
   const body = rows.map(row => javaInit(row.key, row.kind, row.value)).join("\n")
   return `import edu.wpi.first.wpilibj.Preferences;\n\n${body}`
 }
 
-/** Todas las lecturas juntas, con el import arriba. */
+/** All the reads together, with the import on top. */
 export function javaGetBlock(rows: PreferenceSnapshot[]): string {
   if (rows.length === 0) return ""
   const body = rows.map(row => javaGet(row.key, row.kind, row.value)).join("\n")

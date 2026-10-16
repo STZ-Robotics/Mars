@@ -28,7 +28,7 @@ interface MenuEntry {
   action: () => void
   separator?: boolean
   disabled?: boolean
-  dot?: "sim" | "real" | null // punto de estado a la izquierda (opcional)
+  dot?: "sim" | "real" | null // status dot on the left (optional)
 }
 
 interface MenuItem {
@@ -38,9 +38,9 @@ interface MenuItem {
 
 const BAR_HEIGHT = 30
 
-// Barra de menú oscura: además de los menús lleva el logo y el punto de
-// conexión, porque absorbió la franja de título que había arriba (una fila
-// entera de 32px gastada en una sola línea de texto fija).
+// The dark menu bar: besides the menus it carries the logo and the connection
+// dot, because it absorbed the title strip that used to be on top (a whole 32px
+// row spent on a single fixed line of text).
 export default function MenuBar({
   navigate, onOpenProject, connection, onConnectSim, onConnectReal, onDisconnect, onCreateTab,
   logSource, onOpenLog, onExportLog, onCloseLog, onSaveLayoutAs, onOpenLayout, onResetLayout,
@@ -74,9 +74,9 @@ export default function MenuBar({
         ] : []),
         { label: "Open log…", action: () => { onOpenLog(); close() } },
         { label: "Export log…", action: () => { onExportLog(); close() } },
-        // Antes esta entrada solo existía si había un log abierto, así que
-        // aparecía y desaparecía y corría todo lo de abajo. Ahora está siempre
-        // y se deshabilita, que es como se comporta un menú de verdad.
+        // This entry used to exist only when a log was open, so it appeared and
+        // disappeared and shifted everything below. Now it is always there and
+        // gets disabled, which is how a real menu behaves.
         {
           label: logSource ? `Close log (${logSource.name})` : "Close log",
           action: () => { onCloseLog(); close() },
@@ -91,7 +91,7 @@ export default function MenuBar({
       ],
     },
     {
-      // "Simulation" mentía: desde acá también se conecta al robot real.
+      // "Simulation" was lying: the real robot is also connected from here.
       label: "Connection",
       items: [
         {
@@ -105,8 +105,8 @@ export default function MenuBar({
           dot: "real",
         },
         { label: "separator", action: () => {}, separator: true },
-        // Misma acción que arriba, pero como entrada propia no obliga a
-        // acordarse de con cuál de las dos te habías conectado.
+        // The same action as above, but as an entry of its own it does not force
+        // you to remember which of the two you had connected with.
         { label: "Disconnect", action: () => { onDisconnect(); close() }, disabled: !isConnected },
         { label: "separator", action: () => {}, separator: true },
         { label: "Connection settings…", action: () => { navigate("settings"); close() } },
@@ -141,8 +141,8 @@ export default function MenuBar({
         // here that somebody could forget to update.
         ...marsMenuItems([...PROJECT_ITEMS, ...MODULE_ITEMS]),
         ...marsMenuItems(CONFIG_ITEMS),
-        // Estas páginas existían pero no estaban en ningún menú: solo se
-        // llegaba a ellas desde el sidebar.
+        // These pages existed but were in no menu: they could only be reached
+        // from the sidebar.
         { label: "Loop timing", action: () => { navigate("jitter"); close() } },
         { label: "Network bandwidth", action: () => { navigate("bandwidth"); close() } },
         { label: "System identification", action: () => { navigate("sysid"); close() } },
@@ -175,8 +175,8 @@ export default function MenuBar({
       }}
       onMouseLeave={close}
     >
-      {/* "marslogo" es el logo CLARO: es el que corresponde sobre fondo oscuro
-          (el que se llama "black" es para fondo claro). */}
+      {/* "marslogo" is the LIGHT logo: it is the one that goes on a dark
+          background (the one called "black" is for a light background). */}
       <div style={{ display: "flex", alignItems: "center", padding: "0 11px 0 10px", flexShrink: 0 }}>
         <img src="/marslogo.png" alt="MARS" style={{ height: 17, objectFit: "contain" }} draggable={false} />
       </div>
@@ -187,8 +187,8 @@ export default function MenuBar({
         <div key={menu.label} style={{ position: "relative", height: "100%" }}>
           <div
             onClick={() => toggle(menu.label)}
-            // Con un menú ya abierto, pasar el mouse cambia de menú sin volver
-            // a hacer click — el comportamiento clásico de una barra de menús.
+            // With a menu already open, hovering switches menus without clicking
+            // again — the classic behavior of a menu bar.
             onMouseEnter={() => open ? setOpen(menu.label) : undefined}
             onMouseOver={e => {
               if (open !== menu.label) e.currentTarget.style.background = "var(--bg-menubar-dark-hover)"
@@ -211,7 +211,7 @@ export default function MenuBar({
             <div style={{
               position: "absolute", top: BAR_HEIGHT, left: 0,
               background: "var(--bg-panel)",
-              // Bisel clásico: claro arriba-izquierda, oscuro abajo-derecha.
+              // Classic bevel: light top-left, dark bottom-right.
               borderTop: "1px solid var(--bevel-light)",
               borderLeft: "1px solid var(--bevel-light)",
               borderRight: "1px solid var(--bevel-dark)",
@@ -236,9 +236,9 @@ export default function MenuBar({
         </div>
       ))}
 
-      {/* Zona de arrastre de la ventana: ocupa todo el hueco sobrante para que
-          se pueda mover la app agarrando la barra, sin robarle clicks a los
-          menús (que quedan a la izquierda). */}
+      {/* The window's drag zone: it takes all the leftover space so the app
+          can be moved by grabbing the bar, without stealing clicks from the
+          menus (which stay on the left). */}
       <div data-tauri-drag-region style={{ flex: 1, height: "100%" }} />
 
       <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "0 12px", flexShrink: 0 }}>

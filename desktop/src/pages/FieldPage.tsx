@@ -52,9 +52,9 @@ export default function FieldPage({
   const isLive = useSelectionStore(s => s.isLive)
   const tableTypes = useTableTypeStore(s => s.types)
 
-  // El historial vive en la PÁGINA y no en el canvas: el panel lateral tiene
-  // que poder contar las muestras y vaciarlas, y el canvas se vuelve a montar
-  // cada vez que cambia la cancha.
+  // The history lives in the PAGE and not in the canvas: the side panel has to
+  // be able to count and clear the samples, and the canvas remounts every time
+  // the field changes.
   const historyRef = useRef<HistoryStore | null>(null)
   if (historyRef.current === null) historyRef.current = new HistoryStore()
   const history = historyRef.current
@@ -62,16 +62,17 @@ export default function FieldPage({
   const { sprite, scale: spriteScale, status: spriteStatus, error: spriteError } = useRobotSprite(settings)
 
   const field = getField(settings.fieldKey)
-  // El JSON de la cancha dice en qué marco publica el robot; el override
-  // existe porque un equipo puede estar publicando en otro y la pose sale
-  // espejada. Es más rápido cambiarlo acá que editar el JSON.
+  // The field's JSON says which frame the robot publishes in; the override
+  // exists because a team may be publishing in another one and the pose comes
+  // out mirrored. It is quicker to change it here than to edit the JSON.
   const coordinateSystem: CoordinateSystem =
     settings.coordinateSystem ?? field?.coordinateSystem ?? "wall_blue"
 
-  // Un solo poll para todos los topics dibujados; useNTSnapshot ya resuelve si
-  // pedir el valor en vivo o el del instante scrubbeado en la timeline.
-  // El Set no es cosmético: el mismo topic puede estar en varios objetos (el
-  // chasis y su mapa de calor), y sin él se lo pediría una vez por objeto.
+  // A single poll for all the drawn topics; useNTSnapshot already decides
+  // whether to ask for the live value or the timeline's scrubbed instant's.
+  // The Set is not cosmetic: the same topic can be in several objects (the
+  // chassis and its heat map), and without it it would be requested once per
+  // object.
   const topicNames = useMemo(
     () => Array.from(new Set(objects.map(o => o.topicName))),
     [objects],
@@ -86,8 +87,8 @@ export default function FieldPage({
         type: obj.type,
         color: obj.color,
         label: obj.label,
-        // Un objeto swerve no trae poses: se dibuja anclado al robot, y lo que
-        // necesita del topic son los estados de los cuatro módulos.
+        // A swerve object carries no poses: it is drawn anchored to the robot,
+        // and what it needs from the topic is the four modules' states.
         poses: obj.type === "swerve" ? [] : extractPoses(value, obj.topicType),
         modules: obj.type === "swerve" ? extractModuleStates(value, obj.topicType) : undefined,
         options: resolveObjectOptions(obj, settings),
@@ -95,9 +96,9 @@ export default function FieldPage({
     })
   ), [objects, liveValues, settings])
 
-  // El historial se llena por fuera de React (lo escribe el canvas), así que
-  // el conteo se rehace en cada poll: `liveValues` está en las dependencias
-  // como disparador, no porque se lo use acá.
+  // The history is filled outside React (the canvas writes it), so the count
+  // is redone on every poll: `liveValues` is in the dependencies as a trigger,
+  // not because it is used here.
   const sampleCounts = useMemo(() => {
     const out: Record<string, number> = {}
     objects.forEach(obj => { out[obj.id] = history.get(obj.id).length })
@@ -122,21 +123,21 @@ export default function FieldPage({
     const topicType = e.dataTransfer.getData("topicType")
     if (!topicName) return
 
-    // Una tabla Field2d entera: se expande en un objeto por cada topic que
-    // cuelga de ella, así cada uno queda editable por separado en el panel.
+    // A whole Field2d table: it is expanded into one object per topic hanging
+    // from it, so each one stays editable separately in the panel.
     if (topicType === FIELD2D_TYPE) {
       addField2dTable(topicName)
       return
     }
 
-    // Doble candado: el árbol ya filtra por tipo, se revalida por si el drop
-    // viniera de otro origen.
+    // Double lock: the tree already filters by type, it is revalidated in case
+    // the drop came from another source.
     if (!isFieldDroppable(topicType)) return
 
-    // A propósito NO se descarta un topic que ya está en la lista: soltar la
-    // misma pose dos veces es lo que permite verla como chasis y como mapa de
-    // calor a la vez. Publicarla dos veces desde el robot solo para conseguir
-    // eso sería gastar ancho de banda de más. Misma regla que en Functions.
+    // On purpose, a topic already in the list is NOT discarded: dropping the
+    // same pose twice is what lets it be seen as a chassis and as a heat map at
+    // once. Publishing it twice from the robot only to get that would waste
+    // bandwidth. The same rule as in Functions.
     const usedColors = new Set(objects.map(o => o.color))
     const color = OBJECT_COLORS.find(c => !usedColors.has(c)) ?? OBJECT_COLORS[objects.length % OBJECT_COLORS.length]
 
@@ -166,8 +167,8 @@ export default function FieldPage({
 
       const leaf = topicName.slice(prefix.length + 1)
       const isRobot = leaf === "Robot"
-      // El "Robot" del Field2d es el robot; para el resto vale la misma
-      // heurística de nombre y forma que se usa al soltar un topic suelto.
+      // The Field2d's "Robot" is the robot; for the rest the same name-and-shape
+      // heuristic used when dropping a loose topic applies.
       const type = isRobot ? ("robot" as const) : defaultObjectTypeFor(topicName, topic.topic_type)
 
       const base = isRobot ? prefix.split("/").filter(Boolean).pop() ?? leaf : leaf
@@ -183,9 +184,9 @@ export default function FieldPage({
   }
 
   /**
-   * Segunda vista del MISMO topic. Arranca como mapa de calor cuando se
-   * duplica un chasis, que es el caso por el que uno duplica: ver dónde está
-   * el robot y por dónde anduvo, sin publicar la pose dos veces.
+   * A second view of the SAME topic. It starts as a heat map when a chassis
+   * is duplicated, which is the case people duplicate for: seeing where the
+   * robot is and where it has been, without publishing the pose twice.
    */
   const handleDuplicate = (id: string) => {
     const source = objects.find(o => o.id === id)
@@ -201,16 +202,17 @@ export default function FieldPage({
       type: source.type === "robot" || source.type === "ghost" ? "heatmap" : source.type,
       color,
     })
-    // El duplicado hereda lo acumulado: si no, el mapa de calor nuevo
-    // arrancaría vacío aunque el original llevara media práctica juntando.
+    // The duplicate inherits what was accumulated: otherwise the new heat map
+    // would start empty even though the original had been collecting for half a
+    // practice.
     history.copy(id, newId)
   }
 
   const handlePickModel = async () => {
     const path = await pickModelFile("Select the robot model")
     if (path === null) return
-    // Los bitmaps del modelo anterior ya no sirven para nada y pueden ser
-    // varios (uno por color y por giro).
+    // The previous model's bitmaps are no use anymore and there can be several
+    // (one per color and per rotation).
     if (settings.robotModelPath) forgetSprites(settings.robotModelPath)
     onUpdateSettings({
       robotModelPath: path,
@@ -227,7 +229,7 @@ export default function FieldPage({
   return (
     <div style={{ display: "flex", width: "100%", height: "100%", background: "var(--bg-page)", overflow: "hidden" }}>
 
-      {/* SIDEBAR: DATA DIRECTORY, solo topics con geometría o módulos swerve */}
+      {/* SIDEBAR: DATA DIRECTORY, only topics with geometry or swerve modules */}
       <DataDirectoryPanel
         topics={topics}
         hint="Pose structs · [x, y, θ] double arrays · SwerveModuleState[] · whole Field2d tables"

@@ -1,8 +1,8 @@
 import { create } from "zustand"
 
-// Marcas en la línea de tiempo: "acá falló el swerve", "acá arrancó el
-// autónomo". Existen para poder volver a un instante concreto después, sin
-// tener que acordarse del número de segundo.
+// Marks on the timeline: "the swerve failed here", "autonomous started here".
+// They exist to get back to a specific instant later, without having to
+// remember the second number.
 export interface TimelineMarker {
   id: string
   /** Microsegundos, misma escala que selectedTime. */
@@ -11,8 +11,8 @@ export interface TimelineMarker {
   color: string
 }
 
-// Paleta fija: los colores se reparten en orden de creación para que dos
-// marcas seguidas nunca salgan iguales.
+// A fixed palette: the colors are handed out in creation order so two marks in
+// a row never come out the same.
 export const MARKER_COLORS = ["#d63b3b", "#d4a94a", "#1f9e4a", "#2f6fdb", "#8a4fd1", "#0e9aa7"]
 
 interface MarkerState {
@@ -21,7 +21,7 @@ interface MarkerState {
   removeMarker: (id: string) => void
   renameMarker: (id: string, label: string) => void
   clearMarkers: () => void
-  /** Reemplaza todo el set (al restaurar un layout guardado). */
+  /** Replaces the whole set (when restoring a saved layout). */
   setMarkers: (markers: TimelineMarker[]) => void
 }
 
@@ -38,8 +38,8 @@ export const useMarkerStore = create<MarkerState>((set, get) => ({
       label: label.trim() || "Marker",
       color,
     }
-    // Ordenadas por tiempo: así "saltar a la siguiente marca" es solo avanzar
-    // un índice, y el dibujo no depende del orden de creación.
+    // Sorted by time: that way "jump to the next mark" is just advancing an
+    // index, and the drawing does not depend on creation order.
     set(state => ({ markers: [...state.markers, marker].sort((a, b) => a.timeUs - b.timeUs) }))
   },
 
@@ -54,7 +54,7 @@ export const useMarkerStore = create<MarkerState>((set, get) => ({
   setMarkers: (markers) => set({ markers: [...markers].sort((a, b) => a.timeUs - b.timeUs) }),
 }))
 
-/** Marca inmediatamente anterior/posterior a un instante, para saltar entre ellas. */
+/** The mark immediately before/after an instant, to jump between them. */
 export function findAdjacentMarker(
   markers: TimelineMarker[],
   timeUs: number,

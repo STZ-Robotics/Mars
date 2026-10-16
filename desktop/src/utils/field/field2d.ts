@@ -1,43 +1,43 @@
-// Lectura del Field2d de WPILib (SmartDashboard.putData("Field", field2d)).
+// Reading WPILib's Field2d (SmartDashboard.putData("Field", field2d)).
 //
-// Igual que Mechanism2d, un Field2d NO es un topic sino una TABLA:
+// Like Mechanism2d, a Field2d is NOT a topic but a TABLE:
 //
 //   /SmartDashboard/Field/.type      string   = "Field2d"
-//   /SmartDashboard/Field/Robot      double[] [x, y, GRADOS]  o struct:Pose2d
-//   /SmartDashboard/Field/<lo que sea>         idem, o struct:Pose2d[]
+//   /SmartDashboard/Field/Robot      double[] [x, y, DEGREES]  or struct:Pose2d
+//   /SmartDashboard/Field/<anything>          same, or struct:Pose2d[]
 //
-// Por eso no se podía arrastrar antes: el árbol solo permitía arrastrar hojas
-// con topic propio, y la raíz de la tabla no lo es.
+// That is why it could not be dragged before: the tree only allowed dragging
+// leaves with a topic of their own, and the table's root is not one.
 
 import { TopicAnnounce } from "../../store/appStore"
 import { FieldPose, extractPoses, isPoseTopic } from "./poseExtraction"
 
 export const FIELD2D_TYPE = "Field2d"
 
-/** El objeto que WPILib crea por defecto para el robot. */
+/** The object WPILib creates by default for the robot. */
 const ROBOT_KEY = "Robot"
 
-// Umbrales de Elastic para decidir si un objeto es una trayectoria o un puñado
-// de objetos sueltos: nadie dibuja 9 robots, pero una trayectoria sí tiene
-// cientos de puntos.
+// Elastic's thresholds for deciding whether an object is a trajectory or a
+// handful of loose objects: nobody draws 9 robots, but a trajectory does have
+// hundreds of points.
 const TRAJECTORY_MIN_POSES = 8
 
 export interface Field2dObject {
-  /** Nombre completo del topic, único dentro de la tabla. */
+  /** The topic's full name, unique within the table. */
   key: string
-  /** Último segmento, que es como lo nombró el código del robot. */
+  /** The last segment, which is how the robot code named it. */
   name: string
   isRobot: boolean
   isTrajectory: boolean
   poses: FieldPose[]
 }
 
-/** Los topics que hay que pedirle al backend para dibujar esta tabla. */
+/** The topics to ask the backend for to draw this table. */
 export function field2dTopicNames(topics: Map<string, TopicAnnounce>, prefix: string): string[] {
   const names: string[] = []
   topics.forEach(topic => {
     if (!topic.name.startsWith(prefix + "/")) return
-    // Los subtopics de metadata (.type, .controllable) no son objetos.
+    // The metadata subtopics (.type, .controllable) are not objects.
     const rest = topic.name.slice(prefix.length + 1)
     if (rest.startsWith(".")) return
     if (!isPoseTopic(topic.topic_type)) return
@@ -47,9 +47,9 @@ export function field2dTopicNames(topics: Map<string, TopicAnnounce>, prefix: st
 }
 
 /**
- * Un prefijo es un Field2d si su ".type" lo dice. Se necesita el VALOR del
- * topic, no solo el announce, por eso `tableTypes` viene de afuera (lo llena
- * useNTTableTypes leyendo esos strings).
+ * A prefix is a Field2d if its ".type" says so. The topic's VALUE is needed,
+ * not just the announce, which is why `tableTypes` comes from outside
+ * (useNTTableTypes fills it by reading those strings).
  */
 export function isField2dTable(tableTypes: Record<string, string>, prefix: string): boolean {
   return tableTypes[prefix] === FIELD2D_TYPE
@@ -79,8 +79,8 @@ export function extractField2dObjects(
     const shortName = name.slice(prefix.length + 1)
     const isRobot = shortName === ROBOT_KEY
 
-    // Misma heurística que Elastic: el nombre manda, y si no dice nada se mira
-    // cuántas poses trae — un objeto suelto no tiene decenas.
+    // The same heuristic as Elastic: the name wins, and if it says nothing it
+    // looks at how many poses it carries — a loose object does not have dozens.
     const isTrajectory =
       !isRobot &&
       (shortName.toLowerCase().endsWith("trajectory") || poses.length > TRAJECTORY_MIN_POSES)
@@ -88,6 +88,6 @@ export function extractField2dObjects(
     out.push({ key: name, name: shortName, isRobot, isTrajectory, poses })
   }
 
-  // El robot siempre último para que quede dibujado por encima del resto.
+  // The robot always last so it is drawn on top of the rest.
   return out.sort((a, b) => Number(a.isRobot) - Number(b.isRobot))
 }

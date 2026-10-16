@@ -3,9 +3,9 @@ import { STRUCT_DEFS, StructDef } from "../utils/dashboard/valueDecoding"
 import { compileAll } from "../utils/dashboard/structSchema"
 
 interface StructSchemaState {
-  /** Texto crudo del schema, por nombre de struct (ej. "Pose2d"). */
+  /** The schema's raw text, by struct name (e.g. "Pose2d"). */
   texts: Record<string, string>
-  /** Resultado de compilar `texts`. Solo aparecen los que se pudieron resolver. */
+  /** The result of compiling `texts`. Only the ones that could be resolved show up. */
   defs: Record<string, StructDef>
   registerSchemas: (entries: Record<string, string>) => void
   clear: () => void
@@ -25,8 +25,8 @@ export const useStructSchemaStore = create<StructSchemaState>((set, get) => ({
     }
     if (!changed) return
 
-    // Se recompila TODO y no solo lo nuevo: un schema recién llegado puede ser
-    // la dependencia que le faltaba a otro que quedó sin compilar antes.
+    // EVERYTHING is recompiled and not just the new one: a schema that just
+    // arrived may be the dependency another one that was left uncompiled needed.
     set({ texts: merged, defs: compileAll(merged) })
   },
 
@@ -34,18 +34,18 @@ export const useStructSchemaStore = create<StructSchemaState>((set, get) => ({
 }))
 
 /**
- * La tabla escrita a mano gana sobre el schema publicado, a propósito: para los
- * tipos de WPILib trae etiquetas ("θ" en vez de "value"), sufijos de unidad y
- * la conversión de radianes a grados, cosas que el schema no puede expresar
- * (solo dice "double value"). El schema dinámico cubre el resto — que es todo
- * struct que el equipo haya definido por su cuenta.
+ * The hand-written table wins over the published schema, on purpose: for the
+ * WPILib types it carries labels ("θ" instead of "value"), unit suffixes and
+ * the radians-to-degrees conversion, things the schema cannot express (it only
+ * says "double value"). The dynamic schema covers the rest — which is every
+ * struct the team defined on its own.
  */
 export function getStructDef(name: string | null | undefined): StructDef | undefined {
   if (!name) return undefined
   return STRUCT_DEFS[name] ?? useStructSchemaStore.getState().defs[name]
 }
 
-/** Versión para componentes: re-renderiza cuando llega un schema nuevo. */
+/** Version for components: re-renders when a new schema arrives. */
 export function useStructDef(name: string | null | undefined): StructDef | undefined {
   const defs = useStructSchemaStore(s => s.defs)
   if (!name) return undefined

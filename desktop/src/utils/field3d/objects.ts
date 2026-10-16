@@ -1,9 +1,9 @@
-// Opciones por objeto del Field 3D: defaults, saneo y heurísticas de arrastre.
+// Per-object options of the Field 3D: defaults, sanitizing and drag heuristics.
 //
-// Misma idea que `utils/field/fieldObjects.ts` para el visualizador 2D: cada
-// campo más allá de los seis obligatorios es OPCIONAL, y en vez de repartir
-// `?? default` por todo el renderer todo pasa una sola vez por
-// `resolveField3dOptions`, que devuelve la versión completa.
+// The same idea as `utils/field/fieldObjects.ts` for the 2D visualizer: every
+// field beyond the six mandatory ones is OPTIONAL, and instead of spreading
+// `?? default` all over the renderer everything goes once through
+// `resolveField3dOptions`, which returns the complete version.
 
 import {
   Field3dObjectConfig, Field3dObjectType, Field3dSettings, Field3dArrayFormat,
@@ -57,10 +57,10 @@ export const FIELD3D_OBJECT_HELP: Record<Field3dObjectType, string> = {
   axes: "X/Y/Z triad at the pose. The fastest way to find out why an orientation looks wrong.",
 }
 
-// Los SVG de public/icons se eligen por SIGNIFICADO. Varios ya existen para el
-// visualizador 2D y el Mechanism 3D; para los que todavía no hay archivo se
-// pide el nombre definitivo y SidebarIcon cae solo al hermano y después al
-// glifo tabler, así que la fila nunca queda con un cuadrito roto.
+// The SVGs in public/icons are chosen by MEANING. Several already exist for the
+// 2D visualizer and Mechanism 3D; for the ones with no file yet the final name
+// is requested and SidebarIcon falls back on its own to the sibling and then to
+// the tabler glyph, so the row never ends up with a broken square.
 export interface Field3dIcon {
   svg: string
   svgFallback?: string
@@ -78,7 +78,7 @@ export const FIELD3D_OBJECT_ICONS: Record<Field3dObjectType, Field3dIcon> = {
   axes: { svg: "axes.svg", svgFallback: "joint-pose.svg", fallback: "ti-axis-x" },
 }
 
-/** Estos se dibujan colgados de un objeto `robot`, no en su propia pose. */
+/** These are drawn hanging from a `robot` object, not at their own pose. */
 export function needsAnchor(type: Field3dObjectType): boolean {
   return type === "component" || type === "vision"
 }
@@ -90,12 +90,12 @@ export function resolveField3dOptions(
   const isGhost = obj.type === "ghost"
   return {
     hidden: obj.hidden === true,
-    // El fantasma nace translúcido: es lo que lo distingue del robot de
-    // verdad, y tener que bajarle la opacidad a mano cada vez sería absurdo.
+    // The ghost is born translucent: it is what sets it apart from the real
+    // robot, and having to lower its opacity by hand every time would be absurd.
     opacity: clamp(obj.opacity ?? (isGhost ? 0.45 : 1), 0.05, 1),
     showLabel: obj.showLabel ?? false,
-    // El interruptor general apaga las estelas de todos; con él prendido cada
-    // objeto puede fijar la suya o heredar la de la pestaña.
+    // The master switch turns off everyone's trails; with it on each object can
+    // set its own or inherit the tab's.
     trailSeconds: settings.showTrails ? (obj.trailSeconds ?? settings.trailSeconds) : 0,
     arrayFormat: obj.arrayFormat ?? "auto",
     robotAssetKey: obj.robotAssetKey ?? settings.robotAssetKey,
@@ -105,8 +105,8 @@ export function resolveField3dOptions(
     trajectoryWidth: positive(obj.trajectoryWidth, 0.05),
     showWaypoints: obj.showWaypoints ?? false,
     trajectoryHeight: positive(obj.trajectoryHeight, 0.02),
-    // -1 = desde el centro del robot, que es lo correcto mientras el asset no
-    // declare ninguna cámara.
+    // -1 = from the robot's center, which is right as long as the asset does not
+    // declare any camera.
     visionCameraIndex: Number.isInteger(obj.visionCameraIndex) ? obj.visionCameraIndex! : -1,
     gamePieceIndex: Math.max(0, Math.trunc(obj.gamePieceIndex ?? 0)),
     markerSize: positive(obj.markerSize, 0.25),
@@ -124,16 +124,16 @@ function positive(value: number | undefined, fallback: number): number {
 
 // --- Arrastre ---------------------------------------------------------------
 
-/** Todo lo que la página sabe recibir. */
+/** Everything the page knows how to receive. */
 export function isField3dDroppable(topicType: string): boolean {
   return isPose3dTopic(topicType)
 }
 
 /**
- * Qué tipo de objeto conviene crear al soltar un topic.
+ * Which object type is best to create when a topic is dropped.
  *
- * El nombre manda por encima de la forma: un `Targets` que trae tres poses no
- * es una trayectoria, y un `Components` que trae cuatro tampoco.
+ * The name wins over the shape: a `Targets` carrying three poses is not a
+ * trajectory, and neither is a `Components` carrying four.
  */
 export function defaultField3dTypeFor(topicName: string, topicType: string): Field3dObjectType {
   const leaf = topicName.split("/").filter(Boolean).pop()?.toLowerCase() ?? ""
@@ -147,11 +147,11 @@ export function defaultField3dTypeFor(topicName: string, topicType: string): Fie
 }
 
 /**
- * Nombre para un objeto nuevo, numerando las repeticiones del mismo topic.
+ * A name for a new object, numbering repeats of the same topic.
  *
- * El mismo topic se puede soltar TANTAS VECES como haga falta: verlo a la vez
- * como robot y como estela, o como pieza de juego y como marcador, no debería
- * obligar a publicarlo dos veces desde el robot. Misma regla que en el 2D.
+ * The same topic can be dropped AS MANY TIMES as needed: seeing it at once as
+ * a robot and as a trail, or as a game piece and as a marker, should not force
+ * publishing it twice from the robot. The same rule as in 2D.
  */
 export function nextField3dLabel(
   objects: { topicName: string }[],
@@ -165,10 +165,10 @@ export function nextField3dLabel(
 
 // --- Persistencia -----------------------------------------------------------
 
-// Un layout guardado por una versión anterior no trae los campos nuevos, y uno
-// editado a mano puede traer basura. El renderer usa estos números como
-// geometría: un NaN en el grosor de una trayectoria la deja invisible sin
-// ningún error a la vista, así que todo entra por acá.
+// A layout saved by an earlier version does not carry the new fields, and one
+// edited by hand can carry garbage. The renderer uses these numbers as geometry:
+// a NaN in a trajectory's thickness leaves it invisible without any error in
+// sight, so everything comes in through here.
 
 const OBJECT_TYPES = new Set<string>(FIELD3D_OBJECT_TYPES)
 const ARRAY_FORMATS = new Set<string>(["auto", "pose2d", "pose3d"])
@@ -188,8 +188,8 @@ export function normalizeField3dObjects(raw: unknown): Field3dObjectConfig[] {
       topicName: o.topicName,
       topicType: typeof o.topicType === "string" ? o.topicType : "",
       label: typeof o.label === "string" && o.label.length > 0 ? o.label : o.topicName,
-      // Un tipo desconocido (de una versión más nueva, o inventado a mano) cae
-      // al robot en vez de dejar el objeto sin dibujar.
+      // An unknown type (from a newer version, or made up by hand) falls back
+      // to the robot instead of leaving the object undrawn.
       type: OBJECT_TYPES.has(o.type) ? o.type : "robot",
       color: typeof o.color === "string" ? o.color : "#2f6fdb",
 
@@ -227,8 +227,8 @@ export function normalizeField3dSettings(raw: unknown): Field3dSettings {
     allianceFromFMS: merged.allianceFromFMS !== false,
 
     cameraMode: (CAMERA_MODES.has(merged.cameraMode) ? merged.cameraMode : "orbit") as Field3dCameraMode,
-    // Seis driver stations en FRC; el índice se acota para que un layout de
-    // FTC (cuatro) no deje la cámara mirando a la nada.
+    // Six driver stations in FRC; the index is bounded so an FTC layout (four)
+    // does not leave the camera looking at nothing.
     driverStationIndex: index(source.driverStationIndex, 1, 5),
     robotCameraIndex: index(source.robotCameraIndex, 0, 15),
     fov: number(source.fov, defaultField3dSettings.fov, 20, 110),

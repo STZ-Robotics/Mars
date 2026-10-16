@@ -4,18 +4,18 @@ import { useSelectionStore } from "../../store/selectionStore"
 import { useNTTick } from "./useNTTick"
 
 /**
- * Reemplazo directo de los polls manuales que tenías en DisplayPage.tsx y
- * TelemetryPage.tsx. Devuelve el mapa { topicName -> NTValue } correcto
- * para el instante actual (en vivo o pausado), sin que el componente tenga
- * que saber cuál de los dos casos está pasando.
+ * A drop-in replacement for the manual polls DisplayPage.tsx and
+ * TelemetryPage.tsx used to have. Returns the right { topicName -> NTValue }
+ * map for the current instant (live or paused), without the component having
+ * to know which of the two cases is happening.
  */
 export function useNTSnapshot(topicNames: string[], intervalMs: number): Record<string, any> {
   const isLive = useSelectionStore((s) => s.isLive)
   const tick = useNTTick(intervalMs)
   const [values, setValues] = useState<Record<string, any>>({})
 
-  // topicKey estable para no re-disparar el efecto si el array cambia de
-  // referencia pero no de contenido (ej. widgets.map en cada render).
+  // A stable topicKey so the effect does not re-fire if the array changes
+  // reference but not content (e.g. widgets.map on every render).
   const topicKey = topicNames.slice().sort().join("|")
 
   useEffect(() => {

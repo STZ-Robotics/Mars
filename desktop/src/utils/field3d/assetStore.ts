@@ -1,41 +1,41 @@
-// Catálogo de assets 3D instalados y las tres formas de instalar uno.
+// Catalog of installed 3D assets and the three ways to install one.
 //
-// Hay dos orígenes y la escena los trata igual:
+// There are two origins and the scene treats them the same:
 //
-//   - `bundled`: carpetas dentro de `public/fields3d/`. Viajan con la app y se
-//     sirven por URL. Dejar ahí un `config.json` + `model.glb` alcanza para
-//     que aparezcan; el glob los recoge en el build sin tocar código, igual
-//     que las canchas 2D de `public/fields/`.
+//   - `bundled`: folders inside `public/fields3d/`. They travel with the app and
+//     are served by URL. Dropping a `config.json` + `model.glb` there is enough
+//     for them to show up; the glob picks them up at build time without touching
+//     code, just like the 2D fields in `public/fields/`.
 //
-//   - `user`: carpetas del almacén en disco (%APPDATA%/MARS/assets3d), que se
-//     leen con `read_binary_file`. Es donde caen los paquetes que el usuario
-//     descarga o importa, y lo que permite tener la cancha de 20 MB sin
-//     meterla en el repo.
+//   - `user`: folders of the on-disk store (%APPDATA%/MARS/assets3d), read with
+//     `read_binary_file`. It is where the packages the user downloads or imports
+//     land, and what allows having the 20 MB field without putting it in the
+//     repo.
 //
-// Las tres formas de instalar, todas resueltas en Rust:
-//   1. Descargar del catálogo oficial de AdvantageScope.
-//   2. Elegir un .zip que el usuario ya bajó.
-//   3. Elegir una carpeta ya extraída, incluida la `userAssets` de
-//      AdvantageScope, que tiene exactamente el mismo formato.
+// The three ways to install, all resolved in Rust:
+//   1. Download from AdvantageScope's official catalog.
+//   2. Pick a .zip the user already downloaded.
+//   3. Pick an already extracted folder, including AdvantageScope's
+//      `userAssets`, which has exactly the same format.
 
 import { invoke } from "@tauri-apps/api/core"
 import { open } from "@tauri-apps/plugin-dialog"
 import { AssetConfig, FieldAssetConfig, RobotAssetConfig, parseAssetConfig } from "./assetConfig"
 
-/** Cómo se le pide al loader el contenido de un archivo del paquete. */
+/** How the loader is asked for the content of one of the package's files. */
 export type AssetSource =
   | { kind: "url"; url: string }
   | { kind: "path"; path: string }
 
 export interface AssetPack {
-  /** Clave estable con la que el layout referencia al asset. */
+  /** The stable key the layout references the asset with. */
   key: string
   origin: "bundled" | "user"
   config: AssetConfig
-  /** Nombres de los .glb, ya ordenados: model.glb, model_0.glb, model_1.glb... */
+  /** The .glb names, already sorted: model.glb, model_0.glb, model_1.glb... */
   models: string[]
   bytes: number
-  /** Dónde vive; solo para mostrarlo en el panel. */
+  /** Where it lives; only for showing it in the panel. */
   location: string
 }
 
@@ -50,7 +50,7 @@ export function isRobotPack(pack: AssetPack): pack is RobotPack {
   return pack.config.kind === "robot"
 }
 
-/** Cómo pedirle al loader el modelo `index` de un paquete (0 = model.glb). */
+/** How to ask the loader for a package's `index` model (0 = model.glb). */
 export function modelSource(pack: AssetPack, index: number): AssetSource | null {
   const file = pack.models[index]
   if (file === undefined) return null
@@ -59,15 +59,15 @@ export function modelSource(pack: AssetPack, index: number): AssetSource | null 
     : { kind: "path", path: `${pack.location}/${file}` }
 }
 
-/** Clave estable de una fuente, para cachear el modelo ya parseado. */
+/** A source's stable key, for caching the already parsed model. */
 export function sourceKey(source: AssetSource): string {
   return source.kind === "url" ? source.url : source.path
 }
 
-// --- Paquetes que viajan con la app ------------------------------------------
+// --- Packages that travel with the app ------------------------------------------
 
-// Igual que las canchas 2D: dejar `public/fields3d/<Carpeta>/config.json` (con
-// su `model.glb` al lado) alcanza para que la cancha aparezca en el selector.
+// Same as the 2D fields: dropping `public/fields3d/<Folder>/config.json` (with
+// its `model.glb` next to it) is enough for the field to show up in the selector.
 const BUNDLED_CONFIGS = import.meta.glob("../../../public/fields3d/*/config.json", {
   eager: true,
   query: "?raw",
@@ -80,9 +80,9 @@ function bundledPacks(): AssetPack[] {
       const key = path.split("/").slice(-2)[0]
       const config = parseAssetConfig(text)
       if (config === null) return null
-      // Un paquete bundled no se puede inspeccionar en disco desde el front,
-      // así que se asume el nombre canónico: model.glb más los model_N.glb que
-      // pidan las piezas de juego declaradas en el config.
+      // A bundled package cannot be inspected on disk from the front end,
+      // so the canonical name is assumed: model.glb plus the model_N.glb files
+      // the game pieces declared in the config ask for.
       const extra = config.kind === "field" ? config.gamePieces.length : 0
       return {
         key,
@@ -96,7 +96,7 @@ function bundledPacks(): AssetPack[] {
     .filter((p): p is AssetPack => p !== null)
 }
 
-// --- Paquetes instalados en disco --------------------------------------------
+// --- Packages installed on disk --------------------------------------------
 
 interface RawPack {
   folder: string
@@ -125,11 +125,11 @@ async function userPacks(): Promise<AssetPack[]> {
 }
 
 /**
- * Todos los paquetes disponibles, los de la app primero.
+ * Every available package, the app's first.
  *
- * Si dos comparten clave gana el instalado por el usuario: es el que acaba de
- * poner a propósito, y sobreescribir una cancha que vino con la app por una
- * versión corregida es exactamente el caso de uso.
+ * If two share a key the one the user installed wins: it is the one they just
+ * put there on purpose, and overriding a field that came with the app with a
+ * corrected version is exactly the use case.
  */
 export async function listAssetPacks(): Promise<AssetPack[]> {
   const user = await userPacks()
@@ -146,15 +146,14 @@ export function deleteAssetPack(key: string): Promise<void> {
   return invoke("delete_asset3d_pack", { folder: key })
 }
 
-// --- Instalación --------------------------------------------------------------
+// --- Installation --------------------------------------------------------------
 
-// Descargar y descomprimir viven en RUST (`src-tauri/src/assets3d.rs`), no acá.
-// No es una preferencia de estilo: GitHub no manda cabeceras CORS en las
-// descargas de sus releases, así que un `fetch` desde el webview falla siempre
-// con "Failed to fetch" por más que la CSP esté abierta. De paso, los ~20 MB
-// del paquete no cruzan el IPC.
+// Downloading and unzipping live in RUST (`src-tauri/src/assets3d.rs`), not here.
+// It is not a style preference: GitHub sends no CORS headers on its release
+// downloads, so a `fetch` from the webview always fails with "Failed to fetch"
+// however open the CSP is. As a bonus, the package's ~20 MB do not cross the IPC.
 
-/** Abre el dialog para elegir un .zip ya descargado y lo instala. */
+/** Opens the dialog to pick an already downloaded .zip and installs it. */
 export async function installAssetZipFromDisk(): Promise<string | null> {
   const picked = await open({
     multiple: false,
@@ -165,7 +164,7 @@ export async function installAssetZipFromDisk(): Promise<string | null> {
   return invoke<string>("install_asset3d_zip", { path: picked })
 }
 
-/** Copia una carpeta ya extraída al almacén. */
+/** Copies an already extracted folder into the store. */
 export async function importAssetFolder(): Promise<string | null> {
   const picked = await open({
     directory: true,
@@ -176,15 +175,15 @@ export async function importAssetFolder(): Promise<string | null> {
   return invoke<string>("import_asset3d_folder", { source: picked })
 }
 
-// --- Catálogo oficial ---------------------------------------------------------
+// --- Official catalog ---------------------------------------------------------
 
 export interface CatalogEntry {
-  /** Nombre del .zip en la release, sin extensión; es también la carpeta. */
+  /** The .zip's name in the release, without extension; it is also the folder. */
   key: string
   label: string
   kind: "field" | "robot"
   url: string
-  /** Tamaño aproximado, para avisar antes de bajar 20 MB. */
+  /** Approximate size, to warn before downloading 20 MB. */
   approxBytes: number
 }
 
@@ -192,13 +191,13 @@ const ASSETS_RELEASE =
   "https://github.com/Mechanical-Advantage/AdvantageScopeAssets/releases/download/default-assets-v2"
 
 /**
- * Los paquetes oficiales de AdvantageScope, que son los mismos modelos que usa
- * esa app: es la única fuente pública de la cancha en glTF ya convertida y
- * medida. Se descargan bajo demanda y no se meten en el repo porque una sola
- * cancha pesa más que todo el resto del proyecto junto.
+ * AdvantageScope's official packages, which are the same models that app uses:
+ * it is the only public source of the field in glTF already converted and
+ * measured. They are downloaded on demand and not put in the repo because a
+ * single field weighs more than the whole rest of the project together.
  *
- * Los assets son de Littleton Robotics (FRC 6328) y su licencia permite la
- * redistribución conservando el aviso de copyright — ver ASSET_LICENSE_NOTE.
+ * The assets are by Littleton Robotics (FRC 6328) and their license allows
+ * redistribution keeping the copyright notice — see ASSET_LICENSE_NOTE.
  */
 export const ASSET_CATALOG: CatalogEntry[] = [
   { key: "Field3d_2026FRCFieldV2", label: "2026 Field (Rebuilt)", kind: "field", url: `${ASSETS_RELEASE}/Field3d_2026FRCFieldV2.zip`, approxBytes: 4_872_257 },
@@ -216,7 +215,7 @@ export const ASSET_LICENSE_NOTE =
   "3D field and robot models © 2021-2026 Littleton Robotics (FRC 6328). " +
   "Redistributed under the AdvantageScopeAssets BSD-3-Clause licence."
 
-/** Descarga un paquete del catálogo y lo instala. */
+/** Downloads a package from the catalog and installs it. */
 export function downloadAsset(entry: CatalogEntry): Promise<string> {
   return invoke<string>("download_asset3d", { url: entry.url, fallbackName: entry.key })
 }

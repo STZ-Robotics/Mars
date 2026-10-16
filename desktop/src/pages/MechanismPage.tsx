@@ -32,12 +32,12 @@ export default function MechanismPage({
   const [isDragOver, setIsDragOver] = useState(false)
   const isLive = useSelectionStore(s => s.isLive)
 
-  // Los prefijos que HOY son una tabla Mechanism2d; se recalcula cuando llegan
-  // announces nuevos, así que una tabla que aparece tarde igual se ofrece.
+  // The prefixes that are a Mechanism2d table TODAY; recomputed when new
+  // announces arrive, so a table that shows up late is still offered.
   const mechanismTables = useMemo(() => new Set(findMechanismTables(topics)), [topics])
 
-  // Un Mechanism2d se dibuja con decenas de topics sueltos: hay que pedirlos
-  // todos, no solo el "prefix" que el usuario arrastró.
+  // A Mechanism2d is drawn from dozens of loose topics: they all have to be
+  // requested, not only the "prefix" the user dragged.
   const topicNames = useMemo(
     () => sources.flatMap(s => mechanismTopicNames(topics, s.prefix)),
     [sources, topics],
@@ -50,8 +50,8 @@ export default function MechanismPage({
       const raw = buildMechanismState(values, names, source.prefix)
       if (raw === null) return { source, state: null as MechanismState | null }
 
-      // El override se aplica acá y no en el canvas: así la lectura numérica
-      // y el dibujo hablan siempre del mismo estado.
+      // The override is applied here and not in the canvas: that way the numeric
+      // readout and the drawing always talk about the same state.
       const state: MechanismState = source.colorOverride
         ? { ...raw, lines: raw.lines.map(l => ({ ...l, color: source.colorOverride! })) }
         : raw
@@ -99,8 +99,8 @@ export default function MechanismPage({
         hint={mechanismTables.size === 0
           ? "No Mechanism2d tables published — SmartDashboard.putData(\"Mech\", mechanism2d)"
           : "Drag a whole Mechanism2d table onto the canvas"}
-        // Solo las TABLAS son arrastrables acá: los topics sueltos de adentro
-        // (angle, length, color…) no significan nada por su cuenta.
+        // Only the TABLES are draggable here: the loose topics inside (angle,
+        // length, color…) mean nothing on their own.
         dragFilter={() => false}
         folderDragType={(fullPath: string) => (mechanismTables.has(fullPath) ? "Mechanism2d" : null)}
       />
@@ -170,11 +170,11 @@ export default function MechanismPage({
   )
 }
 
-// --- Lectura numérica -------------------------------------------------------
+// --- Numeric readout -------------------------------------------------------
 
-// El dibujo muestra la pose del mecanismo; para calibrar topes y longitudes
-// hacen falta los números exactos de cada ligamento. El ángulo listado es el
-// ABSOLUTO ya resuelto (el publicado es relativo al ligamento padre).
+// The drawing shows the mechanism's pose; calibrating stops and lengths needs
+// each ligament's exact numbers. The listed angle is the ABSOLUTE one, already
+// resolved (the published one is relative to the parent ligament).
 function ReadoutStrip({ entries }: { entries: { source: MechanismSourceConfig; state: MechanismState | null }[] }) {
   const withState = entries.filter(e => e.state !== null && e.source.visible)
   if (withState.length === 0) return null

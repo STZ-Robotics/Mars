@@ -7,19 +7,19 @@ const TYPE_SUFFIX = "/.type"
 const RETRY_MS = 1000
 
 /**
- * Lee el valor de cada subtopic ".type" y lo deja en el store, que es lo que
- * permite reconocer un Field2d (o cualquier otra tabla sendable) sin adivinar
- * por su forma.
+ * Reads each ".type" subtopic's value and leaves it in the store, which is what
+ * makes it possible to recognize a Field2d (or any other sendable table)
+ * without guessing from its shape.
  *
- * Reintenta por el mismo motivo que los schemas: el announce de un topic llega
- * antes que su primer valor, así que la primera lectura suele venir vacía.
+ * It retries for the same reason as the schemas: a topic's announce arrives
+ * before its first value, so the first read usually comes back empty.
  */
 export function useNTTableTypes(topics: Map<string, TopicAnnounce>) {
   const registerTypes = useTableTypeStore(s => s.registerTypes)
   const clear = useTableTypeStore(s => s.clear)
 
   useEffect(() => {
-    // Sin topics no hay fuente: los tipos de la sesión anterior no aplican.
+    // No topics, no source: the previous session's types do not apply.
     if (topics.size === 0) {
       clear()
       return
@@ -56,7 +56,7 @@ export function useNTTableTypes(topics: Map<string, TopicAnnounce>) {
         }
         if (Object.keys(entries).length > 0) registerTypes(entries)
       } catch {
-        // Reconectando; se reintenta en el próximo tick.
+        // Reconnecting; it retries on the next tick.
       }
 
       if (!cancelled) timer = window.setTimeout(poll, RETRY_MS)

@@ -7,8 +7,8 @@ interface Props {
   onChange: (v: string) => void
 }
 
-// Agregar un nuevo "style" para numeros = agregar la <option> aquí y su
-// case correspondiente en widgets/NumberWidget.tsx + settings/ si necesita campos.
+// Adding a new "style" for numbers = adding the <option> here and its
+// matching case in widgets/NumberWidget.tsx + settings/ if it needs fields.
 export default function StyleSelect({ isBoolean, isRotationSingle, value, onChange }: Props) {
   return (
     <div>

@@ -8,13 +8,13 @@ import { arrayLengthOf, formatArrayElement, formatTopicValue } from "../../utils
 
 interface Props {
   topics: Map<string, TopicAnnounce>
-  // Filtro opcional: si se provee, solo los topics para los que devuelve true
-  // son arrastrables (el resto se ve atenuado). Sin filtro = comportamiento
-  // original (todo lo que tenga topic propio es arrastrable).
+  // Optional filter: if provided, only the topics it returns true for are
+  // draggable (the rest are shown dimmed). No filter = the original behavior
+  // (everything with a topic of its own is draggable).
   dragFilter?: (topic: TopicAnnounce) => boolean
-  // Hace arrastrables nodos SIN topic propio (carpetas). Si devuelve un string,
-  // ese nodo se puede arrastrar y el string viaja como "topicType" (ej.
-  // "Mechanism2d", que en NT4 es una tabla entera y no un topic).
+  // Makes nodes WITHOUT a topic of their own (folders) draggable. If it returns
+  // a string, that node can be dragged and the string travels as "topicType"
+  // (e.g. "Mechanism2d", which in NT4 is a whole table and not a topic).
   folderDragType?: (fullPath: string) => string | null
 }
 
@@ -25,16 +25,16 @@ interface TreeNode {
   children: Map<string, TreeNode>
 }
 
-// Los subtopics que empiezan con "." son metadata de WPILib (.type,
-// .controllable, .instance) y ".schema" es el registro de descriptores de
-// struct. Nada de eso se arrastra ni se lee: solo ensucia el árbol. Lo útil
-// de ".type" ya se muestra como etiqueta al lado de la tabla.
+// Subtopics starting with "." are WPILib metadata (.type, .controllable,
+// .instance) and ".schema" is the struct descriptor registry. None of it is
+// dragged or read: it only clutters the tree. What is useful about ".type" is
+// already shown as a label next to the table.
 function isMetadataSegment(name: string): boolean {
   return name.startsWith(".")
 }
 
-// Orden natural: "Module10" va DESPUÉS de "Module9", no antes. El orden que
-// trae el Map es el de llegada de los announces, que es arbitrario.
+// Natural order: "Module10" goes AFTER "Module9", not before. The order the
+// Map carries is the announces' arrival order, which is arbitrary.
 function sortNames(a: string, b: string): number {
   return a.localeCompare(b, undefined, { numeric: true })
 }
@@ -49,9 +49,9 @@ function sortTree(node: TreeNode): TreeNode {
 }
 
 /**
- * Topics que hay que pedirle al backend AHORA: solo los de las filas que
- * están renderizadas. Antes se poleaba cada struct-array del log a 1Hz
- * aunque el árbol estuviera cerrado.
+ * Topics to ask the backend for NOW: only those of the rows that are
+ * rendered. Before, every struct-array in the log was polled at 1Hz even
+ * with the tree closed.
  */
 function collectVisibleTopics(root: TreeNode, expanded: Set<string>): string[] {
   const out: string[] = []
@@ -68,8 +68,8 @@ function collectVisibleTopics(root: TreeNode, expanded: Set<string>): string[] {
 export default function TreeDirectory({ topics, dragFilter, folderDragType }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
-  // Suscripciones para re-renderizar cuando llega un schema nuevo (cambia qué
-  // structs se pueden expandir) o el ".type" de una tabla.
+  // Subscriptions to re-render when a new schema arrives (it changes which
+  // structs can be expanded) or a table's ".type".
   const dynamicDefs = useStructSchemaStore(s => s.defs)
   const tableTypes = useTableTypeStore(s => s.types)
 
@@ -91,9 +91,9 @@ export default function TreeDirectory({ topics, dragFilter, folderDragType }: Pr
         }
         currentNode = currentNode.children.get(part)!
 
-        // Un nodo puede tener topic propio Y children a la vez (una tabla que
-        // además publica un valor en su raíz); tiene que seguir siendo hoja
-        // arrastrable en ese caso.
+        // A node can have a topic of its own AND children at once (a table that
+        // also publishes a value at its root); it has to stay a draggable leaf in
+        // that case.
         if (index === parts.length - 1) currentNode.topic = topic
       })
     })
@@ -102,8 +102,8 @@ export default function TreeDirectory({ topics, dragFilter, folderDragType }: Pr
   }, [topics])
 
   const visibleTopics = useMemo(() => collectVisibleTopics(tree, expanded), [tree, expanded])
-  // 250ms y no 33: es texto de apoyo, no una animación. useNTSnapshot ya
-  // resuelve si pedir el valor en vivo o el del instante scrubbeado.
+  // 250ms and not 33: it is supporting text, not an animation. useNTSnapshot
+  // already decides whether to ask for the live value or the scrubbed instant's.
   const values = useNTSnapshot(visibleTopics, 250)
 
   const toggle = (path: string) => {
@@ -139,7 +139,7 @@ export default function TreeDirectory({ topics, dragFilter, folderDragType }: Pr
 interface RowProps {
   node: TreeNode
   level: number
-  /** Solo para el cebrado; no tiene que ser global, alcanza con alternar por hermanos. */
+  /** Only for the striping; it does not have to be global, alternating among siblings is enough. */
   rowIndex: number
   expanded: Set<string>
   onToggle: (path: string) => void
@@ -172,9 +172,9 @@ function TreeRow(props: RowProps) {
 
   const passesFilter = !!topic && (!dragFilter || dragFilter(topic))
 
-  // Una carpeta puede representar algo consumible aunque no sea un topic: una
-  // tabla Field2d o Mechanism2d. `folderDragType` dice si ESTA página la
-  // acepta; `tableTypes` dice qué es, para etiquetarla siempre.
+  // A folder can represent something consumable even if it is not a topic: a
+  // Field2d or Mechanism2d table. `folderDragType` says whether THIS page
+  // accepts it; `tableTypes` says what it is, so it is always labeled.
   const folderType = !topic && folderDragType ? folderDragType(node.fullPath) : null
   const tableType = !topic ? tableTypes[node.fullPath] : undefined
   const isDraggable = passesFilter || folderType !== null
@@ -211,9 +211,9 @@ function TreeRow(props: RowProps) {
           opacity: topic && !passesFilter ? 0.45 : 1,
         }}
       >
-        {/* La flecha es lo único que distingue una carpeta de una hoja en
-            filas de 18px, así que va con el color del texto y no en gris
-            claro: antes casi no se veía sobre el cebrado. */}
+        {/* The arrow is the only thing that tells a folder from a leaf in
+            18px rows, so it goes in the text color and not light grey:
+            before, it was barely visible over the striping. */}
         <span style={{
           width: 12, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center",
           color: isExpandable ? "var(--text-primary)" : "transparent", fontSize: 11,
@@ -237,9 +237,9 @@ function TreeRow(props: RowProps) {
               {arrayLength !== null && `[${arrayLength}]`}
             </span>
           )}
-          {/* Una tabla sendable (Field2d, Mechanism2d, chooser...) ya no se ve
-              como una carpeta cualquiera: dice qué es aunque esta página no
-              sepa consumirla. */}
+          {/* A sendable table (Field2d, Mechanism2d, chooser...) no longer
+              looks like any other folder: it says what it is even if this
+              page cannot consume it. */}
           {!topic && (folderType ?? tableType) && (
             <span style={{ fontStyle: "normal", color: "var(--mars-accent)" }}> – {folderType ?? tableType}</span>
           )}
@@ -272,9 +272,9 @@ function TreeRow(props: RowProps) {
               liveValue={liveValue}
               length={arrayLength!}
               level={level + 1}
-              // Los índices se arrastran solo donde la página sabe recibirlos.
-              // Con un dragFilter puesto (Field, Swerve, Functions) el drop
-              // ignora arrayIndex y agregaría el array entero.
+              // Indices are draggable only where the page can receive them.
+              // With a dragFilter set (Field, Swerve, Functions) the drop
+              // ignores arrayIndex and would add the whole array.
               draggable={!dragFilter}
             />
           )}
@@ -284,11 +284,11 @@ function TreeRow(props: RowProps) {
   )
 }
 
-/** Cuántos índices se listan antes de cortar; un array de 500 poses colgaría el árbol. */
+/** How many indices are listed before cutting off; an array of 500 poses would hang the tree. */
 const MAX_INDEX_ROWS = 128
 
-// Filas sintéticas 0..length-1 de cualquier array (numérico, booleano, string
-// o de structs), cada una arrastrable por separado.
+// Synthetic rows 0..length-1 of any array (numeric, boolean, string or of
+// structs), each one draggable on its own.
 function ArrayIndexRows({ topic, liveValue, length, level, draggable }: {
   topic: TopicAnnounce
   liveValue: any

@@ -1,15 +1,14 @@
-// Extracción de poses 3D desde valores NT4.
+// Extraction of 3D poses from NT4 values.
 //
-// Reutiliza el decodificador de structs binarios de WPILib que ya usa la
-// Dashboard (valueDecoding.ts) y lo levanta a la terna traslación +
-// cuaternión que necesita la escena. Una Pose2d se levanta a 3D con z = 0 y
-// un giro puro sobre +Z, que es exactamente lo que hace `Pose3d(Pose2d)` en
-// WPILib.
+// It reuses the WPILib binary struct decoder the Dashboard already uses
+// (valueDecoding.ts) and lifts it to the translation + quaternion pair the
+// scene needs. A Pose2d is lifted to 3D with z = 0 and a pure turn around +Z,
+// which is exactly what `Pose3d(Pose2d)` does in WPILib.
 //
-// El decodificador genérico devuelve los campos marcados `isAngle` ya pasados
-// a GRADOS (los widgets de la Dashboard los muestran así), por eso acá hay
-// conversiones de vuelta a radianes: los ángulos internos de la escena son
-// siempre radianes.
+// The generic decoder returns the fields marked `isAngle` already converted to
+// DEGREES (the Dashboard widgets show them that way), which is why there are
+// conversions back to radians here: the scene's internal angles are always
+// radians.
 
 import { decodeStructBytes, decodeStructArrayBytes } from "../dashboard/valueDecoding"
 import { getStructDef } from "../../store/structSchemaStore"
@@ -19,16 +18,15 @@ import { Pose3D, quatFromYaw, normalizeQuat } from "./frames"
 const DEG_TO_RAD = Math.PI / 180
 
 /**
- * Cómo interpretar un `double[]`.
+ * How to interpret a `double[]`.
  *
- * El formato heredado de `Field2d` empaqueta tripletas [x, y, θ°] y el de
- * AdvantageScope empaqueta septetos [x, y, z, qw, qx, qy, qz]. Un array de 21
- * números encaja en los dos, así que cuando la heurística no alcanza el objeto
- * puede fijarlo a mano.
+ * The legacy `Field2d` format packs [x, y, θ°] triples and AdvantageScope's
+ * packs [x, y, z, qw, qx, qy, qz] septets. An array of 21 numbers fits both,
+ * so when the heuristic is not enough the object can pin it by hand.
  */
 export type ArrayFormat = "auto" | "pose2d" | "pose3d"
 
-/** Structs de los que se puede sacar una pose. */
+/** Structs a pose can be taken from. */
 const POSE_STRUCTS = new Set([
   "Pose3d", "Transform3d", "Translation3d",
   "Pose2d", "Transform2d", "Translation2d",
@@ -39,14 +37,14 @@ function isNumericArrayTopic(topicType: string): boolean {
   return c.isArrayType && !c.isStructType && ["double", "float", "int"].includes(c.baseType)
 }
 
-/** Un topic sirve para la cancha 3D si trae geometría, suelta o en array. */
+/** A topic is usable on the 3D field if it carries geometry, loose or in an array. */
 export function isPose3dTopic(topicType: string): boolean {
   const c = classifyTopic(topicType)
   if (c.isStructType && c.structName) return POSE_STRUCTS.has(c.structName)
   return isNumericArrayTopic(topicType)
 }
 
-/** Cuántas poses trae un topic como máximo: 1 si es un struct suelto. */
+/** The most poses a topic carries: 1 if it is a loose struct. */
 export function isSinglePoseTopic(topicType: string): boolean {
   const c = classifyTopic(topicType)
   return !c.isArrayType
@@ -56,7 +54,7 @@ function structToPose(structName: string, fields: { value: number }[]): Pose3D |
   const v = (i: number) => fields[i]?.value ?? 0
 
   switch (structName) {
-    // X, Y, Z, QW, QX, QY, QZ — el cuaternión sale crudo del struct.
+    // X, Y, Z, QW, QX, QY, QZ — the quaternion comes raw from the struct.
     case "Pose3d":
     case "Transform3d": {
       const q = normalizeQuat([v(3), v(4), v(5), v(6)])
@@ -77,12 +75,12 @@ function structToPose(structName: string, fields: { value: number }[]): Pose3D |
 }
 
 /**
- * Decide si un `double[]` viene en tripletas o en septetos.
+ * Decides whether a `double[]` comes in triples or in septets.
  *
- * Los múltiplos de 7 que NO son múltiplos de 3 solo pueden ser Pose3d y
- * viceversa. En el empate (0, 21, 42...) gana Pose2d, que es el formato viejo
- * y el único que publica el `Field2d` de WPILib sin que el equipo haga nada
- * especial: quien publica septetos suele estar usando structs igual.
+ * Multiples of 7 that are NOT multiples of 3 can only be Pose3d and vice
+ * versa. On a tie (0, 21, 42...) Pose2d wins, which is the old format and the
+ * only one WPILib's `Field2d` publishes without the team doing anything
+ * special: whoever publishes septets is usually using structs anyway.
  */
 function guessArrayFormat(length: number): "pose2d" | "pose3d" {
   if (length % 7 === 0 && length % 3 !== 0) return "pose3d"
@@ -104,7 +102,7 @@ function decodeNumberArray(arr: number[], format: ArrayFormat): Pose3D[] {
     return out
   }
 
-  // Field2d publica [x, y, θ] por objeto, con θ en GRADOS.
+  // Field2d publishes [x, y, θ] per object, with θ in DEGREES.
   for (let i = 0; i + 2 < arr.length; i += 3) {
     const q = quatFromYaw(arr[i + 2] * DEG_TO_RAD)
     out.push({ x: arr[i], y: arr[i + 1], z: 0, qw: q[0], qx: q[1], qy: q[2], qz: q[3] })
@@ -113,8 +111,8 @@ function decodeNumberArray(arr: number[], format: ArrayFormat): Pose3D[] {
 }
 
 /**
- * TODAS las poses que contiene el valor: una para un struct suelto, N para un
- * `struct:X[]` o para un `double[]`.
+ * ALL the poses the value contains: one for a loose struct, N for a
+ * `struct:X[]` or for a `double[]`.
  */
 export function extractPoses3d(
   liveValue: any,
@@ -148,7 +146,7 @@ export function extractPoses3d(
   return []
 }
 
-/** La primera pose del valor, o null. Es lo que consume el objeto "robot". */
+/** The value's first pose, or null. It is what the "robot" object consumes. */
 export function extractPose3d(
   liveValue: any,
   topicType: string,

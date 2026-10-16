@@ -21,8 +21,8 @@ interface Props {
   onSave: (updates: Partial<DashboardWidget>) => void
 }
 
-// Dueño de todo el estado de edición (borradores locales que solo se
-// aplican al widget real cuando el usuario pulsa "Apply Changes").
+// Owner of all the editing state (local drafts that are only applied to the
+// real widget when the user presses "Apply Changes").
 export default function CardSettingsPanel({ widget, classification, onSave }: Props) {
   const { isBoolean, isNumber, isRotationSingle, isField2d, hasStyleOptions } = classification
 
@@ -33,9 +33,9 @@ export default function CardSettingsPanel({ widget, classification, onSave }: Pr
   const [editFalse, setEditFalse] = useState(widget.customFalse ?? "False")
   const [editWidth, setEditWidth] = useState(widget.width)
   const [editHeight, setEditHeight] = useState(widget.height)
-  // En doubles es solo una etiqueta de sufijo (no convierte el valor).
-  // En Rotation2d sí es una conversión real, porque sabemos que el struct
-  // WPILib siempre serializa el ángulo en radianes.
+  // On doubles it is only a suffix label (it does not convert the value).
+  // On Rotation2d it is a real conversion, because we know the WPILib struct
+  // always serializes the angle in radians.
   const [editUnit, setEditUnit] = useState(widget.unit ?? "")
 
   // --- Match Time ---
@@ -119,8 +119,8 @@ export default function CardSettingsPanel({ widget, classification, onSave }: Pr
           trailSeconds={editFieldTrailSeconds}
           onChangeFieldKey={(key) => {
             setEditFieldKey(key)
-            // Al cambiar de cancha se adopta el sistema que declara su JSON:
-            // arrastrar el override de la cancha anterior sería peor default.
+            // On switching fields the system its JSON declares is adopted:
+            // carrying over the previous field's override would be a worse default.
             const next = getField(key)?.coordinateSystem
             if (next) setEditFieldCoords(next)
           }}

@@ -4,27 +4,28 @@ import { FunctionSeriesConfig } from "../../store/appStore"
 import { useSelectionStore } from "../../store/selectionStore"
 import { TimeSeriesPoint } from "./mathTransforms"
 
-const REFRESH_INTERVAL_MS = 50 // ~20Hz de REDIBUJO (no de muestreo)
+const REFRESH_INTERVAL_MS = 50 // ~20Hz of REDRAWING (not of sampling)
 
 interface TimeBounds { start: number | null; end: number | null }
 
 /**
- * Buffer {t,v} por TOPIC, en SEGUNDOS de la escala del servidor NT.
+ * A {t,v} buffer per TOPIC, in SECONDS of the NT server's scale.
  *
- * Antes esto acumulaba muestras del lado del cliente con `Date.now()`. Eso
- * traía dos problemas serios:
+ * This used to accumulate samples on the client side with `Date.now()`. That
+ * brought two serious problems:
  *
- *  1. **Dos escalas de tiempo distintas.** En vivo los puntos se guardaban con
- *     epoch Unix (~1.77e9 s) y en pausa con el timestamp del servidor (~1e4 s,
- *     que cuenta desde que arrancó el robot). Al pausar, el eje X saltaba
- *     varios órdenes de magnitud y el gráfico se rompía.
- *  2. **Aliasing.** Pollear "el valor de ahora" a 20Hz sobre una señal que el
- *     robot publica a 200Hz tira 9 de cada 10 muestras, y encima les pone el
- *     timestamp del poll y no el real. Una derivada calculada así es basura.
+ *  1. **Two different time scales.** Live, the points were stored with Unix
+ *     epoch (~1.77e9 s) and paused with the server's timestamp (~1e4 s, which
+ *     counts from when the robot started). On pausing, the X axis jumped
+ *     several orders of magnitude and the plot broke.
+ *  2. **Aliasing.** Polling "the current value" at 20Hz on a signal the robot
+ *     publishes at 200Hz throws away 9 out of every 10 samples, and on top of
+ *     that stamps them with the poll's timestamp and not the real one. A
+ *     derivative computed that way is garbage.
  *
- * Ahora los dos modos piden `get_values_range` al backend, que devuelve las
- * muestras REALES con sus timestamps reales. En vivo la ventana se ancla al
- * último dato recibido; en pausa, al instante scrubbeado.
+ * Now both modes ask the backend for `get_values_range`, which returns the
+ * REAL samples with their real timestamps. Live, the window is anchored to the
+ * last data point received; paused, to the scrubbed instant.
  */
 export function useLiveSeriesBuffers(series: FunctionSeriesConfig[], windowSeconds: number) {
   const topicNames = Array.from(new Set(series.map(s => s.topicName)))
@@ -34,8 +35,8 @@ export function useLiveSeriesBuffers(series: FunctionSeriesConfig[], windowSecon
   const selectedTime = useSelectionStore((s) => s.selectedTime)
 
   const [buffers, setBuffers] = useState<Record<string, TimeSeriesPoint[]>>({})
-  // El fin de la ventana en vivo: se relee del backend para no depender del
-  // reloj del cliente, que puede diferir del del robot.
+  // The end of the live window: it is read again from the backend so as not to
+  // depend on the client's clock, which can differ from the robot's.
   const endUsRef = useRef<number | null>(null)
 
   useEffect(() => {
@@ -75,21 +76,21 @@ export function useLiveSeriesBuffers(series: FunctionSeriesConfig[], windowSecon
         for (const name of topicNames) {
           next[name] = (data[name] ?? [])
             .filter(([, v]) => typeof v?.Number === "number")
-            // A segundos: toda la matemática de transforms trabaja en segundos,
-            // así que una derivada sale directo en unidades/segundo.
+            // To seconds: all the transforms' math works in seconds, so a
+            // derivative comes out directly in units/second.
             .map(([ts, v]) => ({ t: ts / 1e6, v: v.Number as number }))
         }
-        // Objeto nuevo en cada tick: el padre tiene que ver el cambio de
-        // referencia para recalcular los transforms.
+        // A new object on every tick: the parent has to see the reference change
+        // to recompute the transforms.
         setBuffers(next)
       } catch {
-        // Todavía no hay datos en ese rango; se reintenta en el próximo tick.
+        // No data in that range yet; it retries on the next tick.
       }
     }
 
     fetchWindow()
-    // En pausa no hace falta repetir: la ventana solo cambia si el usuario
-    // mueve el cursor, y eso vuelve a disparar este efecto.
+    // Paused there is no need to repeat: the window only changes if the user
+    // moves the cursor, and that fires this effect again.
     if (!isLive) return () => { cancelled = true }
 
     const interval = setInterval(fetchWindow, REFRESH_INTERVAL_MS)

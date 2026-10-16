@@ -45,21 +45,21 @@ function formatBytes(bytes: number): string {
   return `${bytes} B`
 }
 
-// Verde/ámbar/rojo según qué tan cerca se está del corte del FMS. El umbral
-// bajo es 50% porque el tope es por ROBOT y hay más tráfico que el de NT
-// (cámaras, Driver Station), así que llegar al 80% ya es problema.
+// Green/amber/red according to how close it is to the FMS cutoff. The low
+// threshold is 50% because the cap is per ROBOT and there is more traffic than
+// NT's (cameras, Driver Station), so reaching 80% is already a problem.
 function limitColor(percent: number): string {
   if (percent >= 80) return "var(--status-error)"
   if (percent >= 50) return "var(--status-warning)"
   return "var(--status-sim)"
 }
 
-/** Agrupa por la tabla padre: es lo que dice QUÉ SUBSISTEMA está loggeando de más. */
+/** Groups by the parent table: it is what says WHICH SUBSYSTEM is logging too much. */
 function groupByTable(topics: TopicBandwidth[]) {
   const groups = new Map<string, { bytes: number; rate: number; count: number }>()
   for (const t of topics) {
     const parts = t.name.split("/").filter(Boolean)
-    // Dos niveles: "/AdvantageKit/RealOutputs" dice más que "/AdvantageKit".
+    // Two levels: "/AdvantageKit/RealOutputs" says more than "/AdvantageKit".
     const key = "/" + parts.slice(0, Math.min(2, parts.length - 1) || 1).join("/")
     const g = groups.get(key) ?? { bytes: 0, rate: 0, count: 0 }
     g.bytes += t.total_bytes
@@ -90,7 +90,7 @@ export default function BandwidthPage({ connection, logSource }: Props) {
     const poll = () => {
       invoke<BandwidthReport>("get_bandwidth_report", { windowSeconds })
         .then(r => { if (!cancelled) setReport(r) })
-        .catch(() => { /* sin datos todavía; se reintenta */ })
+        .catch(() => { /* no data yet; it retries */ })
     }
 
     poll()
@@ -190,8 +190,8 @@ function TotalGauge({ report }: { report: BandwidthReport }) {
         border: "1px solid var(--border-main)", position: "relative", overflow: "hidden",
       }}>
         <div style={{ height: "100%", width: `${Math.min(100, percent)}%`, background: color }} />
-        {/* Marca del 50%: pasado eso conviene recortar, porque el tope es del
-            robot entero y NT no es lo único que lo usa. */}
+        {/* The 50% mark: past that it is worth trimming, because the cap is the
+            whole robot's and NT is not the only thing using it. */}
         <div style={{ position: "absolute", top: 0, bottom: 0, left: "50%", width: 1, background: "var(--bevel-dark)" }} />
       </div>
 
@@ -245,8 +245,8 @@ function TableGroupTable({ rows }: { rows: ReturnType<typeof groupByTable> }) {
   )
 }
 
-// Barra de fondo proporcional al consumo: el ranking se lee de un vistazo
-// sin tener que comparar números.
+// A background bar proportional to the usage: the ranking reads at a glance
+// without having to compare numbers.
 function ShareBar({ share, children }: { share: number; children: React.ReactNode }) {
   return (
     <div style={{ position: "relative" }}>

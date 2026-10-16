@@ -1,5 +1,5 @@
-// Portado directamente de AdvantageScope util.ts (Littleton Robotics, BSD)
-// Solo las funciones que necesita el timeline.
+// Ported directly from AdvantageScope's util.ts (Littleton Robotics, BSD)
+// Only the functions the timeline needs.
 
 export function clampValue(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max)
@@ -15,7 +15,7 @@ export function cleanFloat(float: number) {
   return output
 }
 
-/** Calcula un paso de eje "bonito" (1, 2, 5, 10, 20, 50...) para el espaciado de ticks. */
+/** Computes a "nice" axis step (1, 2, 5, 10, 20, 50...) for tick spacing. */
 export function calcAxisStepSize(dataRange: [number, number], pixelRange: number, stepSizeTarget: number): number {
   const stepCount = pixelRange / stepSizeTarget
   const stepValueApprox = (dataRange[1] - dataRange[0]) / stepCount

@@ -1,10 +1,9 @@
-// Ajustes de la escena del Field 3D: cancha, sistema de coordenadas, cámara,
-// calidad y ayudas visuales.
+// The Field 3D's scene settings: field, coordinate system, camera, quality and
+// visual aids.
 //
-// Está partido en secciones plegables (las mismas de Swerve 3D y Mechanism 3D)
-// porque son casi treinta controles: en una lista plana, los cuatro que se
-// tocan a diario quedarían perdidos entre los que se tocan una vez por
-// temporada.
+// It is split into collapsible sections (the same as Swerve 3D and Mechanism
+// 3D) because there are almost thirty controls: in a flat list, the four touched
+// daily would be lost among the ones touched once a season.
 
 import { memo } from "react"
 import {
@@ -22,11 +21,11 @@ interface Props {
   fieldPacks: FieldPack[]
   robotPacks: RobotPack[]
   fieldPack: FieldPack | null
-  /** Alianza efectiva, ya resuelta (manual o leída de FMSInfo). */
+  /** The effective alliance, already resolved (manual or read from FMSInfo). */
   alliance: Alliance
-  /** true si la está publicando el robot; solo para explicarlo en el panel. */
+  /** true if the robot is publishing it; only to explain it in the panel. */
   allianceFromRobot: boolean
-  /** Cuentas del modelo cargado, para que se vea qué hace cada modo. */
+  /** Counts of the loaded model, so it shows what each mode does. */
   stats: { triangles: number; drawCalls: number; culled: number } | null
   totalTrailSamples: number
   onUpdate: (updates: Partial<Field3dSettings>) => void
@@ -56,8 +55,8 @@ function Field3dViewPanel({
   settings, fieldPacks, robotPacks, fieldPack, alliance, allianceFromRobot,
   stats, totalTrailSamples, onUpdate, onClearTrails,
 }: Props) {
-  // El sistema que se usa de verdad: el override del panel, o el que declara
-  // el config de la cancha, o el clásico de WPILib si no hay cancha con modelo.
+  // The system really in use: the panel's override, or the one the field's
+  // config declares, or WPILib's classic one if there is no field with a model.
   const effectiveSystem: Field3dCoordinateSystem =
     settings.coordinateSystem ?? fieldPack?.config.coordinateSystem ?? "wall-blue"
 
@@ -167,8 +166,8 @@ function Field3dViewPanel({
             value={String(settings.driverStationIndex)}
             options={Array.from({ length: driverStationCount }, (_, i) => ({
               value: String(i),
-              // Las primeras son azules y las siguientes rojas, en el orden en
-              // que las lista el config del asset.
+              // The first ones are blue and the next ones red, in the order the
+              // asset's config lists them.
               label: `${i < driverStationCount / 2 ? "Blue" : "Red"} ${(i % (driverStationCount / 2)) + 1}`,
             }))}
             onChange={value => onUpdate({ driverStationIndex: Number(value) })}
@@ -313,6 +312,6 @@ function Field3dViewPanel({
   )
 }
 
-// Igual que el panel de assets: nada de acá depende del poll de NT, así que no
-// tiene por qué redibujarse 30 veces por segundo con el resto de la página.
+// Same as the assets panel: nothing here depends on the NT poll, so it has no
+// reason to redraw 30 times per second with the rest of the page.
 export default memo(Field3dViewPanel)

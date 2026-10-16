@@ -22,8 +22,8 @@ interface Props {
   onToggleCollapsed: () => void
 }
 
-// `svg` es el archivo en public/icons; `icon` es el respaldo tabler para las
-// herramientas que todavía no tienen SVG propio.
+// `svg` is the file in public/icons; `icon` is the tabler fallback for the
+// tools that have no SVG of their own yet.
 export const TOOL_KIND_META: Record<ToolKind, { label: string; icon: string; svg?: string; svgFallback?: string }> = {
   visualizer: { label: "2D Visualizer", icon: "ti-vector", svg: "visualizer2d.svg" },
   field3d: { label: "Field 3D", icon: "ti-cube-3d-sphere", svg: "field3d.svg", svgFallback: "visualizer2d.svg" },
@@ -43,13 +43,13 @@ const TOOL_KIND_ORDER: ToolKind[] = ["visualizer", "field3d", "swerve", "swerve3
 const EXPANDED_WIDTH = 250
 const COLLAPSED_WIDTH = 44
 
-// Panel acoplado estilo "Displays" de RViz: un QTreeWidget denso (grupos
-// plegables + hojas seleccionables) y, debajo del grupo de herramientas, la
-// botonera clásica Add/Rename/Remove que en RViz opera sobre la fila
-// seleccionada del árbol.
+// A docked panel in the style of RViz's "Displays": a dense QTreeWidget
+// (collapsible groups + selectable leaves) and, under the tools group, the
+// classic Add/Rename/Remove buttons that in RViz operate on the tree's selected
+// row.
 //
-// Colapsado se convierte en un riel de solo iconos: los grupos se reducen a
-// una línea separadora y cada fila muestra su nombre en el tooltip.
+// Collapsed it turns into an icon-only rail: the groups shrink to a separator
+// line and each row shows its name in the tooltip.
 export default function Sidebar({
   navigate, currentPage, onOpenProject,
   connection, onConnectSim, onConnectReal, onDisconnect,
@@ -58,25 +58,25 @@ export default function Sidebar({
 }: Props) {
   const [editingTabId, setEditingTabId] = useState<string | null>(null)
 
-  // `null` mientras no se sabe; `false` si el Studio no esta compilado. Solo se
-  // usa para atenuar el icono: el error util lo da el comando al intentarlo,
-  // que ademas explica como compilarlo.
-  const [simDisponible, setSimDisponible] = useState<boolean | null>(null)
+  // `null` while it is not known; `false` if the Studio is not built. It is only
+  // used to dim the icon: the useful error comes from the command when trying
+  // it, which also explains how to build it.
+  const [simAvailable, setSimAvailable] = useState<boolean | null>(null)
   useEffect(() => {
     // In the Tools edition the command does not exist in the binary: do not
     // even ask.
     if (!HAS_SIM_STUDIO) return
-    invoke<string | null>("sim_app_disponible")
-      .then(ruta => setSimDisponible(ruta !== null))
-      .catch(() => setSimDisponible(false))
+    invoke<string | null>("sim_app_available")
+      .then(path => setSimAvailable(path !== null))
+      .catch(() => setSimAvailable(false))
   }, [])
 
-  const abrirSim = () => {
-    invoke("abrir_sim_app").catch((e: unknown) => {
-      // No hay toast en el Sidebar; un alert es feo pero es mucho mejor que
-      // un clic que no hace nada y no dice por que.
+  const openSim = () => {
+    invoke("open_sim_app").catch((e: unknown) => {
+      // There is no toast in the Sidebar; an alert is ugly but much better than a
+      // click that does nothing and does not say why.
       alert(String(e))
-      setSimDisponible(false)
+      setSimAvailable(false)
     })
   }
 
@@ -134,29 +134,30 @@ export default function Sidebar({
         )}
 
         <TreeGroup title="Connection" icon="ti-antenna" collapsed={collapsed}>
-          {/* MARS Simulation Studio es una aplicación aparte: esto solo la
-              abre. Va aquí, encima de los conectores, porque el orden de uso es
-              levantar el simulador y después conectarse a él en modo sim.
-              La etiqueta va corta ("Simulation Studio") porque el sidebar
-              colapsa a 250px y el nombre completo no entra en una línea.
-              El icono es la marca del Studio, la misma que lleva su ejecutable:
-              antes apuntaba a "simulator.svg", que no existe en public/icons, y
-              la fila caía siempre al robot de tabler.
+          {/* MARS Simulation Studio is a separate application: this only opens
+              it. It goes here, above the connectors, because the order of use
+              is bringing up the simulator and then connecting to it in sim
+              mode. The label is short ("Simulation Studio") because the
+              sidebar collapses to 250px and the full name does not fit on one
+              line. The icon is the Studio's mark, the same its executable
+              carries: it used to point at "simulator.svg", which does not
+              exist in public/icons, and the row always fell back to tabler's
+              robot.
 
-              Es un PNG de 128px y no el mss.svg que había antes. Ese SVG pesaba
-              5.6 MB —4.4 MB de trazados más un raster de 5988x5887 embebido en
-              base64— para dibujarse aquí a 16 px, y como public/ se copia a
-              dist/ y dist/ se empotra en el binario, cada equipo se lo
-              descargaba entero. SidebarIcon lo pide con <img src>, así que el
-              formato le da igual. */}
+              It is a 128px PNG and not the mss.svg there was before. That SVG
+              weighed 5.6 MB —4.4 MB of paths plus a 5988x5887 raster embedded
+              in base64— to be drawn here at 16 px, and since public/ is copied
+              to dist/ and dist/ is embedded in the binary, every team
+              downloaded it whole. SidebarIcon requests it with <img src>, so
+              the format makes no difference to it. */}
           {HAS_SIM_STUDIO && (
             <TreeLeaf
               svg="mss.png"
               icon="ti-robot"
-              iconColor={simDisponible === false ? "var(--icon-tree-disabled, var(--icon-tree))" : "var(--icon-tree)"}
+              iconColor={simAvailable === false ? "var(--icon-tree-disabled, var(--icon-tree))" : "var(--icon-tree)"}
               label="Simulation Studio"
               collapsed={collapsed}
-              onClick={abrirSim}
+              onClick={openSim}
             />
           )}
           <TreeLeaf
@@ -195,8 +196,9 @@ export default function Sidebar({
           ))}
         </TreeGroup>
 
-        {/* Colapsado no hay lugar para la botonera: queda solo el "+", que es
-            la única acción que no depende de tener una fila seleccionada. */}
+        {/* Collapsed there is no room for the button row: only the "+" stays,
+            which is the only action that does not depend on having a row
+            selected. */}
         {collapsed ? (
           <RailAddButton onCreateTab={onCreateTab} />
         ) : (
@@ -247,7 +249,7 @@ export default function Sidebar({
 }
 
 // ---------------------------------------------------------------------------
-// Piezas del árbol
+// Tree pieces
 // ---------------------------------------------------------------------------
 
 function CollapseBar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
@@ -297,10 +299,10 @@ function rowStyle(selected: boolean, hovered: boolean, indent: number, collapsed
   }
 }
 
-// Nodo padre plegable: flecha + ícono + título en negrita, sobre la banda gris
-// que separa cada grupo (el equivalente al ítem raíz de un QTreeWidget).
-// Colapsado se reduce a una línea: el título no entra y plegarlo dejaría
-// filas escondidas sin ninguna pista de que existen.
+// A collapsible parent node: arrow + icon + bold title, over the grey band that
+// separates each group (the equivalent of a QTreeWidget's root item).
+// Collapsed it shrinks to a line: the title does not fit and collapsing it
+// would leave rows hidden with no hint that they exist.
 function TreeGroup({ title, icon, collapsed, children }: {
   title: string
   icon: string
@@ -344,8 +346,8 @@ function TreeGroup({ title, icon, collapsed, children }: {
   )
 }
 
-// Hoja del árbol: ícono + label, con selección azul sólida y un control
-// opcional a la derecha (el checkbox de "visible" de RViz).
+// A tree leaf: icon + label, with a solid blue selection and an optional
+// control on the right (RViz's "visible" checkbox).
 function TreeLeaf({
   svg, icon, label, iconColor, selected = false, indent = 1, trailing, collapsed, onClick, onDoubleClick,
 }: {
@@ -368,7 +370,7 @@ function TreeLeaf({
       onDoubleClick={onDoubleClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      // Colapsado el nombre solo existe en el tooltip.
+      // Collapsed, the name only exists in the tooltip.
       title={collapsed ? label : undefined}
       style={rowStyle(selected, hovered, indent, collapsed)}
     >
@@ -400,8 +402,8 @@ function CheckBox({ checked }: { checked: boolean }) {
   )
 }
 
-// Fila de pestaña: igual que una hoja, pero el label se convierte en input al
-// renombrar (doble click o el botón "Rename" de la botonera).
+// A tab row: like a leaf, but the label turns into an input when renaming
+// (double click or the "Rename" button).
 function ToolTabRow({
   tab, selected, editing, collapsed, onSelect, onStartEdit, onCommit, onCancelEdit,
 }: {
@@ -472,7 +474,7 @@ function ToolTabRow({
 }
 
 // ---------------------------------------------------------------------------
-// Botonera clásica (Add / Rename / Remove)
+// Classic button row (Add / Rename / Remove)
 // ---------------------------------------------------------------------------
 
 function ButtonBar({ children }: { children: ReactNode }) {
@@ -520,7 +522,7 @@ function ClassicButton({
   )
 }
 
-// Menú de tipos compartido por la botonera y el riel colapsado.
+// Type menu shared by the button row and the collapsed rail.
 function ToolTypeMenu({ onPick, align }: { onPick: (kind: ToolKind) => void; align: "left" | "center" }) {
   return (
     <div style={{
@@ -537,8 +539,8 @@ function ToolTypeMenu({ onPick, align }: { onPick: (kind: ToolKind) => void; ali
   )
 }
 
-// Cierra el menú al hacer click afuera. Vive acá porque los dos botones que
-// abren el menú (botonera y riel) necesitan exactamente lo mismo.
+// Closes the menu on clicking outside. It lives here because the two buttons
+// that open the menu (button row and rail) need exactly the same.
 function useDismissOnOutsideClick(open: boolean, onDismiss: () => void) {
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -554,8 +556,8 @@ function useDismissOnOutsideClick(open: boolean, onDismiss: () => void) {
   return rootRef
 }
 
-// "Add" abre el selector de tipo de herramienta — el equivalente compacto al
-// diálogo de tipos de display de RViz. Las pestañas solo nacen desde acá.
+// "Add" opens the tool type picker — the compact equivalent of RViz's display
+// types dialog. Tabs are only born from here.
 function AddToolButton({ onCreateTab }: { onCreateTab: (kind: ToolKind) => void }) {
   const [open, setOpen] = useState(false)
   const rootRef = useDismissOnOutsideClick(open, () => setOpen(false))

@@ -1,27 +1,27 @@
-// Marcos de coordenadas del Field 3D.
+// Coordinate frames of the Field 3D.
 //
-// Hay DOS marcos en juego y confundirlos es la fuente número uno de robots que
-// aparecen fuera de la cancha o girados media vuelta:
+// There are TWO frames in play and mixing them up is the number one source of
+// robots that show up off the field or turned half around:
 //
-//  1. El marco en que PUBLICA el robot. Lo elige WPILib y cambió con las
-//     temporadas: hasta 2026 el origen está en la esquina de la alianza azul
-//     ("wall-blue"), y desde 2027 pasa al centro de la cancha ("center-red").
+//  1. The frame the robot PUBLISHES in. WPILib chooses it and it changed over
+//     the seasons: up to 2026 the origin is at the blue alliance's corner
+//     ("wall-blue"), and from 2027 it moves to the field's center ("center-red").
 //
-//  2. El marco del MODELO de la cancha, que es el único que entiende la
-//     escena: origen en el CENTRO del área de juego, +X hacia la alianza roja,
-//     +Y hacia la izquierda vista desde el azul, +Z arriba.
+//  2. The field MODEL's frame, which is the only one the scene understands:
+//     origin at the CENTER of the playing area, +X towards the red alliance,
+//     +Y to the left seen from blue, +Z up.
 //
-// El marco 2 es el mismo que usa AdvantageScope y el mismo en el que vienen
-// las posiciones de los AprilTags y de las driver stations dentro del
-// config.json de cada cancha, así que respetarlo permite usar sus assets tal
-// cual salen del .zip, sin recalcular nada.
+// Frame 2 is the same one AdvantageScope uses and the same one the AprilTag and
+// driver station positions come in inside each field's config.json, so
+// respecting it allows using its assets straight out of the .zip, without
+// recomputing anything.
 
-/** Los cuatro sistemas que declara el config.json de una cancha 3D. */
+/** The four systems a 3D field's config.json declares. */
 export type Field3dCoordinateSystem =
-  | "wall-blue"       // origen en la esquina azul, +X hacia el rojo (WPILib <= 2026)
-  | "wall-alliance"   // igual, pero el origen salta a la pared de TU alianza
-  | "center-red"      // origen al centro, +X hacia el rojo (WPILib 2027+)
-  | "center-rotated"  // FTC: origen al centro, girado 90 grados
+  | "wall-blue"       // origin at the blue corner, +X towards red (WPILib <= 2026)
+  | "wall-alliance"   // the same, but the origin jumps to YOUR alliance's wall
+  | "center-red"      // origin at the center, +X towards red (WPILib 2027+)
+  | "center-rotated"  // FTC: origin at the center, turned 90 degrees
 
 export const COORDINATE_SYSTEM_LABELS: Record<Field3dCoordinateSystem, string> = {
   "wall-blue": "Wall / blue corner (WPILib ≤2026)",
@@ -37,12 +37,12 @@ export const COORDINATE_SYSTEMS: Field3dCoordinateSystem[] = [
 export type Alliance = "blue" | "red"
 
 /**
- * Pose completa en 3D: traslación en metros y rotación como CUATERNIÓN.
+ * A full 3D pose: translation in meters and rotation as a QUATERNION.
  *
- * Se guarda el cuaternión crudo y no ángulos de Euler porque es exactamente lo
- * que serializa `Pose3d` de WPILib: convertir a roll/pitch/yaw para volver a
- * componerlo introduce gimbal lock en poses perfectamente válidas (un brazo
- * apuntando recto hacia arriba, por ejemplo).
+ * The raw quaternion is kept and not Euler angles because it is exactly what
+ * WPILib's `Pose3d` serializes: converting to roll/pitch/yaw to compose it
+ * again introduces gimbal lock in perfectly valid poses (an arm pointing
+ * straight up, for example).
  */
 export interface Pose3D {
   x: number
@@ -60,12 +60,12 @@ export const IDENTITY_POSE: Pose3D = { x: 0, y: 0, z: 0, qw: 1, qx: 0, qy: 0, qz
 
 export type Quat = [number, number, number, number] // [w, x, y, z]
 
-/** Giro puro alrededor de +Z, que es como se levanta una Pose2d a 3D. */
+/** A pure turn around +Z, which is how a Pose2d is lifted to 3D. */
 export function quatFromYaw(yaw: number): Quat {
   return [Math.cos(yaw / 2), 0, 0, Math.sin(yaw / 2)]
 }
 
-/** `a` aplicada DESPUÉS de `b` (composición de rotaciones, no conmuta). */
+/** `a` applied AFTER `b` (rotation composition does not commute). */
 export function quatMultiply(a: Quat, b: Quat): Quat {
   const [aw, ax, ay, az] = a
   const [bw, bx, by, bz] = b
@@ -77,16 +77,16 @@ export function quatMultiply(a: Quat, b: Quat): Quat {
   ]
 }
 
-/** Yaw (giro en el plano de la cancha) de un cuaternión. */
+/** Yaw (turn in the field's plane) of a quaternion. */
 export function yawOf(q: Quat): number {
   const [w, x, y, z] = q
   return Math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
 }
 
 /**
- * Un cuaternión que llega con norma cero (campos vacíos, struct a medio
- * llenar) dejaría la matriz de la malla degenerada y la pieza invisible sin
- * ningún error a la vista, así que se cae a la identidad.
+ * A quaternion arriving with zero norm (empty fields, a half-filled struct)
+ * would leave the mesh's matrix degenerate and the piece invisible without any
+ * error in sight, so it falls back to the identity.
  */
 export function normalizeQuat(q: Quat): Quat {
   const norm = Math.hypot(q[0], q[1], q[2], q[3])
@@ -94,26 +94,26 @@ export function normalizeQuat(q: Quat): Quat {
   return [q[0] / norm, q[1] / norm, q[2] / norm, q[3] / norm]
 }
 
-// --- Conversión al marco del modelo -------------------------------------------
+// --- Conversion to the model's frame -------------------------------------------
 
-/** Largo (eje X, lado largo) y ancho (eje Y) del área de juego, en metros. */
+/** Length (X axis, long side) and width (Y axis) of the playing area, in meters. */
 export interface FieldSize {
   length: number
   width: number
 }
 
 /**
- * Rotación y traslación que lleva del marco publicado al marco del modelo.
+ * The rotation and translation that take the published frame to the model's.
  *
- * Se devuelve el par en vez de aplicarlo de una porque la escena convierte
- * CIENTOS de poses por frame (una trayectoria larga, un array de game pieces):
- * calcular el marco una sola vez y reusarlo evita rehacer la misma
- * trigonometría en cada punto.
+ * The pair is returned instead of applying it right away because the scene
+ * converts HUNDREDS of poses per frame (a long trajectory, an array of game
+ * pieces): computing the frame once and reusing it avoids redoing the same
+ * trigonometry at every point.
  */
 export interface FrameTransform {
-  /** Rotación del marco publicado respecto del marco del modelo. */
+  /** Rotation of the published frame relative to the model's frame. */
   rotation: Quat
-  /** Traslación, ya en el marco del modelo. */
+  /** Translation, already in the model's frame. */
   offset: [number, number, number]
 }
 
@@ -126,42 +126,42 @@ export function frameTransform(
   const halfWidth = size.width / 2
 
   switch (system) {
-    // El origen está en la esquina azul y los ejes ya apuntan como el modelo:
-    // solo hay que correr el origen al centro.
+    // The origin is at the blue corner and the axes already point like the
+    // model's: only the origin has to be moved to the center.
     case "wall-blue":
       return { rotation: [1, 0, 0, 0], offset: [-halfLength, -halfWidth, 0] }
 
-    // El origen salta a la pared de la alianza propia. Para el azul es
-    // idéntico al caso anterior; para el rojo la cancha entera está vista
-    // desde el otro extremo, que es media vuelta alrededor del centro.
+    // The origin jumps to your own alliance's wall. For blue it is identical to
+    // the previous case; for red the whole field is seen from the other end,
+    // which is a half turn around the center.
     case "wall-alliance":
       return alliance === "red"
         ? { rotation: quatFromYaw(Math.PI), offset: [halfLength, halfWidth, 0] }
         : { rotation: [1, 0, 0, 0], offset: [-halfLength, -halfWidth, 0] }
 
-    // Ya es el marco del modelo.
+    // It is already the model's frame.
     case "center-red":
       return { rotation: [1, 0, 0, 0], offset: [0, 0, 0] }
 
-    // FTC publica con +X hacia la audiencia y +Y hacia el rojo: un cuarto de
-    // vuelta respecto del marco del modelo.
+    // FTC publishes with +X towards the audience and +Y towards red: a quarter
+    // turn relative to the model's frame.
     case "center-rotated":
       return { rotation: quatFromYaw(-Math.PI / 2), offset: [0, 0, 0] }
   }
 }
 
 /**
- * Gira un vector por un cuaternión.
+ * Turns a vector by a quaternion.
  *
- * Se hace a mano en vez de instanciar un `Vector3` y un `Quaternion` de three:
- * esto corre por cada punto de cada trayectoria en cada frame, y la basura que
- * generarían esos objetos se nota en el recolector.
+ * It is done by hand instead of instantiating a three `Vector3` and
+ * `Quaternion`: this runs for every point of every trajectory on every frame,
+ * and the garbage those objects would generate shows in the collector.
  */
 export function rotateVector(q: Quat, v: [number, number, number]): [number, number, number] {
   const [w, x, y, z] = q
   const [vx, vy, vz] = v
 
-  // v' = v + 2w(u x v) + 2u x (u x v), con u = (x, y, z).
+  // v' = v + 2w(u x v) + 2u x (u x v), with u = (x, y, z).
   const cx = y * vz - z * vy
   const cy = z * vx - x * vz
   const cz = x * vy - y * vx
@@ -173,7 +173,7 @@ export function rotateVector(q: Quat, v: [number, number, number]): [number, num
   ]
 }
 
-/** Aplica un `FrameTransform` a una pose publicada. */
+/** Applies a `FrameTransform` to a published pose. */
 export function toFieldFrame(pose: Pose3D, transform: FrameTransform): Pose3D {
   const [rx, ry, rz] = rotateVector(transform.rotation, [pose.x, pose.y, pose.z])
   const rotated = quatMultiply(transform.rotation, [pose.qw, pose.qx, pose.qy, pose.qz])
@@ -187,9 +187,9 @@ export function toFieldFrame(pose: Pose3D, transform: FrameTransform): Pose3D {
 }
 
 /**
- * Inversa de `toFieldFrame`: del marco del modelo de vuelta al que publica el
- * robot. La usa la lectura de coordenadas bajo el puntero, que tiene que
- * mostrar los mismos números que se verían en el código del robot.
+ * The inverse of `toFieldFrame`: from the model's frame back to the one the
+ * robot publishes in. Used by the coordinate readout under the pointer, which
+ * has to show the same numbers you would see in the robot code.
  */
 export function fromFieldFrame(pose: Pose3D, transform: FrameTransform): Pose3D {
   const [w, x, y, z] = transform.rotation
@@ -209,13 +209,13 @@ export function fromFieldFrame(pose: Pose3D, transform: FrameTransform): Pose3D 
 }
 
 /**
- * Encadena dos poses: `child` expresada en el marco de `parent`, llevada al
- * marco en que está `parent`.
+ * Chains two poses: `child` expressed in `parent`'s frame, taken to the frame
+ * `parent` is in.
  *
- * Es la operación de `Pose3d.transformBy` de WPILib, y es lo que hace falta
- * para colocar un componente articulado (que el robot publica RELATIVO a sí
- * mismo) en la cancha, o para saber desde dónde mira una cámara montada en el
- * robot.
+ * It is WPILib's `Pose3d.transformBy` operation, and it is what is needed to
+ * place an articulated component (which the robot publishes RELATIVE to
+ * itself) on the field, or to know where a camera mounted on the robot is
+ * looking from.
  */
 export function composePose(parent: Pose3D, child: Pose3D): Pose3D {
   const parentQuat: Quat = [parent.qw, parent.qx, parent.qy, parent.qz]

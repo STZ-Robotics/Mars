@@ -1,43 +1,43 @@
-//! Almacén en disco de los assets 3D (canchas y robots) del Field 3D.
+//! On-disk store of the Field 3D's 3D assets (fields and robots).
 //!
-//! El formato es el MISMO que usa AdvantageScope: una carpeta por asset con un
-//! `config.json` y uno o varios `model*.glb`. Respetarlo al pie de la letra
-//! permite instalar los paquetes oficiales tal como salen del .zip, sin
-//! convertir ni renombrar nada, y que un equipo que ya arma sus assets para
-//! AdvantageScope los reuse acá sin trabajo extra.
+//! The format is the SAME one AdvantageScope uses: one folder per asset with a
+//! `config.json` and one or more `model*.glb`. Following it to the letter makes it
+//! possible to install the official packages exactly as they come out of the
+//! .zip, without converting or renaming anything, and lets a team that already
+//! builds its assets for AdvantageScope reuse them here with no extra work.
 //!
-//! Los paquetes se COPIAN al almacén en vez de guardarse como rutas sueltas:
-//! una cancha son ~20 MB repartidos en varios archivos, y guardar la ruta de
-//! la carpeta de Descargas deja el layout roto en cuanto el usuario la ordena.
+//! Packages are COPIED into the store instead of being kept as loose paths: a
+//! field is ~20 MB spread over several files, and keeping the path of the
+//! Downloads folder leaves the layout broken as soon as the user tidies it up.
 //!
-//! La DESCARGA y la descompresión también viven acá y no en el front. No es
-//! una preferencia: GitHub no manda cabeceras CORS en las descargas de sus
-//! releases (ni en el 302 ni en la respuesta final), así que un `fetch` desde
-//! el webview falla siempre con "Failed to fetch". Desde Rust no hay origen
-//! que valga y además los bytes no cruzan el IPC.
+//! The DOWNLOAD and the decompression also live here and not in the frontend. It
+//! is not a preference: GitHub sends no CORS headers on its release downloads
+//! (neither on the 302 nor on the final response), so a `fetch` from the webview
+//! always fails with "Failed to fetch". From Rust there is no origin to speak of,
+//! and the bytes do not cross the IPC either.
 
 use serde::Serialize;
 use std::fs;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
-/// Techo por archivo dentro de un paquete. Un modelo de cancha bien hecho pesa
-/// unos 20 MB; mucho más que esto casi seguro es el archivo equivocado.
+/// Per-file ceiling inside a package. A well-made field model weighs about
+/// 20 MB; much more than this is almost certainly the wrong file.
 const MAX_ASSET_FILE_BYTES: u64 = 128 * 1024 * 1024;
 
-/// Extensiones que se copian al instalar. Todo lo demás del .zip se ignora a
-/// propósito: un paquete de terceros no tiene por qué poder dejar ejecutables
-/// ni scripts en una carpeta de la app.
+/// Extensions copied on install. Everything else in the .zip is ignored on
+/// purpose: a third-party package has no business leaving executables or scripts
+/// in an app folder.
 const ALLOWED_EXTENSIONS: [&str; 6] = ["json", "glb", "gltf", "bin", "png", "jpg"];
 
 #[derive(Serialize)]
 pub struct AssetPack {
-    /// Nombre de la carpeta; es la clave con la que el layout referencia el asset.
+    /// Folder name; it is the key the layout references the asset by.
     pub folder: String,
     pub path: String,
-    /// Texto crudo de config.json. El front lo parsea: el shape lo define él.
+    /// Raw text of config.json. The frontend parses it: it defines the shape.
     pub config: String,
-    /// Nombres de los .glb que trae, ordenados (model.glb, model_0.glb, ...).
+    /// Names of the .glb files it carries, sorted (model.glb, model_0.glb, ...).
     pub models: Vec<String>,
     pub bytes: u64,
 }
@@ -47,8 +47,8 @@ fn store_dir() -> PathBuf {
     base.join("MARS").join("assets3d")
 }
 
-/// Un nombre que viene de un .zip de terceros no se usa nunca tal cual: sin
-/// esto, una entrada llamada `../../config.json` escribiría fuera del almacén.
+/// A name that comes from a third-party .zip is never used as is: without
+/// this, an entry called `../../config.json` would write outside the store.
 fn safe_name(name: &str) -> Result<String, String> {
     let trimmed = name.trim();
     if trimmed.is_empty() {
@@ -69,9 +69,9 @@ fn has_allowed_extension(name: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Ordena `model.glb` primero y después `model_0`, `model_1`, ... por número.
-/// Un orden alfabético dejaría `model_10` antes que `model_2`, y el índice de
-/// cada modelo es lo que empareja las piezas de juego con el config.
+/// Sorts `model.glb` first and then `model_0`, `model_1`, ... by number.
+/// Alphabetical order would put `model_10` before `model_2`, and each model's
+/// index is what pairs the game pieces with the config.
 fn model_rank(name: &str) -> (u8, u32) {
     let stem = name.trim_end_matches(".glb").trim_end_matches(".gltf");
     match stem.strip_prefix("model_") {
@@ -120,9 +120,9 @@ pub fn asset3d_store_dir() -> Result<String, String> {
     Ok(dir.to_string_lossy().to_string())
 }
 
-/// Carpetas del almacén que tienen un `config.json` legible. Las que no lo
-/// tienen se saltan en silencio: una instalación a medias (o una carpeta que
-/// el usuario dejó ahí) no debe impedir que se listen las demás.
+/// Store folders that have a readable `config.json`. The ones that do not are
+/// skipped silently: a half-finished install (or a folder the user left there)
+/// must not keep the rest from being listed.
 #[tauri::command]
 pub fn list_asset3d_packs() -> Result<Vec<AssetPack>, String> {
     let dir = store_dir();
@@ -141,24 +141,24 @@ pub fn list_asset3d_packs() -> Result<Vec<AssetPack>, String> {
     Ok(packs)
 }
 
-/// Descomprime un .zip de asset dentro del almacén.
+/// Unzips an asset .zip into the store.
 ///
-/// Los .zip oficiales traen los archivos en la raíz, pero uno armado a mano en
-/// Windows suele meterlos dentro de una carpeta con el nombre del paquete. Se
-/// aceptan los dos: manda dónde esté el `config.json`, y todo lo que esté a su
-/// lado es el paquete.
+/// The official .zip files carry the files at the root, but one made by hand on
+/// Windows usually puts them inside a folder named after the package. Both are
+/// accepted: wherever the `config.json` is wins, and everything next to it is
+/// the package.
 fn extract_zip(bytes: Vec<u8>, fallback_name: &str) -> Result<String, String> {
     extract_zip_into(bytes, fallback_name, &store_dir())
 }
 
-/// El destino se pasa aparte para poder probar la extracción contra una carpeta
-/// temporal en vez de contra el almacén real del usuario.
+/// The destination is passed separately so the extraction can be tested
+/// against a temporary folder instead of the user's real store.
 fn extract_zip_into(bytes: Vec<u8>, fallback_name: &str, root: &Path) -> Result<String, String> {
     let cursor = std::io::Cursor::new(bytes);
     let mut archive = zip::ZipArchive::new(cursor)
         .map_err(|e| format!("That file is not a readable .zip ({}).", e))?;
 
-    // Primero se busca el config.json para saber cuál es la raíz del paquete.
+    // First the config.json is found, to know which is the package's root.
     let mut prefix: Option<String> = None;
     for i in 0..archive.len() {
         let entry = archive.by_index(i).map_err(|e| e.to_string())?;
@@ -187,9 +187,9 @@ fn extract_zip_into(bytes: Vec<u8>, fallback_name: &str, root: &Path) -> Result<
         let mut entry = archive.by_index(i).map_err(|e| e.to_string())?;
         let name = entry.name().replace('\\', "/");
 
-        // Solo el nivel del config.json: los paquetes son planos, y bajar
-        // recursivamente solo abriría la puerta a escribir árboles enteros
-        // desde un .zip de procedencia desconocida.
+        // Only the config.json's level: packages are flat, and descending
+        // recursively would only open the door to writing whole trees from a .zip of
+        // unknown origin.
         if !name.starts_with(&prefix) {
             continue;
         }
@@ -219,8 +219,8 @@ fn extract_zip_into(bytes: Vec<u8>, fallback_name: &str, root: &Path) -> Result<
     Ok(folder)
 }
 
-/// El nombre acaba siendo una carpeta en disco, así que no puede traer
-/// separadores ni caracteres que Windows rechace.
+/// The name ends up being a folder on disk, so it cannot carry separators or
+/// characters Windows rejects.
 fn sanitize_folder(name: &str) -> String {
     let cleaned: String = name
         .trim_end_matches(".zip")
@@ -228,10 +228,10 @@ fn sanitize_folder(name: &str) -> String {
         .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-' { c } else { '_' })
         .collect();
 
-    // Un nombre hecho solo de puntos NO se puede dejar pasar: "." es la propia
-    // carpeta del almacén y ".." es la de arriba, así que un .zip malicioso
-    // llamado así escribiría fuera del almacén aunque cada archivo suelto sí
-    // pase por `safe_name`.
+    // A name made only of dots CANNOT be let through: "." is the store's own
+    // folder and ".." is the one above, so a malicious .zip named like that would
+    // write outside the store even though every loose file does go through
+    // `safe_name`.
     if cleaned.is_empty() || cleaned.chars().all(|c| c == '.') {
         "Asset".to_string()
     } else {
@@ -239,7 +239,7 @@ fn sanitize_folder(name: &str) -> String {
     }
 }
 
-/// Instala un .zip que el usuario ya tiene en disco.
+/// Installs a .zip the user already has on disk.
 #[tauri::command]
 pub fn install_asset3d_zip(path: String) -> Result<String, String> {
     let meta = fs::metadata(&path).map_err(|e| format!("Could not open {}: {}", path, e))?;
@@ -257,11 +257,11 @@ pub fn install_asset3d_zip(path: String) -> Result<String, String> {
     extract_zip(bytes, &fallback)
 }
 
-/// Descarga un paquete y lo instala.
+/// Downloads a package and installs it.
 ///
-/// Solo se aceptan URLs https: el destino sale de un catálogo fijo del front,
-/// pero comprobarlo acá es lo que impide que un layout editado a mano convierta
-/// este comando en un descargador de cualquier cosa por http.
+/// Only https URLs are accepted: the destination comes from a fixed catalog in
+/// the frontend, but checking it here is what keeps a hand-edited layout from
+/// turning this command into a downloader of anything over http.
 #[tauri::command]
 pub async fn download_asset3d(url: String, fallback_name: String) -> Result<String, String> {
     if !url.starts_with("https://") {
@@ -283,16 +283,16 @@ pub async fn download_asset3d(url: String, fallback_name: String) -> Result<Stri
         return Err("The downloaded archive is larger than the limit.".to_string());
     }
 
-    // La descompresión bloquea, así que se saca del hilo asíncrono: son ~20 MB
-    // y dejaría la ventana congelada durante el descomprimido.
+    // Decompression blocks, so it is moved off the async thread: it is ~20 MB
+    // and it would leave the window frozen while unzipping.
     tauri::async_runtime::spawn_blocking(move || extract_zip(bytes.to_vec(), &fallback_name))
         .await
         .map_err(|e| format!("Install failed: {}", e))?
 }
 
-/// Copia una carpeta de asset ya extraída (la que quedó al descomprimir, o la
-/// de `userAssets` de AdvantageScope) al almacén. Es el camino rápido: los
-/// bytes no pasan por el IPC.
+/// Copies an already extracted asset folder (the one left after unzipping, or
+/// AdvantageScope's `userAssets` one) into the store. It is the fast path: the
+/// bytes do not go through the IPC.
 #[tauri::command]
 pub fn import_asset3d_folder(source: String) -> Result<String, String> {
     let source = PathBuf::from(&source);
@@ -322,8 +322,8 @@ pub fn import_asset3d_folder(source: String) -> Result<String, String> {
             Ok(m) => m,
             Err(_) => continue,
         };
-        // Solo el primer nivel: los paquetes son planos y bajar recursivamente
-        // solo abriría la puerta a copiar árboles enteros por accidente.
+        // Only the first level: packages are flat and descending recursively
+        // would only open the door to copying whole trees by accident.
         if !meta.is_file() || meta.len() > MAX_ASSET_FILE_BYTES {
             continue;
         }
@@ -358,7 +358,7 @@ mod tests {
     use std::io::Write;
     use zip::write::SimpleFileOptions;
 
-    /// Arma un .zip en memoria con las entradas dadas.
+    /// Builds a .zip in memory with the given entries.
     fn zip_with(entries: &[(&str, &[u8])]) -> Vec<u8> {
         let mut buffer = Vec::new();
         {
@@ -382,8 +382,8 @@ mod tests {
     }
 
     #[test]
-    fn instala_un_zip_plano() {
-        // Los .zip oficiales traen los archivos en la raíz.
+    fn installs_a_flat_zip() {
+        // The official .zip files carry the files at the root.
         let root = temp_root("plano");
         let data = zip_with(&[
             ("config.json", br#"{"name":"X"}"#),
@@ -397,22 +397,22 @@ mod tests {
     }
 
     #[test]
-    fn instala_un_zip_con_carpeta_adentro() {
-        // El que uno arma a mano en Windows mete todo bajo una carpeta; el
-        // nombre del paquete sale de ahí y no del nombre del archivo.
-        let root = temp_root("carpeta");
+    fn installs_a_zip_with_a_folder_inside() {
+        // The one made by hand on Windows puts everything under a folder; the
+        // package's name comes from there and not from the file's name.
+        let root = temp_root("folder");
         let data = zip_with(&[
             ("Robot_Mio/config.json", br#"{"name":"X"}"#),
             ("Robot_Mio/model.glb", b"glb"),
         ]);
 
-        let folder = extract_zip_into(data, "descarga", &root).unwrap();
+        let folder = extract_zip_into(data, "download", &root).unwrap();
         assert_eq!(folder, "Robot_Mio");
         assert!(root.join("Robot_Mio").join("model.glb").exists());
     }
 
     #[test]
-    fn rechaza_un_zip_sin_config() {
+    fn rejects_a_zip_without_config() {
         let root = temp_root("sin-config");
         let data = zip_with(&[("model.glb", b"glb")]);
         let error = extract_zip_into(data, "X", &root).unwrap_err();
@@ -420,9 +420,9 @@ mod tests {
     }
 
     #[test]
-    fn ignora_lo_que_no_es_un_asset() {
-        // Un paquete de terceros no tiene por qué poder dejar ejecutables ni
-        // subcarpetas en una carpeta de la app.
+    fn ignores_what_is_not_an_asset() {
+        // A third-party package has no business leaving executables or
+        // subfolders in an app folder.
         let root = temp_root("filtro");
         let data = zip_with(&[
             ("config.json", br#"{"name":"X"}"#),
@@ -439,9 +439,9 @@ mod tests {
     }
 
     #[test]
-    fn el_nombre_de_carpeta_no_puede_escapar_del_almacen() {
-        // Los separadores se reemplazan, así que lo que queda es un solo
-        // componente de ruta y no puede salirse del almacén.
+    fn the_folder_name_cannot_escape_the_store() {
+        // Separators are replaced, so what remains is a single path component
+        // and it cannot get out of the store.
         assert_eq!(sanitize_folder("../../etc"), ".._.._etc");
         assert_eq!(sanitize_folder(".."), "Asset");
         assert_eq!(sanitize_folder("."), "Asset");
@@ -453,9 +453,9 @@ mod tests {
     }
 
     #[test]
-    fn los_modelos_se_ordenan_por_numero_y_no_alfabeticamente() {
-        // El índice de cada modelo es lo que empareja las piezas de juego con
-        // el config; con orden alfabético, model_10 se colaría antes de model_2.
+    fn models_sort_by_number_and_not_alphabetically() {
+        // Each model's index is what pairs the game pieces with the config;
+        // in alphabetical order, model_10 would sneak in before model_2.
         let mut names = vec![
             "model_10.glb".to_string(),
             "model_2.glb".to_string(),
@@ -466,29 +466,29 @@ mod tests {
         assert_eq!(names, vec!["model.glb", "model_1.glb", "model_2.glb", "model_10.glb"]);
     }
 
-    /// Descarga de verdad el KitBot (~2 MB) del catálogo oficial.
+    /// Really downloads the KitBot (~2 MB) from the official catalog.
     ///
-    /// Va marcado `ignore` porque necesita internet y no puede correr en un
-    /// pit sin red; se lanza a mano con `cargo test -- --ignored`. Existe
-    /// porque el camino de descarga NO se puede probar desde el front: GitHub
-    /// no manda cabeceras CORS y un `fetch` desde el webview falla siempre.
+    /// It is marked `ignore` because it needs internet and cannot run in a pit
+    /// without a network; run it by hand with `cargo test -- --ignored`. It exists
+    /// because the download path CANNOT be tested from the frontend: GitHub sends
+    /// no CORS headers and a `fetch` from the webview always fails.
     #[test]
     #[ignore]
-    fn descarga_un_paquete_real() {
+    fn downloads_a_real_package() {
         let url = concat!(
             "https://github.com/Mechanical-Advantage/AdvantageScopeAssets",
             "/releases/download/default-assets-v2/Robot_2026FRCKitBotV2.zip",
         );
 
         let bytes = tauri::async_runtime::block_on(async {
-            let response = reqwest::get(url).await.expect("la descarga falló");
+            let response = reqwest::get(url).await.expect("the download failed");
             assert!(response.status().is_success(), "HTTP {}", response.status());
-            response.bytes().await.expect("no se pudo leer el cuerpo")
+            response.bytes().await.expect("could not read the body")
         });
 
-        assert!(bytes.len() > 100_000, "el .zip llegó vacío: {} bytes", bytes.len());
+        assert!(bytes.len() > 100_000, "the .zip arrived empty: {} bytes", bytes.len());
 
-        let root = temp_root("descarga");
+        let root = temp_root("download");
         let folder = extract_zip_into(bytes.to_vec(), "Robot_2026FRCKitBotV2", &root).unwrap();
         let dir = root.join(&folder);
         assert!(dir.join("config.json").exists());
@@ -496,9 +496,9 @@ mod tests {
     }
 
     #[test]
-    fn solo_se_descarga_por_https() {
+    fn only_downloads_over_https() {
         let error = tauri::async_runtime::block_on(download_asset3d(
-            "http://ejemplo.invalido/asset.zip".to_string(),
+            "http://example.invalid/asset.zip".to_string(),
             "X".to_string(),
         ))
         .unwrap_err();

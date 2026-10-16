@@ -18,9 +18,9 @@ const ROBOT_COLOR = "#d63b3b"
 const TRAJECTORY_COLOR = "#f2f2f4"
 const OBJECT_COLOR = "#2f6fdb"
 
-// A diferencia del resto de widgets, este NO recibe un valor: un Field2d es
-// una tabla, así que se suscribe por su cuenta a todos los topics que cuelgan
-// del prefijo. Por eso `widget.topicName` acá es una ruta de tabla.
+// Unlike the rest of the widgets, this one does NOT receive a value: a Field2d
+// is a table, so it subscribes on its own to every topic hanging from the
+// prefix. That is why `widget.topicName` here is a table path.
 export default function Field2dWidget({ widget, topics }: Props) {
   const prefix = widget.topicName
 
@@ -34,8 +34,8 @@ export default function Field2dWidget({ widget, topics }: Props) {
     field?.coordinateSystem ??
     "wall_blue"
 
-  // La tarjeta no tiene panel de objetos, así que hereda los defaults y solo
-  // deja tocar lo que entra en el panel de ajustes del widget.
+  // The card has no objects panel, so it inherits the defaults and only lets
+  // you touch what fits in the widget's settings panel.
   const settings: FieldSettings = useMemo(() => {
     const length = widget.fieldRobotSize ?? defaultFieldSettings.robotSizeMeters
     const trail = widget.fieldTrailSeconds ?? 0
@@ -50,7 +50,7 @@ export default function Field2dWidget({ widget, topics }: Props) {
       allianceFlip: widget.fieldAllianceFlip ?? false,
       showTrails: trail > 0,
       trailSeconds: trail,
-      // Etiquetas y lectura del cursor son ruido en una tarjeta de 200 px.
+      // Labels and the cursor readout are noise on a 200 px card.
       showLabels: false,
       showCursor: false,
     }

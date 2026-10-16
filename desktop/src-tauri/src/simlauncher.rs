@@ -69,7 +69,7 @@ fn find_executable() -> Option<PathBuf> {
 /// Whether MARS Simulation Studio is installed, and where. The UI uses it so as
 /// not to offer a button that can do nothing.
 #[tauri::command]
-pub fn sim_app_disponible() -> Option<String> {
+pub fn sim_app_available() -> Option<String> {
     find_executable().map(|p| p.display().to_string())
 }
 
@@ -89,7 +89,7 @@ const STARTUP_GRACE: Duration = Duration::from_millis(1500);
 /// it does absolutely nothing. That happened, and there is no worse symptom to
 /// debug.
 #[tauri::command]
-pub fn abrir_sim_app() -> Result<String, String> {
+pub fn open_sim_app() -> Result<String, String> {
     let exe = find_executable().ok_or_else(|| {
         "MARS Simulation Studio was not found. Build it with `cargo build` in \
          simulationstudio/app, or set MARS_SIM_APP to the path of its executable."

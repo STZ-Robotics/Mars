@@ -1,17 +1,17 @@
-// Field 3D: la cancha de la temporada en tres dimensiones, con el robot, sus
-// piezas articuladas, las trayectorias y las marcas de visión encima.
+// Field 3D: the season's field in three dimensions, with the robot, its
+// articulated parts, the trajectories and the vision marks on top.
 //
-// Es la hermana en 3D del 2D Visualizer y comparte su forma: se arrastran
-// topics desde el Data Directory a la escena y cada uno se vuelve un objeto
-// configurable. Lo que cambia es que acá una pose tiene altura y orientación
-// completa, así que sirve para lo que el 2D no puede — ver si el brazo llega,
-// si el tiro sale con el ángulo que se calculó, o desde dónde vio la cámara
-// el AprilTag que movió la pose estimada.
+// It is the 2D Visualizer's 3D sibling and shares its shape: topics are dragged
+// from the Data Directory onto the scene and each one becomes a configurable
+// object. What changes is that here a pose has height and full orientation, so
+// it serves what 2D cannot — seeing whether the arm reaches, whether the shot
+// leaves at the computed angle, or where the camera saw the AprilTag that moved
+// the estimated pose from.
 //
-// La página hace tres cosas y delega el resto: resuelve QUÉ poses hay este
-// frame, las convierte del marco en que publica el robot al del modelo de la
-// cancha, y le entrega el resultado a la escena. El dibujo vive en
-// `components/dashboard/field3d/`, los assets en `utils/field3d/`.
+// The page does three things and delegates the rest: it resolves WHICH poses
+// there are this frame, converts them from the frame the robot publishes in to
+// the field model's, and hands the result to the scene. The drawing lives in
+// `components/dashboard/field3d/`, the assets in `utils/field3d/`.
 
 import React, { useCallback, useMemo, useRef, useState } from "react"
 import { TopicAnnounce, Field3dObjectConfig, Field3dSettings, Field3dCameraMode, Field3dQuality, EVERGREEN_FIELD_KEY } from "../store/appStore"
@@ -47,7 +47,7 @@ interface Props {
 
 const OBJECT_COLORS = ["#2f6fdb", "#d63b3b", "#1f9e4a", "#d4a94a", "#8a4fd1", "#0e9aa7"]
 
-/** La Driver Station publica esto sola; no hay que hacer nada en el robot. */
+/** The Driver Station publishes this on its own; nothing has to be done on the robot. */
 const FMS_ALLIANCE_TOPIC = "/FMSInfo/IsRedAlliance"
 
 const CAMERA_MODES: { value: Field3dCameraMode; label: string }[] = [
@@ -72,15 +72,15 @@ export default function Field3dPage({
   const [resetToken, setResetToken] = useState(0)
   const isLive = useSelectionStore(s => s.isLive)
 
-  // Las estelas viven en la PÁGINA y no en la escena: el panel tiene que poder
-  // contarlas y vaciarlas, y la escena se vuelve a montar cada vez que cambia
-  // la cancha.
+  // The trails live in the PAGE and not in the scene: the panel has to be able
+  // to count and clear them, and the scene remounts every time the field
+  // changes.
   const trailsRef = useRef<TrailStore | null>(null)
   if (trailsRef.current === null) trailsRef.current = new TrailStore()
   const trails = trailsRef.current
 
-  // Estables a propósito: van a paneles memoizados, y una función nueva en
-  // cada render los haría redibujarse igual que si no lo estuvieran.
+  // Stable on purpose: they go to memoized panels, and a new function on every
+  // render would make them redraw just as if they were not.
   const clearAllTrails = useCallback(() => trails.clear(), [trails])
   const clearOneTrail = useCallback((id: string) => trails.clear(id), [trails])
 
@@ -88,9 +88,9 @@ export default function Field3dPage({
 
   // --- Datos ------------------------------------------------------------------
 
-  // Un solo poll para todo lo dibujado. El Set no es cosmético: el mismo topic
-  // puede estar en varios objetos (el robot y su estela) y sin él se lo pediría
-  // una vez por objeto.
+  // A single poll for everything drawn. The Set is not cosmetic: the same topic
+  // can be in several objects (the robot and its trail) and without it it would
+  // be requested once per object.
   const topicNames = useMemo(() => {
     const names = new Set(objects.map(o => o.topicName))
     if (settings.allianceFromFMS) names.add(FMS_ALLIANCE_TOPIC)
@@ -105,13 +105,13 @@ export default function Field3dPage({
     ? (fmsAlliance ? "red" : "blue")
     : settings.alliance
 
-  // --- Marco de la cancha ------------------------------------------------------
+  // --- The field's frame ------------------------------------------------------
 
   const size = assets.fieldPack?.config.size ?? DEFAULT_FIELD_SIZE
 
-  // Qué origen usar cuando el sistema es relativo a la alianza. "auto" sigue a
-  // la alianza real, que es lo que quiere el 99 % de los casos; fijarlo sirve
-  // para revisar un log de la otra alianza sin que todo se dé vuelta.
+  // Which origin to use when the system is alliance-relative. "auto" follows the
+  // real alliance, which is what 99 % of cases want; pinning it serves to review
+  // a log from the other alliance without everything flipping around.
   const originAlliance: Alliance = settings.origin === "auto" ? alliance : settings.origin
 
   const transform = useMemo(() => frameTransform(
@@ -125,9 +125,9 @@ export default function Field3dPage({
       const options = resolveField3dOptions(obj, settings)
       const raw = extractPoses3d(liveValues[obj.topicName], obj.topicType, options.arrayFormat)
 
-      // Los componentes se publican RELATIVOS al robot, así que no pasan por
-      // la conversión de marco: la escena los compone con la pose del robot,
-      // que sí está convertida.
+      // Components are published RELATIVE to the robot, so they do not go
+      // through the frame conversion: the scene composes them with the robot's
+      // pose, which is converted.
       const poses: Pose3D[] = obj.type === "component"
         ? raw
         : raw.map(pose => toFieldFrame(pose, transform))
@@ -143,8 +143,8 @@ export default function Field3dPage({
     })
   ), [objects, settings, liveValues, transform])
 
-  // Las piezas que el modelo de la cancha trae ya colocadas se apagan en cuanto
-  // el robot publica ese tipo de pieza, para no verla dos veces.
+  // The pieces the field model already carries in place are turned off as soon
+  // as the robot publishes that piece type, so it is not seen twice.
   const activeGamePieces = useMemo(() => {
     const active = new Set<number>()
     rendered.forEach(object => {
@@ -155,17 +155,17 @@ export default function Field3dPage({
     return active
   }, [rendered])
 
-  // El contador se rehace en cada poll: `liveValues` está en las dependencias
-  // como disparador, no porque se lo use acá — las estelas las escribe la
-  // escena, por fuera de React.
+  // The count is redone on every poll: `liveValues` is in the dependencies as
+  // a trigger, not because it is used here — the trails are written by the
+  // scene, outside React.
   const sampleCounts = useMemo(() => {
     const out: Record<string, number> = {}
     objects.forEach(obj => { out[obj.id] = trails.count(obj.id) })
     return out
   }, [objects, liveValues, trails])
 
-  // Se memoiza porque va a un panel memoizado: recrear el objeto en cada
-  // render lo haría redibujarse igual, que es justo lo que se quiere evitar.
+  // Memoized because it goes to a memoized panel: recreating the object on
+  // every render would make it redraw anyway, which is exactly what is avoided.
   const modelStats = useMemo(
     () => (assets.fieldModel
       ? {
@@ -188,8 +188,8 @@ export default function Field3dPage({
 
     const topicName = e.dataTransfer.getData("topicName")
     const topicType = e.dataTransfer.getData("topicType")
-    // Doble candado: el árbol ya filtra por tipo, se revalida por si el drop
-    // viniera de otro origen.
+    // Double lock: the tree already filters by type, it is revalidated in case
+    // the drop came from another source.
     if (!topicName || !isField3dDroppable(topicType)) return
 
     const usedColors = new Set(objects.map(o => o.color))
@@ -206,9 +206,9 @@ export default function Field3dPage({
   }
 
   /**
-   * Segunda vista del MISMO topic. Un robot duplicado arranca como fantasma,
-   * que es el caso por el que uno duplica: comparar la pose medida con la
-   * estimada sin publicar la misma pose dos veces desde el robot.
+   * A second view of the SAME topic. A duplicated robot starts as a ghost,
+   * which is the case people duplicate for: comparing the measured pose with
+   * the estimated one without publishing the same pose twice from the robot.
    */
   const handleDuplicate = (id: string) => {
     const source = objects.find(o => o.id === id)
@@ -224,8 +224,8 @@ export default function Field3dPage({
       type: source.type === "robot" ? "ghost" : source.type,
       color,
     })
-    // El duplicado hereda lo acumulado: si no, la estela nueva arrancaría
-    // vacía aunque el original llevara media práctica juntando.
+    // The duplicate inherits what was accumulated: otherwise the new trail would
+    // start empty even though the original had been collecting for half a practice.
     trails.copy(id, newId)
   }
 

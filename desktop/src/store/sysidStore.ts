@@ -1,7 +1,7 @@
 import { create } from "zustand"
 import { MechanismType, SysIdTestType } from "../utils/sysid/feedforward"
 
-/** Rango de tiempo de una corrida, en microsegundos (escala del servidor NT). */
+/** A run's time range, in microseconds (the NT server's scale). */
 export interface TestRange {
   startUs: number | null
   endUs: number | null
@@ -9,9 +9,9 @@ export interface TestRange {
 
 export interface SysIdConfig {
   mechanism: MechanismType
-  /** Topic del voltaje aplicado al motor. */
+  /** Topic of the voltage applied to the motor. */
   voltageTopic: string | null
-  /** Solo lo necesita el modelo de brazo (para cos θ). */
+  /** Only the arm model needs it (for cos θ). */
   positionTopic: string | null
   velocityTopic: string | null
   ranges: Record<SysIdTestType, TestRange>
@@ -38,13 +38,13 @@ interface SysIdState {
   setRange: (test: SysIdTestType, range: Partial<TestRange>) => void
   clearRange: (test: SysIdTestType) => void
   reset: () => void
-  /** Reemplaza todo (al restaurar un layout guardado). */
+  /** Replaces everything (when restoring a saved layout). */
   setConfig: (config: SysIdConfig) => void
 }
 
-// La configuración vive en un store y no en el estado local de la página
-// porque SysId es una Page singleton: navegar a otra pantalla y volver
-// perdería los cuatro rangos que costó marcar a mano.
+// The configuration lives in a store and not in the page's local state because
+// SysId is a singleton Page: navigating to another screen and back would lose
+// the four ranges that took effort to mark by hand.
 export const useSysIdStore = create<SysIdState>((set) => ({
   config: defaultSysIdConfig,
 
@@ -69,12 +69,12 @@ export const useSysIdStore = create<SysIdState>((set) => ({
   setConfig: (config) => set({ config }),
 }))
 
-/** Un rango sirve solo si tiene los dos extremos y el final va después del inicio. */
+/** A range is only usable if it has both ends and the end comes after the start. */
 export function isRangeUsable(range: TestRange): boolean {
   return range.startUs !== null && range.endUs !== null && range.endUs > range.startUs
 }
 
-/** Rellena lo que falte de un config guardado por una versión anterior. */
+/** Fills in whatever a config saved by an earlier version is missing. */
 export function normalizeSysIdConfig(raw: any): SysIdConfig {
   const mechanisms: MechanismType[] = ["simple", "elevator", "arm"]
   const ranges = emptyRanges()
@@ -83,7 +83,7 @@ export function normalizeSysIdConfig(raw: any): SysIdConfig {
     for (const key of Object.keys(ranges) as SysIdTestType[]) {
       const r = raw.ranges[key]
       if (!r) continue
-      // Un rango con un tiempo no finito dibujaría en NaN y rompería el ajuste.
+      // A range with a non-finite time would draw at NaN and break the fit.
       const startUs = typeof r.startUs === "number" && isFinite(r.startUs) ? r.startUs : null
       const endUs = typeof r.endUs === "number" && isFinite(r.endUs) ? r.endUs : null
       ranges[key] = { startUs, endUs }

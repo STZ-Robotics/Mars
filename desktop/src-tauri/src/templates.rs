@@ -104,7 +104,7 @@ mod tests {
             "settings.gradle",
             "gradlew",
             ".github/workflows/publish.yml",
-            "src/main/java/com/miequipo/mifeature/FeatureMain.java",
+            "src/main/java/com/yourteam/yourfeature/FeatureMain.java",
         ] {
             assert!(names.contains(&expected), "the feature template lost {expected}");
         }

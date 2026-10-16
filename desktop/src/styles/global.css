@@ -1,30 +1,30 @@
 :root {
   /* =========================================
      MARS FRAMEWORK - COLOR PALETTE (LIGHT MODE)
-     Pivote de oscuro a claro: las tres referencias del usuario
-     (AdvantageScope, RViz, MoveIt) son todas de chrome claro/gris neutro,
-     con color reservado para íconos de función y datos en vivo.
+     A pivot from dark to light: the user's three references
+     (AdvantageScope, RViz, MoveIt) all have a light/neutral grey chrome,
+     with color reserved for function icons and live data.
   ========================================= */
 
   /* Fondos (Backgrounds) */
-  --bg-app: #ececee;          /* Fondo base de la app (marco exterior) */
-  --bg-page: #ffffff;         /* Fondo de las páginas interiores (el lienzo, el más "quieto") */
-  --bg-panel: #f7f7f8;        /* Sidebars, tarjetas, paneles — un escalón de gris respecto al canvas */
+  --bg-app: #ececee;          /* The app's base background (outer frame) */
+  --bg-page: #ffffff;         /* Background of the inner pages (the canvas, the "stillest" one) */
+  --bg-panel: #f7f7f8;        /* Sidebars, cards, panels — one step of grey from the canvas */
   --bg-toolbar: #ececee;      /* Barra de herramientas (Ribbon) */
-  --bg-menubar: #f0f0f1;      /* Barra de menú superior / headers de panel */
+  --bg-menubar: #f0f0f1;      /* Top menu bar / panel headers */
   --bg-input: #ffffff;        /* Cajas de texto */
-  --bg-dark: #eeeeef;         /* Barra de título y barra de estado */
+  --bg-dark: #eeeeef;         /* Title bar and status bar */
 
   /* Textos (Typography) */
-  --text-primary: #1c1c1f;    /* Títulos y texto principal (casi negro) */
-  --text-secondary: #52525b;  /* Subtítulos y descripciones */
+  --text-primary: #1c1c1f;    /* Headings and main text (almost black) */
+  --text-secondary: #52525b;  /* Subtitles and descriptions */
   --text-muted: #68686f;      /* Labels, placeholders y texto secundario */
   --text-light: #6f6f76;      /* Texto inactivo o apagado */
 
   /* Bordes (Borders) */
-  --border-light: #e8e8ea;    /* Tablas y separadores muy sutiles */
+  --border-light: #e8e8ea;    /* Very subtle tables and separators */
   --border-main: #d4d4d8;     /* Bordes de tarjetas e inputs */
-  --border-dark: #b8b8bf;     /* Separadores de ToolBar y MenuBar */
+  --border-dark: #b8b8bf;     /* ToolBar and MenuBar separators */
 
   /* Acentos y Marca (Brand & Accents) */
   --mars-red: #a83c3c;
@@ -34,7 +34,7 @@
   /* Estados (Status & Hardware) */
   --status-success: #1f7a1f;
   --status-error: #c21c1c;
-  --status-warning: #a1690a;  /* Ámbar oscurecido para leerse sobre fondo claro */
+  --status-warning: #a1690a;  /* Amber, darkened to read on a light background */
   --status-sim: #1c8f1c;
   --status-real: #1a7f1a;
   --module-enabled: #1c8f1c;
@@ -45,15 +45,15 @@
   --status-warning-bg: rgba(161, 105, 10, 0.1);
   --status-success-bg: rgba(31, 122, 31, 0.1);
 
-  /* Tipos de dato (Telemetry/Manifest) — oscurecidos respecto a la versión
-     dark-mode (que eran pasteles pensados para resaltar sobre fondo negro) */
+  /* Data types (Telemetry/Manifest) — darkened from the dark-mode version
+     (they were pastels meant to stand out on a black background) */
   --type-numeric: var(--status-sim);
   --type-boolean: var(--mars-red);
   --type-string: #8a5a08;
   --type-struct: #0e7490;
   --type-array: #9333ea;
 
-  /* Texto de headers de página (Sidebar/PanelHeader) */
+  /* Page header text (Sidebar/PanelHeader) */
   --text-header-eyebrow: #5c5c62;
   --text-header-title: #1c1c1f;
   --text-header-subtitle: #6e6e74;
@@ -71,8 +71,8 @@
   --variant-red-border: #c25c5c;
   --variant-red-border-hover: #d17f7f;
 
-  /* Íconos por categoría — cada grupo de la toolbar/Home tiene un acento
-     propio, para wayfinding visual, no decoración (checkeado a >=3:1 sobre
+  /* Icons by category — each toolbar/Home group has its own accent, for
+     visual wayfinding, not decoration (checked at >=3:1 against
      --bg-toolbar/--bg-panel). */
   --icon-cat-file: #1e4fc9;
   --icon-cat-tools: #0f766e;
@@ -86,18 +86,18 @@
   --statusbar-project-bg: #a65200;
 
   --icon-toolbar: #4a4a50;
-  --toolbar-active-bg: rgba(74, 95, 217, 0.12); /* fondo de la herramienta activa, estilo "selección" de RViz */
+  --toolbar-active-bg: rgba(74, 95, 217, 0.12); /* background of the active tool, RViz "selection" style */
 
-  /* Paneles acoplados (Sidebar/Panel): headers en gris más oscuro que el
-     resto del chrome, para separar visualmente cada grupo estilo QDockWidget
-     de RViz (los "Displays"/"MotionPlanning" de la referencia) */
+  /* Docked panels (Sidebar/Panel): headers in a darker grey than the rest
+     of the chrome, to visually separate each group QDockWidget-style like
+     RViz (the reference's "Displays"/"MotionPlanning") */
   --bg-panel-header: #dcdce0;
   --bg-panel-header-hover: #d0d0d5;
   --bg-sidebar: #ececef;
 
-  /* Árbol estilo QTreeWidget (el "Displays" de RViz): filas densas, selección
-     azul sólida tipo Windows/Qt, íconos monocromos en gris pizarra en vez de
-     los acentos de categoría (que se veían demasiado "modernos"/saturados). */
+  /* QTreeWidget-style tree (RViz's "Displays"): dense rows, a solid blue
+     Windows/Qt-style selection, monochrome slate-grey icons instead of the
+     category accents (which looked too "modern"/saturated). */
   --tree-row-height: 22px;
   --icon-tree: #55565c;
   --tree-hover-bg: #e0e0e4;
@@ -105,8 +105,8 @@
   --tree-selection-fg: #ffffff;
   --tree-body-bg: #ffffff;
 
-  /* Botones "clásicos" (Add/Rename/Remove de los paneles de RViz):
-     gris plano con borde fino y texto apagado al estar deshabilitados. */
+  /* "Classic" buttons (the Add/Rename/Remove of RViz's panels): flat grey
+     with a thin border and dimmed text when disabled. */
   --btn-classic-bg: #e9e9ec;
   --btn-classic-bg-hover: #f4f4f6;
   --btn-classic-bg-active: #dcdce0;
@@ -117,18 +117,18 @@
   --grid-line: rgba(0, 0, 0, 0.055);
   --grid-line-major: rgba(0, 0, 0, 0.13);
 
-  /* Barra de menú superior: gris oscuro con texto claro. Es la única franja
-     oscura del chrome y sirve de "techo" de la ventana ahora que la fila del
-     título desapareció. */
+  /* The top menu bar: dark grey with light text. It is the only dark strip
+     in the chrome and acts as the window's "roof" now that the title row is
+     gone. */
   --bg-menubar-dark: #33343a;
   --bg-menubar-dark-hover: #4a4b53;
   --bg-menubar-dark-active: #2f6fdb;
   --text-menubar: #ececed;
   --text-menubar-dim: #a0a1a8;
 
-  /* Biseles estilo Qt/Win clásico: un borde claro arriba-izquierda y uno
-     oscuro abajo-derecha es lo que da el relieve "antiguo" sin recurrir a
-     sombras difusas. */
+  /* Classic Qt/Win bevels: a light border top-left and a dark one
+     bottom-right is what gives the "old-school" relief without resorting to
+     diffuse shadows. */
   --bevel-light: #ffffff;
   --bevel-dark: #9c9ca4;
 

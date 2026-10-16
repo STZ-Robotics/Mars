@@ -3,14 +3,14 @@ import { ReactNode } from "react"
 interface Props {
   title: string
   children: ReactNode
-  icon?: string // sufijo de ícono tabler, opcional
+  icon?: string // tabler icon suffix, optional
 }
 
-// Panel acoplable estilo RViz/Qt (QDockWidget): barra de título sólida +
-// contenido debajo, todo dentro de un borde fino — el mismo lenguaje visual
-// de los paneles "Displays"/"Views"/"Time" de RViz. Reemplaza el GroupBox
-// anterior (título incrustado en el borde, estilo MATLAB uipanel): mismo
-// rol de "agrupar campos con un título", look distinto.
+// RViz/Qt-style dockable panel (QDockWidget): a solid title bar + content
+// below, all inside a thin border — the same visual language as RViz's
+// "Displays"/"Views"/"Time" panels. It replaces the previous GroupBox (title
+// embedded in the border, MATLAB uipanel style): the same role of "grouping
+// fields under a title", a different look.
 export default function Panel({ title, children, icon }: Props) {
   return (
     <div style={{ border: "1px solid var(--border-main)", overflow: "hidden", background: "var(--bg-page)" }}>

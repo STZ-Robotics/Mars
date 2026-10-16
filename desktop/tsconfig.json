@@ -14,11 +14,11 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
-    /* El bloque MARS se resuelve por alias: vite lo apunta a
-       src/mars/index.tsx (edición Full) o a src/mars/index.tools.tsx (Tools).
-       Para tsc siempre es el completo — las dos implementaciones se verifican
-       igual porque cada una se asigna a `MarsSurface` en su propio archivo, y
-       los dos archivos están dentro de `include`. */
+    /* The MARS block is resolved by alias: vite points it at
+       src/mars/index.tsx (Full edition) or at src/mars/index.tools.tsx (Tools).
+       For tsc it is always the full one — both implementations are checked
+       anyway because each one is assigned to `MarsSurface` in its own file, and
+       both files are inside `include`. */
     "baseUrl": ".",
     "paths": {
       "@mars": ["./src/mars/index.tsx"]

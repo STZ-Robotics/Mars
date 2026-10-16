@@ -10,9 +10,9 @@ interface Props {
   suffix: string
 }
 
-// Buffer propio en memoria (independiente del polling NT). Muestrea el
-// último valor recibido a ~20Hz y dibuja un SVG tipo línea de tiempo,
-// igual de espíritu al Graph de Elastic (fl_chart), pero sin dependencias externas.
+// Its own in-memory buffer (independent of NT polling). It samples the last
+// received value at ~20Hz and draws a timeline-style SVG, in the same spirit as
+// Elastic's Graph (fl_chart), but with no external dependencies.
 export default function GraphWidget({ value, timeDisplayed, color, lineWidth, minValue, maxValue, suffix }: Props) {
   const pointsRef = useRef<{ t: number; v: number }[]>([])
   const valueRef = useRef(value)
@@ -25,8 +25,8 @@ export default function GraphWidget({ value, timeDisplayed, color, lineWidth, mi
       const windowStart = now - timeDisplayed * 1000
       const pts = pointsRef.current
       pts.push({ t: now, v: valueRef.current })
-      // Conservamos un punto justo antes de la ventana para que la línea no
-      // "nazca" a la mitad del gráfico; el resto se recorta.
+      // One point right before the window is kept so the line is not "born"
+      // halfway through the plot; the rest is cut off.
       while (pts.length > 2 && pts[1].t < windowStart) pts.shift()
       forceTick(n => n + 1)
     }, 50) // ~20Hz de muestreo visual

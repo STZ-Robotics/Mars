@@ -1,6 +1,6 @@
-// Decodificación de valores NT4 y de structs binarios WPILib (Little Endian).
+// Decoding of NT4 values and of WPILib binary structs (Little Endian).
 
-// Desempaqueta el valor que llega desde Rust (NTValue enum) a un valor JS plano.
+// Unpacks the value coming from Rust (the NTValue enum) into a plain JS value.
 export function unpackLiveValue(liveValue: any): any {
   if (!liveValue) return null
   if (liveValue.Number !== undefined) return liveValue.Number
@@ -13,15 +13,15 @@ export function unpackLiveValue(liveValue: any): any {
   return null
 }
 
-// IMPORTANTE: el struct schema de WPILib serializa en Little Endian.
+// IMPORTANT: WPILib's struct schema serializes in Little Endian.
 export function readDoubleLE(bytes: number[], offset: number): number {
   if (bytes.length < offset + 8) return 0.0
   const buf = new Uint8Array(bytes.slice(offset, offset + 8)).buffer
   return new DataView(buf).getFloat64(0, true) // true = Little Endian
 }
 
-// Tipos primitivos que puede declarar un schema de WPILib. La tabla escrita a
-// mano de abajo son todos "double", que es el default cuando `type` no está.
+// Primitive types a WPILib schema can declare. The hand-written table below is
+// all "double", which is the default when `type` is missing.
 export type StructPrimitive =
   | "bool" | "char"
   | "int8" | "int16" | "int32" | "int64"
@@ -30,38 +30,38 @@ export type StructPrimitive =
 
 export interface StructField {
   label: string
-  /** Offset en BYTES desde el inicio del struct. */
+  /** Offset in BYTES from the start of the struct. */
   offset: number
-  /** Ausente = "double" (todos los campos de STRUCT_DEFS). */
+  /** Missing = "double" (every field of STRUCT_DEFS). */
   type?: StructPrimitive
-  /** Solo bitfields: posición y ancho en BITS; si está, manda sobre `offset`. */
+  /** Bitfields only: position and width in BITS; when present, it wins over `offset`. */
   bitOffset?: number
   bitWidth?: number
-  /** Solo char[]: cantidad de caracteres a leer como una sola cadena. */
+  /** char[] only: number of characters to read as a single string. */
   charLength?: number
-  /** Solo enums: número -> nombre declarado en el schema. */
+  /** Enums only: number -> name declared in the schema. */
   enumValues?: Record<number, string>
   suffix?: string
   isAngle?: boolean
 }
 
 export interface StructDef {
-  /** Tamaño en bytes de UNA instancia (stride para trocear un struct:X[]). */
+  /** Size in bytes of ONE instance (the stride for slicing a struct:X[]). */
   length: number
   fields: StructField[]
-  /** El struct tenía más campos de los que se aplanan (arrays muy grandes). */
+  /** The struct had more fields than get flattened (very big arrays). */
   truncated?: boolean
 }
 
-// Agregar un struct nuevo (ej. ChassisSpeeds) es solo añadir una entrada aquí;
-// StructWidget / StructArrayWidget lo recogen automáticamente. El "length" es
-// el tamaño en bytes de UNA instancia del struct (clave también para poder
-// trocear un array de structs en instancias individuales).
+// Adding a new struct (e.g. ChassisSpeeds) is just adding an entry here;
+// StructWidget / StructArrayWidget pick it up automatically. "length" is the
+// size in bytes of ONE instance of the struct (also key to being able to slice
+// an array of structs into individual instances).
 //
-// Todos los offsets están calculados aplanando structs anidados: si un campo
-// es a su vez un struct (ej. Pose2d.translation es un Translation2d), sus
-// campos internos se insertan en el offset donde ese sub-struct arranca, en
-// el mismo orden en que WPILib los declara en su Struct<T> nativo.
+// All the offsets are computed by flattening nested structs: if a field is
+// itself a struct (e.g. Pose2d.translation is a Translation2d), its inner fields
+// are inserted at the offset where that sub-struct starts, in the same order
+// WPILib declares them in its native Struct<T>.
 export const STRUCT_DEFS: Record<string, StructDef> = {
   // --- geometry: 2D ---
   Translation2d: {
@@ -83,8 +83,8 @@ export const STRUCT_DEFS: Record<string, StructDef> = {
       { label: "θ", offset: 16, suffix: "°", isAngle: true },
     ],
   },
-  // Transform2d tiene EXACTAMENTE el mismo layout binario que Pose2d
-  // (translation + rotation relativos en vez de absolutos).
+  // Transform2d has EXACTLY the same binary layout as Pose2d
+  // (relative translation + rotation instead of absolute).
   Transform2d: {
     length: 24,
     fields: [
@@ -111,10 +111,10 @@ export const STRUCT_DEFS: Record<string, StructDef> = {
       { label: "Z", offset: 16, suffix: " m" },
     ],
   },
-  // Rotation3d serializa como un Quaternion (w,x,y,z) — no como roll/pitch/yaw.
-  // Se dejan los 4 componentes crudos: convertirlos a Euler necesita trig de
-  // verdad (atan2 con clamps de gimbal lock), no un simple factor rad->deg,
-  // así que no encaja en el decodificador genérico isAngle de este archivo.
+  // Rotation3d serializes as a Quaternion (w,x,y,z) — not as roll/pitch/yaw.
+  // The 4 raw components are kept: converting them to Euler needs real trig
+  // (atan2 with gimbal-lock clamps), not a simple rad->deg factor, so it does not
+  // fit this file's generic isAngle decoder.
   Rotation3d: {
     length: 32,
     fields: [
@@ -146,7 +146,7 @@ export const STRUCT_DEFS: Record<string, StructDef> = {
       { label: "QZ", offset: 48 },
     ],
   },
-  // Transform3d: mismo layout binario que Pose3d (deltas en vez de absolutos)
+  // Transform3d: the same binary layout as Pose3d (deltas instead of absolutes)
   Transform3d: {
     length: 56,
     fields: [
@@ -264,7 +264,7 @@ export const STRUCT_DEFS: Record<string, StructDef> = {
   },
 
   // --- trajectory / control ---
-  // El type string que WPILib publica para esto es "TrapezoidProfile.State".
+  // The type string WPILib publishes for this is "TrapezoidProfile.State".
   "TrapezoidProfile.State": {
     length: 16,
     fields: [
@@ -278,8 +278,8 @@ export const STRUCT_DEFS: Record<string, StructDef> = {
 
 const SIGNED_INTS = new Set<StructPrimitive>(["int8", "int16", "int32", "int64"])
 
-// Los bitfields empaquetan desde el bit MENOS significativo de cada byte, así
-// que no se pueden leer con DataView: hay que juntar bit por bit.
+// Bitfields pack from the LEAST significant bit of each byte, so they cannot be
+// read with DataView: they have to be gathered bit by bit.
 function readBitsLE(bytes: number[], bitOffset: number, bitWidth: number): bigint {
   let out = 0n
   for (let i = 0; i < bitWidth; i++) {
@@ -303,8 +303,8 @@ function readPrimitive(view: DataView, offset: number, type: StructPrimitive): n
       case "int8": return view.getInt8(offset)
       case "int16": return view.getInt16(offset, true)
       case "int32": return view.getInt32(offset, true)
-      // JS no tiene enteros de 64 bits: por encima de 2^53 se pierde
-      // precisión, pero es lo mismo que hace cualquier dashboard del ecosistema.
+      // JS has no 64-bit integers: above 2^53 precision is lost, but it is the
+      // same thing every dashboard in the ecosystem does.
       case "int64": return Number(view.getBigInt64(offset, true))
       case "uint8": return view.getUint8(offset)
       case "uint16": return view.getUint16(offset, true)
@@ -316,8 +316,8 @@ function readPrimitive(view: DataView, offset: number, type: StructPrimitive): n
       case "float64": return view.getFloat64(offset, true)
     }
   } catch {
-    // Buffer más corto de lo que declara el schema (topic recién anunciado,
-    // valor truncado): se muestra 0 en vez de romper el widget entero.
+    // A buffer shorter than the schema declares (a freshly announced topic, a
+    // truncated value): 0 is shown instead of breaking the whole widget.
   }
   return 0
 }
@@ -328,9 +328,9 @@ const INTEGER_TYPES = new Set<StructPrimitive>([
 
 export interface DecodedStructField {
   label: string
-  /** Vista numérica: bool -> 0/1, char[] -> NaN. Es la que usan los extractores. */
+  /** Numeric view: bool -> 0/1, char[] -> NaN. It is the one the extractors use. */
   value: number
-  /** Vista mostrable, ya formateada según el tipo (true/false, nombre del enum...). */
+  /** Displayable view, already formatted by type (true/false, the enum's name...). */
   text: string
   suffix?: string
   isAngle?: boolean
@@ -342,7 +342,7 @@ export function decodeStructBytes(bytes: number[], def: StructDef): DecodedStruc
   return def.fields.map(f => {
     const type = f.type ?? "double"
 
-    // char[]: los bytes son una cadena, no números sueltos.
+    // char[]: the bytes are a string, not loose numbers.
     if (type === "char" && f.charLength !== undefined) {
       let text = ""
       for (let i = 0; i < f.charLength; i++) {
@@ -378,8 +378,8 @@ export function decodeStructBytes(bytes: number[], def: StructDef): DecodedStruc
   })
 }
 
-// Trocea un buffer de N structs consecutivos (ej. un topic "SwerveModuleState[]")
-// en instancias individuales ya decodificadas, usando def.length como stride.
+// Slices a buffer of N consecutive structs (e.g. a "SwerveModuleState[]" topic)
+// into individual, already decoded instances, using def.length as the stride.
 export function decodeStructArrayBytes(bytes: number[], def: StructDef) {
   const count = Math.floor(bytes.length / def.length)
   const out: DecodedStructField[][] = []

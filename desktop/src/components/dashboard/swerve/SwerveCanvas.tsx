@@ -21,16 +21,16 @@ export interface ChassisSet {
 interface Props {
   moduleSets: ModuleSet[]
   chassisSets: ChassisSet[]
-  rotation: number       // radianes; orientación del chasis
+  rotation: number       // radians; the chassis' heading
   settings: SwerveSettings
-  /** Vectores que la cinemática predice para cada módulo (FL, FR, BL, BR). */
+  /** Vectors the kinematics predicts for each module (FL, FR, BL, BR). */
   predicted?: ModuleState[]
-  /** Centro instantáneo de rotación, en metros del marco del robot. */
+  /** Instantaneous center of rotation, in meters of the robot's frame. */
   icr?: { x: number; y: number } | null
 }
 
-// Esquinas en coordenadas del robot (X adelante, Y a la izquierda), en el
-// orden en que se dibujan: FL, FR, BL, BR.
+// Corners in robot coordinates (X forward, Y to the left), in the order they
+// are drawn: FL, FR, BL, BR.
 const CORNERS: [number, number][] = [
   [1, 1],
   [1, -1],
@@ -74,8 +74,8 @@ export default function SwerveCanvas({ moduleSets, chassisSets, rotation, settin
       const center: [number, number] = [width / 2, height / 2]
       const theta = rotation + (settings.orientation * Math.PI) / 180
 
-      // Escala: el chasis ocupa ~40% del lado corto, dejando lugar para los
-      // vectores de velocidad y las etiquetas numéricas.
+      // Scale: the chassis takes ~40% of the short side, leaving room for the
+      // velocity vectors and the numeric labels.
       const maxFrame = Math.max(settings.frameLength, settings.frameWidth) || 1
       const pxPerMeter = (size * 0.4) / maxFrame
       const halfL = (settings.frameLength * pxPerMeter) / 2
@@ -86,12 +86,12 @@ export default function SwerveCanvas({ moduleSets, chassisSets, rotation, settin
       drawFrame(ctx, center, theta, halfL, halfW, moduleRadius)
       drawHeading(ctx, center, theta, halfL, halfW)
 
-      // Módulos: un anillo por esquina, y encima los datos de cada set.
+      // Modules: a ring per corner, and each set's data on top.
       CORNERS.forEach((corner, index) => {
         const moduleCenter = transformPx(center, theta, [halfL * corner[0], halfW * corner[1]])
 
-        // Vector "ideal" según el ajuste de cuerpo rígido, en gris punteado y
-        // por debajo del medido: la separación entre ambos ES el residuo.
+        // The "ideal" vector according to the rigid-body fit, in dashed grey and
+        // below the measured one: the gap between the two IS the residual.
         const predictedState = predicted?.[index]
         if (settings.showPredicted && predictedState) {
           drawPredictedVector(ctx, moduleCenter, theta, predictedState, moduleRadius, fullVector, settings.maxSpeed)
@@ -103,8 +103,8 @@ export default function SwerveCanvas({ moduleSets, chassisSets, rotation, settin
           drawModuleState(ctx, moduleCenter, theta, state, set.color, moduleRadius, fullVector, settings)
         })
 
-        // Anillo del módulo. Si algún set supera la rapidez máxima configurada
-        // se marca en rojo: es el síntoma de que falta desaturar velocidades.
+        // The module's ring. If any set goes over the configured maximum speed it
+        // is marked red: it is the symptom that velocities need desaturating.
         const overSpeed = moduleSets.some(set => {
           const s = set.values[index]
           return s !== undefined && Math.abs(s.speed) > settings.maxSpeed
@@ -148,10 +148,10 @@ export default function SwerveCanvas({ moduleSets, chassisSets, rotation, settin
   )
 }
 
-// --- Helpers geométricos ----------------------------------------------------
+// --- Geometric helpers ----------------------------------------------------
 
-// Punto (x, y) en coordenadas del robot -> píxeles de pantalla. El eje Y de la
-// pantalla apunta hacia abajo, por eso se resta.
+// Point (x, y) in robot coordinates -> screen pixels. The screen's Y axis points
+// down, which is why it is subtracted.
 function transformPx(center: [number, number], rotation: number, point: [number, number]): [number, number] {
   const cos = Math.cos(rotation)
   const sin = Math.sin(rotation)
@@ -161,7 +161,7 @@ function transformPx(center: [number, number], rotation: number, point: [number,
   ]
 }
 
-// Verde -> amarillo -> rojo según qué fracción del máximo se está usando.
+// Green -> yellow -> red according to what fraction of the maximum is being used.
 function speedColor(ratio: number): string {
   const clamped = Math.min(Math.max(ratio, 0), 1)
   return `hsl(${Math.round(130 * (1 - clamped))}, 72%, 40%)`
@@ -180,11 +180,11 @@ function drawFrame(
   ctx.strokeStyle = "#2b2b30"
   ctx.lineWidth = 3
 
-  // Cuatro lados con hueco en las esquinas, para que los módulos "encajen"
-  // en el chasis en vez de quedar tapados por la línea.
+  // Four sides with a gap at the corners, so the modules "fit" into the chassis
+  // instead of being covered by the line.
   const edges: [[number, number], [number, number]][] = [
     [[halfL, halfW - moduleRadius], [halfL, -halfW + moduleRadius]],      // frente
-    [[-halfL, halfW - moduleRadius], [-halfL, -halfW + moduleRadius]],    // atrás
+    [[-halfL, halfW - moduleRadius], [-halfL, -halfW + moduleRadius]],    // back
     [[halfL - moduleRadius, halfW], [-halfL + moduleRadius, halfW]],      // izquierda
     [[halfL - moduleRadius, -halfW], [-halfL + moduleRadius, -halfW]],    // derecha
   ]
@@ -197,7 +197,7 @@ function drawFrame(
   })
 }
 
-// Flecha central que marca hacia dónde apunta el frente del chasis.
+// A central arrow marking which way the chassis' front points.
 function drawHeading(
   ctx: CanvasRenderingContext2D,
   center: [number, number],
@@ -230,7 +230,7 @@ function drawModuleState(
   const color = settings.gradient ? speedColor(ratio) : baseColor
   const fullRotation = theta + state.angle
 
-  // Cuña que indica hacia dónde apunta el módulo.
+  // A wedge showing which way the module points.
   ctx.fillStyle = color
   ctx.beginPath()
   ctx.moveTo(...moduleCenter)
@@ -242,10 +242,10 @@ function drawModuleState(
   ctx.closePath()
   ctx.fill()
 
-  // Vector de rapidez. Una rapidez negativa apunta hacia atrás.
+  // The speed vector. A negative speed points backwards.
   if (Math.abs(state.speed) < 0.02) return
   const vectorRotation = state.speed < 0 ? fullRotation + Math.PI : fullRotation
-  // Se deja pasar un poco del 100% para que la desaturación se vea a simple vista.
+  // It is allowed a bit past 100% so desaturation shows at a glance.
   const length = Math.min(ratio, 1.35) * fullVector
 
   ctx.strokeStyle = color
@@ -264,8 +264,8 @@ function drawModuleState(
   ctx.stroke()
 }
 
-// Vector que el módulo TENDRÍA si el movimiento fuera perfectamente rígido.
-// Punteado y en gris para que se lea como referencia, no como dato medido.
+// The vector the module WOULD have if the motion were perfectly rigid.
+// Dashed and grey so it reads as a reference, not as measured data.
 function drawPredictedVector(
   ctx: CanvasRenderingContext2D,
   moduleCenter: [number, number],
@@ -295,9 +295,9 @@ function drawPredictedVector(
   ctx.restore()
 }
 
-// Centro instantáneo de rotación: el punto del plano que en este instante
-// tiene velocidad cero. Si cae dentro del chasis, el robot está girando sobre
-// sí mismo; si se va lejos, el movimiento es casi traslación pura.
+// Instantaneous center of rotation: the point of the plane that has zero
+// velocity at this instant. If it falls inside the chassis, the robot is
+// turning in place; if it goes far away, the motion is almost pure translation.
 function drawICR(
   ctx: CanvasRenderingContext2D,
   center: [number, number],
@@ -308,8 +308,8 @@ function drawICR(
 ) {
   const point = transformPx(center, theta, [icr.x * pxPerMeter, icr.y * pxPerMeter])
 
-  // Si queda muy afuera del lienzo no se dibuja: el marcador estaría fuera de
-  // pantalla y la línea punteada sola no aporta.
+  // If it lands far outside the canvas it is not drawn: the marker would be off
+  // screen and the dashed line alone adds nothing.
   const margin = size
   if (
     point[0] < center[0] - margin || point[0] > center[0] + margin ||
@@ -345,7 +345,7 @@ function drawICR(
   ctx.fillText("ICR", point[0] + r * 2.4, point[1])
 }
 
-// Etiqueta numérica junto al módulo: rapidez y ángulo de cada set.
+// A numeric label next to the module: each set's speed and angle.
 function drawModuleLabel(
   ctx: CanvasRenderingContext2D,
   moduleCenter: [number, number],
@@ -371,7 +371,7 @@ function drawModuleLabel(
   const top = moduleCenter[1] + moduleRadius + 4
   const widest = Math.max(...lines.map(l => ctx.measureText(l.text).width))
 
-  // Fondo semitransparente para que los números se lean sobre los vectores.
+  // A semi-transparent background so the numbers read over the vectors.
   ctx.fillStyle = "rgba(255, 255, 255, 0.82)"
   ctx.fillRect(moduleCenter[0] - widest / 2 - 3, top - 2, widest + 6, lines.length * 12 + 4)
 
@@ -381,7 +381,7 @@ function drawModuleLabel(
   })
 }
 
-// Velocidad del chasis completo: flecha lineal desde el centro + arco de giro.
+// The whole chassis' velocity: a linear arrow from the center + a turning arc.
 function drawChassisVelocity(
   ctx: CanvasRenderingContext2D,
   center: [number, number],
@@ -415,7 +415,7 @@ function drawChassisVelocity(
     ctx.stroke()
   }
 
-  // Giro: arco proporcional a ω, en el sentido correspondiente.
+  // Turn: an arc proportional to ω, in the matching direction.
   if (Math.abs(omega) > 0.05) {
     const radius = halfW * 0.5
     ctx.beginPath()

@@ -1,8 +1,8 @@
 import { invoke } from "@tauri-apps/api/core"
 import { useState, useEffect } from "react"
 
-// Destino del servidor NT4. El puerto lo resuelve el backend (MarsSettings::nt_port),
-// acá solo se elige cuál; "custom" es el único que usa nt_custom_port.
+// Target of the NT4 server. The port is resolved by the backend (MarsSettings::nt_port),
+// here only which one is chosen; "custom" is the only one that uses nt_custom_port.
 export type NTTarget = "default" | "ds" | "systemcore" | "custom"
 
 export const NT_TARGET_PORTS: Record<Exclude<NTTarget, "custom">, number> = {
@@ -18,13 +18,13 @@ export interface MarsSettings {
   auto_save_deploy: boolean
   nt_target: NTTarget
   nt_custom_port: number
-  /** Vacío = derivar la dirección del número de equipo. */
+  /** Empty = derive the address from the team number. */
   nt_custom_address: string
-  /** Minutos de historial guardados por el buffer. 0 = sin límite. */
+  /** Minutes of history the buffer keeps. 0 = no limit. */
   nt_retention_minutes: number
-  /** Autor que se escribe en MarsFeature.json al crear una feature. */
+  /** Author written to MarsFeature.json when creating a feature. */
   feature_author: string
-  /** Usuario u organización de GitHub bajo la que se publican las features. */
+  /** GitHub user or organization the features are published under. */
   github_user: string
 }
 

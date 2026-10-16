@@ -56,8 +56,8 @@ export default function EquationsPage({
     return { buffers }
   }, [variables, topicBuffers])
 
-  // Definiciones que una ecuación puede referenciar por nombre. Solo entran
-  // las que parsean: una ecuación rota no debe romper a las demás.
+  // Definitions an equation can reference by name. Only the ones that parse get
+  // in: a broken equation must not break the rest.
   const definitions = useMemo(() => {
     const map = new Map<string, Node>()
     equations.forEach(equation => {
@@ -66,7 +66,7 @@ export default function EquationsPage({
       try {
         map.set(name, parseExpression(equation.expression))
       } catch {
-        // se ignora; el error se muestra en su propia tarjeta
+        // it is ignored; the error shows on its own card
       }
     })
     return map
@@ -173,7 +173,7 @@ export default function EquationsPage({
   )
 }
 
-// --- Una ecuación -----------------------------------------------------------
+// --- One equation -----------------------------------------------------------
 
 function EquationCard({
   equation, context, definitions, knownVariables, onUpdate, onRemove,
@@ -192,8 +192,8 @@ function EquationCard({
     try {
       const raw = parseExpression(source)
 
-      // La propia ecuación se excluye de las definiciones: si se referencia a
-      // sí misma es un ciclo, no una recursión válida.
+      // The equation itself is excluded from the definitions: if it references
+      // itself it is a cycle, not a valid recursion.
       const scoped = new Map(definitions)
       scoped.delete(equation.name.trim())
 
@@ -207,8 +207,8 @@ function EquationCard({
       }
 
       const latex = toLatex(ast)
-      // Se muestra también la forma original cuando el preprocesado la cambió
-      // (una referencia expandida, un diff() ya derivado).
+      // The original form is also shown when the preprocessing changed it (an
+      // expanded reference, a diff() already differentiated).
       const sourceLatex = toLatex(raw)
       const rewritten = sourceLatex !== latex ? sourceLatex : null
 
@@ -316,8 +316,8 @@ function EquationCard({
   )
 }
 
-// El resultado puede ser un escalar o una matriz: la matriz se renderiza con
-// KaTeX, no como texto plano.
+// The result can be a scalar or a matrix: the matrix is rendered with KaTeX,
+// not as plain text.
 function ResultValue({ value, unit, decimals }: { value: EqValue; unit: string; decimals: number }) {
   if (isMatrix(value)) {
     const body = value.data
@@ -353,7 +353,7 @@ function formatValue(value: number, decimals: number): string {
   return value.toFixed(decimals)
 }
 
-// --- Librería ---------------------------------------------------------------
+// --- Library ---------------------------------------------------------------
 
 function LibraryDialog({
   boundVariables, onPick, onClose,

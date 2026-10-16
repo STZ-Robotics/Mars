@@ -1,47 +1,48 @@
-// Núcleo de la NT Session: qué forma tiene cada tipo, cómo se publica, y cómo
-// se convierte en código Java listo para pegar.
+// The NT Session's core: what shape each type has, how it is published, and how
+// it turns into Java code ready to paste.
 //
-// Todo acá es PURO. Es la parte que se equivoca en silencio — un ángulo que se
-// publica en grados cuando el robot espera radianes, un `1` que Java lee como
-// int en vez de double — y que conviene poder probar sin conexión ni UI.
+// Everything here is PURE. It is the part that gets silently wrong — an angle
+// published in degrees when the robot expects radians, a `1` Java reads as an
+// int instead of a double — and that is worth being able to test without a
+// connection or UI.
 //
-// CONVENCIÓN DE ÁNGULOS: la UI y el Java copiado trabajan en GRADOS, porque es
-// lo que uno tiene en la cabeza. Lo que sale por el cable va en RADIANES, que
-// es lo que reciben los constructores de WPILib (`new Rotation2d(double)`,
-// `ChassisSpeeds(..., omegaRadiansPerSecond)`). La conversión se hace una sola
-// vez, acá.
+// ANGLE CONVENTION: the UI and the copied Java work in DEGREES, because it is
+// what you have in your head. What goes out on the wire is in RADIANS, which is
+// what WPILib's constructors take (`new Rotation2d(double)`,
+// `ChassisSpeeds(..., omegaRadiansPerSecond)`). The conversion is done only
+// once, here.
 
 import { NTSessionCopyMode, NTSessionEntry, NTSessionKind } from "../../store/appStore"
 
 const DEG = Math.PI / 180
 
 /**
- * Tabla bajo la que publica la sesión. Es fija a propósito: si fuera editable,
- * cambiarla dejaría huérfano todo lo ya publicado bajo la anterior, y el robot
- * tendría que adivinar en qué tabla buscar.
+ * The table the session publishes under. It is fixed on purpose: if it were
+ * editable, changing it would orphan everything already published under the
+ * previous one, and the robot would have to guess which table to look in.
  */
 export const NT_SESSION_ROOT = "MarsDesktop"
 
 export interface ComponentSpec {
   label: string
-  /** Sufijo mostrado en la UI. */
+  /** Suffix shown in the UI. */
   suffix: string
-  /** Se publica en radianes aunque se edite en grados. */
+  /** Published in radians even though it is edited in degrees. */
   angle?: boolean
 }
 
 export interface KindSpec {
-  /** Tipo con el que se publica en NetworkTables. */
+  /** The type it is published with on NetworkTables. */
   ntType: string
-  /** Nombre del struct de WPILib, si se publica como tal. */
+  /** The WPILib struct's name, if it is published as one. */
   structName?: string
-  /** Qué array del entry guarda el valor. */
+  /** Which of the entry's arrays holds the value. */
   store: "numbers" | "booleans" | "strings"
-  /** Componentes fijos (geometría) o null si el largo es libre (arrays). */
+  /** Fixed components (geometry) or null if the length is free (arrays). */
   components: ComponentSpec[] | null
-  /** Tipo Java de la declaración. */
+  /** The declaration's Java type. */
   javaType: string
-  /** Import que hace falta para ese tipo, si no es primitivo. */
+  /** The import that type needs, if it is not a primitive. */
   javaImport?: string
 }
 
@@ -105,7 +106,7 @@ export function kindSpec(kind: NTSessionKind): KindSpec {
   return NT_SESSION_KINDS[kind] ?? NT_SESSION_KINDS.double
 }
 
-/** true si el tipo es una lista de largo libre (se pueden agregar elementos). */
+/** true if the type is a free-length list (elements can be added). */
 export function isListKind(kind: NTSessionKind): boolean {
   return kindSpec(kind).components === null
 }
@@ -113,8 +114,8 @@ export function isListKind(kind: NTSessionKind): boolean {
 // --- Nombres -------------------------------------------------------------------
 
 /**
- * Ruta completa del topic. NT4 pide que empiece con "/", y la raíz se limpia
- * de barras sobrantes para que "MarsDesktop/" y "/MarsDesktop" den lo mismo.
+ * The topic's full path. NT4 requires it to start with "/", and the root is
+ * cleaned of extra slashes so "MarsDesktop/" and "/MarsDesktop" give the same.
  */
 export function fullTopicName(root: string, key: string): string {
   const cleanRoot = root.replace(/^\/+|\/+$/g, "")
@@ -123,15 +124,15 @@ export function fullTopicName(root: string, key: string): string {
   return cleanKey.length === 0 ? `/${cleanRoot}` : `/${cleanRoot}/${cleanKey}`
 }
 
-/** La parte de un topic que va después de la raíz, o null si no cuelga de ella. */
+/** The part of a topic after the root, or null if it does not hang from it. */
 export function keyFromTopicName(topicName: string, root = NT_SESSION_ROOT): string | null {
   const prefix = `/${root.replace(/^\/+|\/+$/g, "")}/`
   return topicName.startsWith(prefix) ? topicName.slice(prefix.length) : null
 }
 
 /**
- * Nombre de variable Java sugerido para una clave. "Arm/kP" -> "kP",
- * "drive speed" -> "driveSpeed". Nunca devuelve algo que empiece con dígito.
+ * A suggested Java variable name for a key. "Arm/kP" -> "kP",
+ * "drive speed" -> "driveSpeed". It never returns something starting with a digit.
  */
 export function suggestJavaName(key: string): string {
   const last = key.split("/").filter(Boolean).pop() ?? "value"
@@ -145,17 +146,17 @@ export function suggestJavaName(key: string): string {
   return /^[0-9]/.test(camel) ? `v${camel}` : camel
 }
 
-// --- Publicación ------------------------------------------------------------------
+// --- Publishing ------------------------------------------------------------------
 
 export interface PublishPayload {
   topicType: string
-  /** Para un struct son los BYTES del struct, no sus componentes. */
+  /** For a struct it is the struct's BYTES, not its components. */
   value: number | boolean | string | number[] | boolean[] | string[]
 }
 
 /**
- * Lo que hay que mandarle a `set_value` para este entry. Los ángulos se pasan
- * a radianes acá y en ningún otro lado.
+ * What has to be sent to `set_value` for this entry. Angles are converted to
+ * radians here and nowhere else.
  */
 export function publishPayload(entry: NTSessionEntry): PublishPayload {
   const spec = kindSpec(entry.kind)
@@ -176,23 +177,23 @@ export function publishPayload(entry: NTSessionEntry): PublishPayload {
   if (entry.kind === "int") return { topicType: "int", value: Math.round(entry.numbers[0] ?? 0) }
   if (entry.kind === "double[]") return { topicType: "double[]", value: [...entry.numbers] }
 
-  // Geometría: sale como un struct binario de WPILib, no como un arreglo de
-  // números. Así el robot lo lee con `getStructTopic(name, Pose2d.struct)` en
-  // vez de tener que rearmarlo componente por componente.
+  // Geometry: it goes out as a WPILib binary struct, not as an array of
+  // numbers. That way the robot reads it with `getStructTopic(name, Pose2d.struct)`
+  // instead of having to rebuild it component by component.
   return { topicType: spec.ntType, value: structBytes(entry.kind, entry.numbers) }
 }
 
-// --- Serialización de structs de WPILib ------------------------------------------
+// --- Serialization of WPILib structs ------------------------------------------
 //
-// El formato es una tirada de doubles little-endian, sin encabezado ni padding,
-// en el orden en que WPILib declara los campos. Es exactamente el layout que la
-// app ya usa para DECODIFICAR structs (ver STRUCT_DEFS en valueDecoding.ts); acá
-// se recorre en el sentido contrario.
+// The format is a run of little-endian doubles, with no header or padding, in
+// the order WPILib declares the fields. It is exactly the layout the app already
+// uses to DECODE structs (see STRUCT_DEFS in valueDecoding.ts); here it is
+// walked in the opposite direction.
 
 /**
- * Cuaternión de tres ángulos de Euler, en el mismo orden que
- * `new Rotation3d(roll, pitch, yaw)` de WPILib: R = Rz(yaw)·Ry(pitch)·Rx(roll).
- * Devuelve (w, x, y, z), que es el orden en que el struct los serializa.
+ * A quaternion from three Euler angles, in the same order as WPILib's
+ * `new Rotation3d(roll, pitch, yaw)`: R = Rz(yaw)·Ry(pitch)·Rx(roll).
+ * Returns (w, x, y, z), which is the order the struct serializes them in.
  */
 export function eulerToQuaternion(roll: number, pitch: number, yaw: number): [number, number, number, number] {
   const cr = Math.cos(roll / 2), sr = Math.sin(roll / 2)
@@ -207,7 +208,7 @@ export function eulerToQuaternion(roll: number, pitch: number, yaw: number): [nu
   ]
 }
 
-/** Los doubles que van al cable, en orden, ya en unidades de WPILib. */
+/** The doubles that go on the wire, in order, already in WPILib units. */
 export function structDoubles(kind: NTSessionKind, numbers: number[]): number[] {
   const at = (i: number) => numbers[i] ?? 0
 
@@ -218,7 +219,7 @@ export function structDoubles(kind: NTSessionKind, numbers: number[]): number[] 
     case "Pose2d": return [at(0), at(1), at(2) * DEG]
     case "Translation3d": return [at(0), at(1), at(2)]
     case "Pose3d": {
-      // Rotation3d serializa como cuaternión (w, x, y, z), no como roll/pitch/yaw.
+      // Rotation3d serializes as a quaternion (w, x, y, z), not as roll/pitch/yaw.
       const [w, x, y, z] = eulerToQuaternion(at(3) * DEG, at(4) * DEG, at(5) * DEG)
       return [at(0), at(1), at(2), w, x, y, z]
     }
@@ -227,22 +228,22 @@ export function structDoubles(kind: NTSessionKind, numbers: number[]): number[] 
   }
 }
 
-/** Los bytes del struct, listos para mandar por IPC como arreglo de números. */
+/** The struct's bytes, ready to send over IPC as an array of numbers. */
 export function structBytes(kind: NTSessionKind, numbers: number[]): number[] {
   const doubles = structDoubles(kind, numbers)
   const buffer = new ArrayBuffer(doubles.length * 8)
   const view = new DataView(buffer)
-  // true = little endian, que es lo que fija el formato de struct de WPILib.
+  // true = little endian, which is what WPILib's struct format mandates.
   doubles.forEach((value, i) => view.setFloat64(i * 8, value, true))
   return Array.from(new Uint8Array(buffer))
 }
 
 // --- Schemas ----------------------------------------------------------------------
 //
-// Un struct publicado sin su schema lo lee bien el robot (su clase Java ya sabe
-// el layout) pero es opaco para cualquier consumidor dinámico — AdvantageScope,
-// o la propia Dashboard de MARS ante un tipo que no tenga en su tabla. Los
-// schemas son los mismos strings que publica WPILib.
+// A struct published without its schema reads fine on the robot (its Java class
+// already knows the layout) but it is opaque to any dynamic consumer —
+// AdvantageScope, or MARS' own Dashboard for a type not in its table. The
+// schemas are the same strings WPILib publishes.
 
 const STRUCT_SCHEMAS: Record<string, string> = {
   Rotation2d: "double value",
@@ -255,7 +256,7 @@ const STRUCT_SCHEMAS: Record<string, string> = {
   ChassisSpeeds: "double vx;double vy;double omega",
 }
 
-/** De qué otros structs depende cada uno, para publicarlos también. */
+/** Which other structs each one depends on, to publish them too. */
 const STRUCT_DEPENDENCIES: Record<string, string[]> = {
   Pose2d: ["Translation2d", "Rotation2d"],
   Rotation3d: ["Quaternion"],
@@ -263,16 +264,17 @@ const STRUCT_DEPENDENCIES: Record<string, string[]> = {
 }
 
 export interface SchemaPublication {
-  /** Nombre completo del topic, tal cual lo espera NT4. */
+  /** The topic's full name, exactly as NT4 expects it. */
   topicName: string
   topicType: string
-  /** El texto del schema, ya en bytes. */
+  /** The schema's text, already in bytes. */
   value: number[]
 }
 
 /**
- * Los schemas que hay que publicar para que un struct sea legible por un
- * cliente que no lo conozca de antes, incluyendo los anidados y sin repetir.
+ * The schemas that have to be published for a struct to be readable by a
+ * client that does not know it beforehand, including the nested ones and
+ * without repeats.
  */
 export function schemaPublications(structName: string): SchemaPublication[] {
   const pending = [structName]
@@ -298,7 +300,7 @@ export function schemaPublications(structName: string): SchemaPublication[] {
   return out
 }
 
-/** Todos los schemas que necesita un juego de entries, sin repetir. */
+/** Every schema a set of entries needs, without repeats. */
 export function schemasForEntries(entries: NTSessionEntry[]): SchemaPublication[] {
   const seen = new Set<string>()
   const out: SchemaPublication[] = []
@@ -319,15 +321,15 @@ export function schemasForEntries(entries: NTSessionEntry[]): SchemaPublication[
 // --- Java ---------------------------------------------------------------------------
 
 /**
- * Java infiere `int` de un literal sin punto, así que `double x = 1` compila
- * pero `double[] a = {1}` no. Siempre se emite el punto para los double.
+ * Java infers `int` from a literal without a dot, so `double x = 1` compiles
+ * but `double[] a = {1}` does not. The dot is always emitted for doubles.
  */
 export function javaNumber(value: number, integer = false): string {
   if (!isFinite(value)) return integer ? "0" : "0.0"
   if (integer) return String(Math.round(value))
 
-  // toFixed(6) mata el ruido binario (0.30000000000000004) sin recortar
-  // precisión útil; Number() vuelve a sacar los ceros que sobran.
+  // toFixed(6) kills the binary noise (0.30000000000000004) without cutting
+  // useful precision; Number() strips the extra zeros again.
   const trimmed = Number(value.toFixed(6)).toString()
   return /[.eE]/.test(trimmed) ? trimmed : `${trimmed}.0`
 }
@@ -336,12 +338,12 @@ function javaString(value: string): string {
   return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
 }
 
-/** Un ángulo editado en grados, escrito como radianes en el Java. */
+/** An angle edited in degrees, written as radians in the Java. */
 function javaRadians(degrees: number): string {
   return `Math.toRadians(${javaNumber(degrees)})`
 }
 
-/** El valor solo, sin `Tipo nombre =` ni punto y coma. */
+/** The value alone, without `Type name =` or a semicolon. */
 export function javaValueLiteral(entry: NTSessionEntry): string {
   const spec = kindSpec(entry.kind)
   const n = (i: number) => javaNumber(entry.numbers[i] ?? 0)
@@ -377,15 +379,15 @@ export function javaDeclaration(entry: NTSessionEntry): string {
   const name = entry.javaName || suggestJavaName(entry.key)
   const literal = javaValueLiteral(entry)
 
-  // Los arreglos necesitan `new tipo[] { ... }` fuera de una declaración, pero
-  // dentro alcanza con las llaves.
+  // Arrays need `new type[] { ... }` outside a declaration, but inside one the
+  // braces are enough.
   return `${spec.javaType} ${name} = ${literal};`
 }
 
 /**
- * Lectura desde NetworkTables con el valor actual como default. Para la
- * geometría hacen falta dos líneas: NT no tiene un getter de Pose2d, así que
- * se lee el `double[]` y se reconstruye.
+ * Reading from NetworkTables with the current value as the default. Geometry
+ * needs two lines: NT has no Pose2d getter, so the `double[]` is read and
+ * rebuilt.
  */
 export function javaGetter(entry: NTSessionEntry, root: string): string {
   const spec = kindSpec(entry.kind)
@@ -408,8 +410,8 @@ export function javaGetter(entry: NTSessionEntry, root: string): string {
       return `String[] ${name} = ${table}.getStringArray(new String[] ${javaValueLiteral(entry)});`
 
     default: {
-      // Geometría: se publica como struct, así que del lado del robot se lee
-      // con un StructSubscriber tipado y no hay nada que rearmar a mano.
+      // Geometry: it is published as a struct, so on the robot side it is read
+      // with a typed StructSubscriber and there is nothing to rebuild by hand.
       const topic = javaString(fullTopicName(root, entry.key))
       const type = spec.javaType
       const subscribe = `NetworkTableInstance.getDefault().getStructTopic(${topic}, ${type}.struct)`
@@ -419,22 +421,22 @@ export function javaGetter(entry: NTSessionEntry, root: string): string {
   }
 }
 
-/** El texto que va al portapapeles para un entry, según el modo elegido. */
+/** The text that goes to the clipboard for an entry, according to the chosen mode. */
 export function javaSnippet(entry: NTSessionEntry, mode: NTSessionCopyMode, root: string): string {
   const body = mode === "value" ? javaValueLiteral(entry)
     : mode === "getter" ? javaGetter(entry, root)
     : javaDeclaration(entry)
 
-  // La nota va como comentario, salvo en modo "value": ahí lo que se copia se
-  // pega en medio de una expresión y un // rompería la línea.
+  // The note goes as a comment, except in "value" mode: there what is copied
+  // is pasted in the middle of an expression and a // would break the line.
   return entry.note.trim().length > 0 && mode !== "value"
     ? `// ${entry.note.trim()}\n${body}`
     : body
 }
 
 /**
- * Todos los entries juntos, con los imports que hagan falta arriba. Es lo que
- * se pega de una en un archivo de constantes.
+ * All the entries together, with whatever imports are needed on top. It is
+ * what gets pasted in one go into a constants file.
  */
 export function javaBlock(entries: NTSessionEntry[], mode: NTSessionCopyMode, root: string): string {
   if (entries.length === 0) return ""
@@ -443,13 +445,13 @@ export function javaBlock(entries: NTSessionEntry[], mode: NTSessionCopyMode, ro
   entries.forEach(entry => {
     const spec = kindSpec(entry.kind)
     if (spec.javaImport) imports.add(spec.javaImport)
-    // Un Pose2d se construye con un Rotation2d, así que arrastra su import.
+    // A Pose2d is built with a Rotation2d, so it drags its import along.
     if (entry.kind === "Pose2d") imports.add("edu.wpi.first.math.geometry.Rotation2d")
     if (entry.kind === "Pose3d") imports.add("edu.wpi.first.math.geometry.Rotation3d")
   })
   if (mode === "getter") {
     imports.add("edu.wpi.first.networktables.NetworkTableInstance")
-    // Los structs se leen con un subscriber tipado, que es otro import.
+    // Structs are read with a typed subscriber, which is another import.
     if (entries.some(entry => kindSpec(entry.kind).structName)) {
       imports.add("edu.wpi.first.networktables.StructSubscriber")
     }
@@ -460,9 +462,9 @@ export function javaBlock(entries: NTSessionEntry[], mode: NTSessionCopyMode, ro
   return header.length > 0 ? `${header}\n\n${body}` : body
 }
 
-// --- Creación y normalización ----------------------------------------------------
+// --- Creation and normalization ----------------------------------------------------
 
-/** Entry nuevo, ya con la cantidad de componentes que su tipo necesita. */
+/** A new entry, already with the number of components its type needs. */
 export function makeEntry(id: string, key: string, kind: NTSessionKind): NTSessionEntry {
   return {
     id,
@@ -489,9 +491,8 @@ function emptyValues(kind: NTSessionKind): Pick<NTSessionEntry, "numbers" | "boo
 }
 
 /**
- * Ajusta los valores de un entry al cambiar de tipo, conservando lo que se
- * pueda: pasar de Translation2d a Pose2d no debería borrar la X y la Y que ya
- * estaban puestas.
+ * Adjusts an entry's values when changing type, keeping what it can: going
+ * from Translation2d to Pose2d should not erase the X and Y already set.
  */
 export function changeKind(entry: NTSessionEntry, kind: NTSessionKind): NTSessionEntry {
   const spec = kindSpec(kind)
@@ -532,7 +533,7 @@ export function normalizeEntry(raw: any): NTSessionEntry | null {
     strings: Array.isArray(raw.strings) ? raw.strings.map((v: unknown) => typeof v === "string" ? v : "") : base.strings,
     min: num(raw.min, base.min),
     max: num(raw.max, base.max),
-    // Un step de 0 deja el slider clavado y el input sin poder cambiar nada.
+    // A step of 0 leaves the slider stuck and the input unable to change anything.
     step: Math.abs(num(raw.step, base.step)) || base.step,
     useSlider: raw.useSlider === true,
     note: typeof raw.note === "string" ? raw.note : "",

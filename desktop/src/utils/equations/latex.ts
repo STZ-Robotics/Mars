@@ -1,20 +1,20 @@
-// Serializa el AST a LaTeX para renderizarlo con KaTeX.
+// Serializes the AST to LaTeX to render it with KaTeX.
 //
-// No es una impresión literal de lo que se escribió: las divisiones pasan a
-// \frac, las potencias a superíndices y los operadores temporales a la
-// notación de cálculo de verdad (d/dt, ∫ … dt). Por eso la ecuación se ve
-// como en un paper aunque se haya tipeado en una línea.
+// It is not a literal print of what was typed: divisions become \frac, powers
+// superscripts and the temporal operators real calculus notation (d/dt, ∫ … dt).
+// That is why the equation looks like a paper's even though it was typed on
+// one line.
 
 import { Node } from "./parser"
 
-// Precedencia de cada nodo, para decidir cuándo hacen falta paréntesis.
+// Precedence of each node, to decide when parentheses are needed.
 const PRECEDENCE = { "+": 1, "-": 1, "*": 2, "/": 2, "%": 2, "^": 4 } as const
 
 function precedenceOf(node: Node): number {
   switch (node.kind) {
     case "binary": return PRECEDENCE[node.op]
     case "unary": return 3
-    default: return 5 // literales, matrices, variables y llamadas se agrupan solos
+    default: return 5 // literals, matrices, variables and calls group on their own
   }
 }
 
@@ -22,14 +22,14 @@ function wrap(latex: string): string {
   return `\\left(${latex}\\right)`
 }
 
-// Nombres de más de un carácter van en redonda: "speed" se lee como una
-// variable, no como s·p·e·e·d.
+// Names longer than one character go upright: "speed" reads as a variable, not
+// as s·p·e·e·d.
 function variableToLatex(name: string): string {
   const greek = ["alpha", "beta", "gamma", "delta", "theta", "lambda", "mu", "sigma", "omega", "phi", "psi", "tau", "pi"]
   if (greek.includes(name.toLowerCase())) return `\\${name.toLowerCase()}`
   if (name.length === 1) return name
 
-  // Un guión bajo pasa a subíndice: v_max → v_{max}
+  // An underscore becomes a subscript: v_max → v_{max}
   const underscore = name.indexOf("_")
   if (underscore > 0) {
     const base = name.slice(0, underscore)
@@ -62,12 +62,12 @@ export function toLatex(node: Node): string {
     }
 
     case "binary": {
-      // La fracción ya agrupa visualmente: adentro no hacen falta paréntesis.
+      // The fraction already groups visually: no parentheses are needed inside.
       if (node.op === "/") {
         return `\\frac{${toLatex(node.left)}}{${toLatex(node.right)}}`
       }
 
-      // El exponente va en la llave del superíndice, tampoco necesita paréntesis.
+      // The exponent goes in the superscript's braces, it needs no parentheses either.
       if (node.op === "^") {
         const base = toLatex(node.left)
         const needsParens = precedenceOf(node.left) <= PRECEDENCE["^"] && node.left.kind !== "call"
@@ -77,8 +77,8 @@ export function toLatex(node: Node): string {
       const own = PRECEDENCE[node.op]
       const left = toLatex(node.left)
       const right = toLatex(node.right)
-      // A la derecha de una resta hay que preservar el agrupamiento:
-      // a-(b-c) no es lo mismo que a-b-c.
+      // On the right of a subtraction the grouping has to be preserved:
+      // a-(b-c) is not the same as a-b-c.
       const leftText = precedenceOf(node.left) < own ? wrap(left) : left
       const rightNeedsParens = precedenceOf(node.right) < own
         || (node.op === "-" && precedenceOf(node.right) === own)
@@ -99,7 +99,7 @@ export function toLatex(node: Node): string {
         case "log2": return `\\log_{2}${wrap(args[0])}`
         case "hypot": return `\\sqrt{${node.args.map(a => `${toLatex(a)}^{2}`).join(" + ")}}`
 
-        // Operadores temporales, en notación de cálculo real.
+        // Temporal operators, in real calculus notation.
         case "d":
         case "derivative":
           return `\\frac{d}{dt}${wrap(args[0])}`
@@ -107,7 +107,7 @@ export function toLatex(node: Node): string {
         case "integral":
           return `\\int ${args[0]} \\, dt`
 
-        // Funciones de ventana: la ventana va como subíndice del operador.
+        // Window functions: the window goes as the operator's subscript.
         case "avg": return `\\overline{${args[0]}}_{${args[1]}s}`
         case "rms": return `\\mathrm{RMS}_{${args[1]}s}${wrap(args[0])}`
         case "stddev": return `\\sigma_{${args[1]}s}${wrap(args[0])}`
@@ -116,7 +116,7 @@ export function toLatex(node: Node): string {
         case "deg": return `${wrap(args[0])}^{\\circ}`
         case "rad": return `\\mathrm{rad}${wrap(args[0])}`
 
-        // Álgebra matricial, en la notación habitual.
+        // Matrix algebra, in the usual notation.
         case "det": return `\\left|${args[0]}\\right|`
         case "inv": return `${wrap(args[0])}^{-1}`
         case "T": return `${wrap(args[0])}^{\\mathsf{T}}`

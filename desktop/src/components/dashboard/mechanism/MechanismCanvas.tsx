@@ -7,8 +7,8 @@ interface Props {
   settings: MechanismSettings
 }
 
-// Grosor mínimo en pantalla: un ligamento publicado con weight 0 igual tiene
-// que verse, si no el usuario cree que el dato no está llegando.
+// Minimum on-screen width: a ligament published with weight 0 still has to
+// show, otherwise the user believes the data is not arriving.
 const MIN_STROKE = 1
 
 export default function MechanismCanvas({ state, settings }: Props) {
@@ -45,9 +45,9 @@ export default function MechanismCanvas({ state, settings }: Props) {
 
       if (state === null) return
 
-      // El lienzo del Mechanism2d tiene una relación de aspecto propia (dims):
-      // se centra dentro del contenedor sin deformarlo, igual que lo hace el
-      // panel de AdvantageScope.
+      // The Mechanism2d canvas has an aspect ratio of its own (dims): it is
+      // centered inside the container without distorting it, just like
+      // AdvantageScope's panel does.
       const [mechWidth, mechHeight] = state.dimensions
       const scale = Math.min(width / mechWidth, height / mechHeight)
       const renderW = mechWidth * scale
@@ -55,7 +55,7 @@ export default function MechanismCanvas({ state, settings }: Props) {
       const offsetX = (width - renderW) / 2
       const offsetY = (height - renderH) / 2
 
-      // Coordenadas del mecanismo (X derecha, Y ARRIBA) -> píxeles de pantalla.
+      // Mechanism coordinates (X right, Y UP) -> screen pixels.
       const toPx = (point: MechanismPoint): [number, number] => [
         offsetX + point[0] * scale,
         offsetY + renderH - point[1] * scale,
@@ -79,8 +79,8 @@ export default function MechanismCanvas({ state, settings }: Props) {
         ctx.lineTo(end[0], end[1])
         ctx.stroke()
 
-        // Puntos en las juntas: sin ellos, dos ligamentos con ángulos muy
-        // distintos se ven como una línea quebrada sin pivote.
+        // Dots at the joints: without them, two ligaments at very different
+        // angles look like a broken line with no pivot.
         if (settings.showJoints) {
           ctx.fillStyle = line.color
           ;[start, end].forEach(([x, y]) => {
@@ -91,8 +91,8 @@ export default function MechanismCanvas({ state, settings }: Props) {
         }
       })
 
-      // Marco del lienzo, para que se note dónde termina el espacio declarado
-      // en dims aunque el fondo publicado sea casi igual al de la app.
+      // The canvas' frame, so it is clear where the space declared in dims ends
+      // even if the published background is almost the same as the app's.
       ctx.strokeStyle = "rgba(255,255,255,0.18)"
       ctx.lineWidth = 1
       ctx.strokeRect(offsetX + 0.5, offsetY + 0.5, renderW - 1, renderH - 1)
@@ -117,8 +117,8 @@ export default function MechanismCanvas({ state, settings }: Props) {
   )
 }
 
-// Cuadrícula en unidades del mecanismo: un paso "redondo" (1, 2, 5, 10...) que
-// deje entre 6 y 15 divisiones sobre el lado más largo.
+// Grid in mechanism units: a "round" step (1, 2, 5, 10...) that leaves between
+// 6 and 15 divisions on the longest side.
 function gridStep(span: number): number {
   const raw = span / 10
   const magnitude = Math.pow(10, Math.floor(Math.log10(raw)))
@@ -158,8 +158,8 @@ function drawGrid(
   }
 }
 
-// Ejes del (0,0) del dibujo — el origen de un Mechanism2d es la esquina
-// INFERIOR IZQUIERDA, no el centro, y eso confunde al posicionar roots.
+// Axes at the drawing's (0,0) — a Mechanism2d's origin is the BOTTOM LEFT
+// corner, not the center, and that confuses people when placing roots.
 function drawOrigin(
   ctx: CanvasRenderingContext2D,
   mechWidth: number,

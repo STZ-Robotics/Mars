@@ -1,9 +1,9 @@
-// Ajustes de la escena del Mechanism 3D, editor de rutinas de animación, e
-// import/export de la configuración.
+// The Mechanism 3D's scene settings, the animation routine editor, and the
+// configuration's import/export.
 //
-// El config exportado es un JSON autocontenido (piezas + articulaciones +
-// rutinas + ajustes de vista): la idea es armar el mecanismo una vez, guardarlo
-// en el repo del equipo y que cualquiera lo abra sin volver a colocar nada.
+// The exported config is a self-contained JSON (parts + joints + routines +
+// view settings): the idea is to build the mechanism once, keep it in the
+// team's repository and have anyone open it without placing anything again.
 
 import { useState } from "react"
 import {
@@ -22,11 +22,11 @@ interface Props {
   onUpdate: (updates: Partial<Mechanism3dSettings>) => void
   onExport: () => void
   onImport: () => void
-  /** Importa desde el texto pegado en el cuadro; devuelve el error si falla. */
+  /** Imports from the text pasted in the box; returns the error if it fails. */
   onImportText: (text: string) => string | null
-  /** JSON actual, para copiarlo o revisarlo. */
+  /** The current JSON, to copy or review it. */
   configText: string
-  /** Mensaje de la última operación de import/export. */
+  /** Message from the last import/export operation. */
   status: { kind: "ok" | "error"; message: string } | null
 
   selectedPartId: string | null

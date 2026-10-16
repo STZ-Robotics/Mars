@@ -1,41 +1,41 @@
 import { useEffect, useState } from "react"
 
 interface Props {
-  /** Archivo dentro de public/icons. Si falta, se prueba `svgFallback`. */
+  /** File inside public/icons. If it is missing, `svgFallback` is tried. */
   svg?: string
-  /** Segundo SVG a probar antes de caer al tabler: sirve para estrenar una
-   *  herramienta con el ícono de su hermana hasta que tenga el propio. */
+  /** Second SVG to try before falling back to tabler: lets a tool debut
+   *  with its sibling's icon until it has its own. */
   svgFallback?: string
-  /** Clase tabler de respaldo (ej. "ti-home"), para los que todavía no tienen SVG. */
+  /** Fallback tabler class (e.g. "ti-home"), for the ones that have no SVG yet. */
   fallback: string
   size?: number
-  /** Solo aplica al respaldo: los SVG vienen a color y no se tiñen. */
+  /** Only applies to the fallback: the SVGs come in color and are not tinted. */
   color?: string
 }
 
 /**
- * Archivos que ya se pidieron y no existen.
+ * Files that were already requested and do not exist.
  *
- * Vive en el MÓDULO y no en el componente a propósito. Sin esto, cada montaje
- * vuelve a pedir el archivo que falta, muestra un `<img>` roto por un frame y
- * recién entonces cae al respaldo. En una lista que se remonta seguido eso se
- * ve como un parpadeo constante, y además gasta un 404 por icono y por montaje.
+ * It lives in the MODULE and not in the component on purpose. Without this,
+ * every mount requests the missing file again, shows a broken `<img>` for a
+ * frame and only then falls back. In a list that remounts often that looks
+ * like constant flicker, and it also spends a 404 per icon per mount.
  *
- * No se limpia nunca: los iconos son archivos estáticos del build, así que uno
- * que faltó al arrancar la app va a seguir faltando hasta que se recargue.
+ * It is never cleared: the icons are static build files, so one that was
+ * missing when the app started will stay missing until it reloads.
  */
 const missing = new Set<string>()
 
-// Los SVG de public/icons son a color y con gradientes propios, así que van
-// como <img> y NO inlineados: cada gradiente define ids como "a"/"b"/"c" y al
-// meter varios en el mismo documento se pisarían entre sí, dejando iconos con
-// el degradé de otro.
+// The SVGs in public/icons are in color with their own gradients, so they go
+// as <img> and NOT inlined: each gradient defines ids like "a"/"b"/"c" and with
+// several in the same document they would overwrite each other, leaving icons
+// with another one's gradient.
 export default function SidebarIcon({ svg, svgFallback, fallback, size = 16, color }: Props) {
   const chain = [svg, svgFallback].filter((s): s is string => typeof s === "string" && s.length > 0)
 
-  // El primer archivo de la cadena que no se sepa ya que falta. Cuando todos
-  // faltan queda fuera de rango y se dibuja el glifo tabler directamente, sin
-  // pasar por el <img> roto.
+  // The first file in the chain not already known to be missing. When they are
+  // all missing it falls out of range and the tabler glyph is drawn directly,
+  // without going through the broken <img>.
   const firstUsable = () => {
     const index = chain.findIndex(name => !missing.has(name))
     return index === -1 ? chain.length : index
@@ -58,9 +58,9 @@ export default function SidebarIcon({ svg, svgFallback, fallback, size = 16, col
         alt=""
         aria-hidden
         draggable={false}
-        // Si el archivo no está (se renombró, se borró), el navegador mostraría
-        // el glifo de imagen rota. Se anota como faltante y se pasa al
-        // siguiente de la cadena, así la fila sigue siendo reconocible.
+        // If the file is not there (renamed, deleted), the browser would show the
+        // broken image glyph. It is noted as missing and the next one in the chain
+        // is tried, so the row stays recognizable.
         onError={() => {
           missing.add(current)
           setStep(s => s + 1)

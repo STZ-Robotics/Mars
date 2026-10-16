@@ -12,8 +12,8 @@ const VARIANT_TOKENS = {
   neutral: { bg: "var(--bg-input)", border: "var(--border-main)", color: "var(--status-sim)" },
 }
 
-// Banner de icono + mensaje repetido (con literales de color distintos) en
-// CommandConsolePage, PackagePage y otras páginas para avisos/errores inline.
+// Icon + message banner repeated (with different color literals) in
+// CommandConsolePage, PackagePage and other pages for inline notices/errors.
 export default function AlertBanner({ icon = "ti-alert-triangle", children, variant = "error" }: Props) {
   const t = VARIANT_TOKENS[variant]
   return (

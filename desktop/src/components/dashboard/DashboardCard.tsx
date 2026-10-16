@@ -8,19 +8,19 @@ import WidgetRenderer from "./widgets/WidgetRenderer"
 interface Props {
   widget: DashboardWidget
   liveValue?: any
-  /** Solo lo usan los widgets que leen una TABLA entera (Field2d), que no
-   *  tienen un `liveValue` propio porque su raíz no es un topic. */
+  /** Only used by the widgets that read a whole TABLE (Field2d), which have
+   *  no `liveValue` of their own because their root is not a topic. */
   topics: Map<string, TopicAnnounce>
   onRemove: () => void
   onUpdate: (updates: Partial<DashboardWidget>) => void
 }
 
-// Este archivo es SOLO el orquestador de la tarjeta: cabecera (label editable,
-// botones), el toggle entre "ver valor" y "settings", y pasar la
-// clasificación del topic hacia abajo. Toda la lógica de cada widget vive en
-// ./widgets/*, y toda la lógica de cada formulario de settings vive en
-// ./settings/*. Para agregar un widget nuevo no hace falta tocar este archivo
-// salvo, quizás, WidgetRenderer.tsx.
+// This file is ONLY the card's orchestrator: header (editable label,
+// buttons), the toggle between "see value" and "settings", and passing the
+// topic's classification down. All of each widget's logic lives in
+// ./widgets/*, and all of each settings form's logic lives in
+// ./settings/*. Adding a new widget does not require touching this file
+// except, perhaps, WidgetRenderer.tsx.
 export default function DashboardCard({ widget, liveValue, topics, onRemove, onUpdate }: Props) {
   const [isEditingLabel, setIsEditingLabel] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
@@ -42,7 +42,7 @@ export default function DashboardCard({ widget, liveValue, topics, onRemove, onU
   return (
     <div style={{ background: "var(--bg-panel)", border: "1px solid var(--border-main)", borderRadius: 4, display: "flex", flexDirection: "column", height: "100%", width: "100%", overflow: "hidden", position: "relative" }}>
 
-      {/* CABECERA (Funciona como manija para mover) */}
+      {/* HEADER (works as the handle for moving it) */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 8px", borderBottom: "1px solid var(--border-main)", background: "var(--bg-menubar)", cursor: "grab" }}>
         {isEditingLabel ? (
           <input

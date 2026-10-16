@@ -1,12 +1,12 @@
-// Vista 3D del swerve: el mismo diagrama que SwerveCanvas, pero con volumen y
-// con el modelo real del robot encima.
+// The swerve's 3D view: the same diagram as SwerveCanvas, but with volume and
+// with the robot's real model on top.
 //
-// El robot NO se traslada: se queda en el origen y lo que se mueve es el piso,
-// al revés que el chasis. Así se ve la velocidad sin necesitar odometría ni
-// una cancha, que es justo lo que hace falta para calibrar módulos.
+// The robot does NOT translate: it stays at the origin and what moves is the
+// floor, opposite to the chassis. That way the velocity shows without needing
+// odometry or a field, which is exactly what calibrating modules needs.
 //
-// Todo se arma con Z arriba, X adelante y Y a la izquierda (el marco de
-// WPILib): los ángulos de módulo y el heading entran tal cual salen de NT.
+// Everything is built with Z up, X forward and Y to the left (WPILib's frame):
+// the module angles and the heading go in exactly as they come out of NT.
 
 import { useEffect, useRef, useState } from "react"
 import {
@@ -29,9 +29,9 @@ import { ModuleSet, ChassisSet } from "./SwerveCanvas"
 export interface Swerve3dFrameData {
   moduleSets: ModuleSet[]
   chassisSets: ChassisSet[]
-  /** Heading del chasis en radianes. */
+  /** The chassis' heading in radians. */
   rotation: number
-  /** Velocidad usada para el arco de ω y para desplazar el piso. */
+  /** Velocity used for the ω arc and to move the floor. */
   velocity: ChassisVelocities | null
 }
 
@@ -39,23 +39,23 @@ interface Props {
   data: Swerve3dFrameData
   settings: SwerveSettings
   view: Swerve3dSettings
-  /** FL, FR, BL, BR ya resueltas (automáticas o manuales). */
+  /** FL, FR, BL, BR already resolved (automatic or manual). */
   placements: Swerve3dModulePlacement[]
-  /** Modelo ya cargado, o null para el chasis genérico. */
+  /** Model already loaded, or null for the generic chassis. */
   model: LoadedModel | null
-  /** Cambia de valor cuando la página pide volver a la vista por defecto. */
+  /** Changes value when the page asks to go back to the default view. */
   resetCameraToken: number
 }
 
 const CORNER_LABELS = ["FL", "FR", "BL", "BR"]
 
-const FLOOR_HALF = 14        // m; el piso es mucho más grande que lo visible
-const FLOOR_CELL = 0.5       // m entre líneas de la grilla
-const OMEGA_SEGMENTS = 48    // trozos del arco de ω (se muestran los primeros n)
-// --- Piezas propias de esta vista -------------------------------------------
+const FLOOR_HALF = 14        // m; the floor is much bigger than what is visible
+const FLOOR_CELL = 0.5       // m between grid lines
+const OMEGA_SEGMENTS = 48    // segments of the ω arc (the first n are shown)
+// --- This view's own pieces -------------------------------------------
 
-// Caja de alambre con el tamaño declarado del chasis: es la referencia contra
-// la que se compara si el modelo importado quedó a escala.
+// A wire box the declared size of the chassis: it is the reference to compare
+// against whether the imported model ended up at scale.
 function makeFrameBox(length: number, width: number, height: number): LineSegments {
   const box = new LineSegments(
     new EdgesGeometry(new BoxGeometry(length, width, height)),
@@ -65,11 +65,11 @@ function makeFrameBox(length: number, width: number, height: number): LineSegmen
   return box
 }
 
-// --- Estructura de la escena ------------------------------------------------
+// --- Scene structure ------------------------------------------------
 
 interface ArrowVisual {
   setId: string
-  /** Gira con el desvío de ESTE set respecto del azimut medido. */
+  /** Rotates by THIS set's deviation from the measured azimuth. */
   pivot: Group
   arrow: Group
   baseColor: string
@@ -114,9 +114,10 @@ export default function Swerve3dScene({
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
 
-  // Los datos llegan a ~30 Hz por props, pero la escena se redibuja a 60 fps
-  // (la cámara y el piso se mueven solos). Por eso el frame loop lee de refs y
-  // no de las props: así no hace falta recrear el loop en cada muestra.
+  // The data arrives at ~30 Hz through props, but the scene redraws at 60 fps
+  // (the camera and the floor move on their own). That is why the frame loop reads
+  // from refs and not from the props: that way the loop need not be recreated on
+  // every sample.
   const dataRef = useRef(data)
   dataRef.current = data
   const configRef = useRef({ settings, view, placements })
@@ -124,12 +125,12 @@ export default function Swerve3dScene({
 
   const coreRef = useRef<SceneCore | null>(null)
 
-  // Altura real que ocupa el modelo ya escalado y girado. La flecha del chasis
-  // y el arco de ω se dibujan por ENCIMA de eso: si se dejaran a la altura del
-  // chasis quedarían enterrados dentro de la malla del robot.
+  // The real height the model takes once scaled and rotated. The chassis arrow
+  // and the ω arc are drawn ABOVE that: left at the chassis' height they would
+  // be buried inside the robot's mesh.
   const [modelTop, setModelTop] = useState(0)
 
-  // --- Montaje: renderer, cámara, luces, piso, loop --------------------------
+  // --- Setup: renderer, camera, lights, floor, loop --------------------------
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
@@ -145,8 +146,8 @@ export default function Swerve3dScene({
     const scene = new Scene()
 
     const camera = new PerspectiveCamera(45, 1, 0.05, 200)
-    // Z arriba: sin esto la órbita giraría alrededor del eje equivocado y el
-    // robot se vería acostado.
+    // Z up: without this the orbit would turn about the wrong axis and the robot
+    // would be seen lying down.
     camera.up.set(0, 0, 1)
     camera.position.set(-1.8, -1.8, 1.4)
 
@@ -184,7 +185,7 @@ export default function Swerve3dScene({
       if (cam instanceof PerspectiveCamera) {
         cam.aspect = width / height
       } else {
-        // En ortográfica el encuadre lo fija el alto, no la distancia.
+        // In orthographic the framing is set by the height, not the distance.
         const halfWidth = cam.top * (width / height)
         cam.left = -halfWidth
         cam.right = halfWidth
@@ -199,8 +200,8 @@ export default function Swerve3dScene({
     const animate = () => {
       frame = requestAnimationFrame(animate)
       const now = performance.now()
-      // Se acota el paso: volver a la pestaña después de un rato daría un dt
-      // enorme y el piso saltaría metros de golpe.
+      // The step is capped: coming back to the tab after a while would give a
+      // huge dt and the floor would jump meters at once.
       const dt = Math.min((now - core.lastTime) / 1000, 0.1)
       core.lastTime = now
 
@@ -224,7 +225,7 @@ export default function Swerve3dScene({
     }
   }, [])
 
-  // --- Proyección: la cámara se recrea porque cambia de clase ----------------
+  // --- Projection: the camera is recreated because it changes class ----------------
   useEffect(() => {
     const core = coreRef.current
     const container = containerRef.current
@@ -238,8 +239,8 @@ export default function Swerve3dScene({
 
     let camera: PerspectiveCamera | OrthographicCamera
     if (wantsOrtho) {
-      // El alto se elige para que la ortográfica arranque mostrando más o
-      // menos lo mismo que venía mostrando la perspectiva.
+      // The height is chosen so the orthographic one starts out showing more or
+      // less the same as the perspective was showing.
       const halfHeight = distance * Math.tan(22.5 * DEG)
       camera = new OrthographicCamera(
         -halfHeight * aspect, halfHeight * aspect, halfHeight, -halfHeight, 0.05, 200,
@@ -302,16 +303,16 @@ export default function Swerve3dScene({
       standard.needsUpdate = true
     })
 
-    // El wrapper es el que gira: el modelo ya viene centrado en XY y apoyado en
-    // z = 0, así que el pivote queda en el centro del chasis a ras de piso.
+    // The wrapper is what rotates: the model already comes centered in XY and
+    // resting at z = 0, so the pivot is at the chassis' center, flush with the floor.
     const wrapper = new Group()
     wrapper.add(instance)
     wrapper.rotation.set(view.modelRotX * DEG, view.modelRotY * DEG, view.modelRotZ * DEG)
     wrapper.position.set(view.modelOffsetX, view.modelOffsetY, view.modelOffsetZ)
     core.modelSlot.add(wrapper)
 
-    // Apoyar la base en el piso va DESPUÉS de escalar y girar: cuál es la cara
-    // de abajo depende de la rotación que se le haya puesto.
+    // Resting the base on the floor goes AFTER scaling and rotating: which face
+    // is the bottom depends on the rotation it was given.
     wrapper.updateMatrixWorld(true)
     const box = new Box3().setFromObject(wrapper)
     if (view.modelDropToFloor && isFinite(box.min.z)) {
@@ -328,9 +329,9 @@ export default function Swerve3dScene({
     settings.frameLength, settings.frameWidth,
   ])
 
-  // --- Módulos, chasis y arco de ω ------------------------------------------
-  // Se reconstruyen cuando cambia la configuración o el juego de fuentes; los
-  // valores en sí se aplican en el loop, que solo toca transformaciones.
+  // --- Modules, chassis and ω arc ------------------------------------------
+  // They are rebuilt when the configuration or the set of sources changes; the
+  // values themselves are applied in the loop, which only touches transforms.
   const setSignature = data.moduleSets.map(s => `${s.id}:${s.color}:${s.role}`).join("|")
   const chassisSignature = data.chassisSets.map(s => `${s.id}:${s.color}`).join("|")
   const placementSignature = placements.map(p => `${p.x},${p.y},${p.z}`).join("|")
@@ -380,7 +381,7 @@ export default function Swerve3dScene({
   )
 }
 
-// --- Construcción ------------------------------------------------------------
+// --- Construction ------------------------------------------------------------
 
 function clearModelSlot(slot: Group) {
   slot.children.slice().forEach(child => {
@@ -398,21 +399,21 @@ function buildVisuals(
     moduleSets: ModuleSet[]
     chassisSets: ChassisSet[]
     hasModel: boolean
-    /** Altura del punto más alto del modelo, para no dibujar dentro de él. */
+    /** Height of the model's highest point, so nothing is drawn inside it. */
     modelTop: number
   },
 ): Visuals {
   const { settings, view, placements, moduleSets, chassisSets, hasModel, modelTop } = args
   const frameHeight = Math.max(view.wheelRadius * 2 + 0.06, 0.12)
-  // Altura a la que flotan la flecha del chasis y el arco de ω.
+  // Height at which the chassis arrow and the ω arc float.
   const topHeight = Math.max(frameHeight, modelTop) + 0.07
 
   if (view.showFrame) {
     root.add(makeFrameBox(settings.frameLength, settings.frameWidth, frameHeight))
   }
 
-  // Sin modelo importado se dibuja un chasis genérico: la vista tiene que
-  // servir apenas se abre la pestaña, no solo después de elegir un archivo.
+  // With no imported model a generic chassis is drawn: the view has to be
+  // useful as soon as the tab opens, not only after choosing a file.
   if (!hasModel) {
     const body = new Mesh(
       new BoxGeometry(settings.frameLength * 0.94, settings.frameWidth * 0.94, frameHeight * 0.8),
@@ -423,8 +424,8 @@ function buildVisuals(
     body.position.z = frameHeight / 2
     root.add(body)
 
-    // Cuña en el frente, para saber hacia dónde mira el robot sin depender de
-    // los ejes.
+    // A wedge at the front, to know which way the robot faces without relying
+    // on the axes.
     const nose = new Mesh(
       new ConeGeometry(settings.frameWidth * 0.13, settings.frameLength * 0.22, 4).rotateZ(-Math.PI / 2),
       new MeshStandardMaterial({ color: 0xa83c3c, roughness: 0.6 }),
@@ -447,14 +448,14 @@ function buildVisuals(
       const azimuth = new Group()
       group.add(azimuth)
 
-      // La rueda es un cilindro con el eje en Y: así rueda hacia +X y girar el
-      // grupo `azimuth` alrededor de Z la apunta al azimut del módulo.
+      // The wheel is a cylinder with its axis on Y: that way it rolls towards +X
+      // and rotating the `azimuth` group about Z points it at the module's azimuth.
       azimuth.add(new Mesh(wheelGeometry, new MeshStandardMaterial({
         color: 0x2f3038, metalness: 0.2, roughness: 0.75,
       })))
 
-      // Anillo en el piso alrededor del módulo: se pone rojo cuando ese módulo
-      // pasa la rapidez máxima, igual que el círculo del canvas 2D.
+      // A ring on the floor around the module: it turns red when that module
+      // goes over the maximum speed, just like the 2D canvas' circle.
       const ring = new Mesh(ringGeometry, new MeshBasicMaterial({ color: 0x6a6a72 }))
       ring.position.z = -placement.z + 0.004
       group.add(ring)
@@ -498,8 +499,8 @@ function buildVisuals(
 
   let omega: Visuals["omega"] = null
   if (view.showOmega) {
-    // El arco se arma con trozos fijos y se muestran los primeros n: cambiar
-    // `thetaLength` obligaría a rehacer la geometría en cada frame.
+    // The arc is built from fixed segments and the first n are shown: changing
+    // `thetaLength` would force redoing the geometry every frame.
     const radius = Math.max(settings.frameLength, settings.frameWidth) * 0.75
     const step = (Math.PI * 2) / OMEGA_SEGMENTS
     const segmentGeometry = new TorusGeometry(radius, 0.008, 6, 6, step * 1.05)
@@ -516,7 +517,7 @@ function buildVisuals(
       segments.push(segment)
     }
 
-    // La punta va en tangente al arco, que es la dirección del giro.
+    // The tip goes tangent to the arc, which is the direction of rotation.
     const head = new Group()
     const cone = new Mesh(new ConeGeometry(0.024, 0.065, 12).rotateZ(-Math.PI / 2), material)
     cone.position.x = radius
@@ -531,7 +532,7 @@ function buildVisuals(
   return { modules, chassis, omega }
 }
 
-// --- Actualización por frame -------------------------------------------------
+// --- Per-frame update -------------------------------------------------
 
 function updateScene(
   core: SceneCore,
@@ -542,20 +543,20 @@ function updateScene(
   const { settings, view } = config
   const heading = data.rotation
 
-  // El robot gira con el gyro; con followHeading apagado se queda quieto y lo
-  // que gira es el piso, que es la vista solidaria al chasis.
+  // The robot turns with the gyro; with followHeading off it stays still and
+  // what turns is the floor, which is the chassis-fixed view.
   core.robotGroup.rotation.z = view.followHeading ? heading : 0
   core.floorGroup.rotation.z = view.followHeading ? 0 : -heading
 
   if (view.motionFloor && data.velocity) {
-    // La velocidad viene en el marco del robot: para desplazar el piso hay que
-    // pasarla al marco de la cancha.
+    // The velocity comes in the robot's frame: to move the floor it has to be
+    // taken to the field's frame.
     const cos = Math.cos(heading)
     const sin = Math.sin(heading)
     core.offset.x += (data.velocity.vx * cos - data.velocity.vy * sin) * dt
     core.offset.y += (data.velocity.vx * sin + data.velocity.vy * cos) * dt
-    // Se envuelve por celda: el piso es finito y sin esto terminaría saliéndose
-    // del encuadre después de unos metros.
+    // It wraps per cell: the floor is finite and without this it would end up
+    // leaving the frame after a few meters.
     core.offset.x %= FLOOR_CELL
     core.offset.y %= FLOOR_CELL
   }
@@ -565,10 +566,10 @@ function updateScene(
   if (!visuals) return
 
   const maxSpeed = settings.maxSpeed > 0 ? settings.maxSpeed : 1
-  // Largo del vector a fondo de escala, en metros de la escena.
+  // Length of the full-scale vector, in scene meters.
   const fullVector = Math.max(settings.frameLength, settings.frameWidth) * 0.85
-  // El azimut de la rueda lo marca el set medido; si solo hay comandados, el
-  // primero que haya.
+  // The wheel's azimuth is set by the measured set; if there are only
+  // commanded ones, the first one there is.
   const primary = data.moduleSets.find(s => s.role !== "setpoint") ?? data.moduleSets[0]
 
   visuals.modules.forEach((visual, index) => {
@@ -589,12 +590,12 @@ function updateScene(
         return
       }
 
-      // Cada set tiene su propio ángulo: por eso la flecha cuelga de un pivote
-      // propio y no directamente del azimut medido.
+      // Each set has its own angle: that is why the arrow hangs from a pivot of
+      // its own and not directly from the measured azimuth.
       const delta = primaryState ? state.angle - primaryState.angle : 0
       entry.pivot.rotation.z = state.speed < 0 ? delta + Math.PI : delta
 
-      // Se deja pasar del 100% para que la saturación se vea a simple vista.
+      // It is allowed past 100% so saturation shows at a glance.
       const ratio = Math.abs(state.speed) / maxSpeed
       setArrowLength(entry.arrow, view.wheelRadius + Math.min(ratio, 1.35) * fullVector)
       const material = arrowMaterial(entry.arrow)
@@ -620,8 +621,8 @@ function updateScene(
     visuals.omega.segments.forEach((segment, i) => { segment.visible = i < count })
     visuals.omega.head.visible = count > 0
     visuals.omega.head.rotation.z = (count / OMEGA_SEGMENTS) * Math.PI * 2
-    // Con ω negativo se espeja el arco entero, que es lo mismo que dibujarlo
-    // en sentido horario.
+    // With a negative ω the whole arc is mirrored, which is the same as drawing
+    // it clockwise.
     visuals.omega.group.scale.y = omega < 0 ? -1 : 1
   }
 }

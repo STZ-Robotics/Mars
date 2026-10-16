@@ -1,9 +1,9 @@
 import UnsupportedValue from "../../common/UnsupportedValue"
 import ArrayHeader from "../../common/ArrayHeader"
 
-// Lista índice -> valor para los arrays que no son numéricos (boolean[],
-// string[]). No tienen magnitud que graficar como barra, así que se muestran
-// como texto; los booleanos llevan color para poder leerlos de un vistazo.
+// Index -> value list for the arrays that are not numeric (boolean[],
+// string[]). They have no magnitude to plot as a bar, so they are shown as
+// text; booleans carry color so they can be read at a glance.
 export default function ValueListWidget({ values }: { values: unknown[] }) {
   if (!Array.isArray(values) || values.length === 0) {
     return <UnsupportedValue message="Empty array" />

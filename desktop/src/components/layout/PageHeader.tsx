@@ -6,10 +6,10 @@ interface Props {
   subtitle?: React.ReactNode
 }
 
-// Bloque de cabecera repetido, literal, al inicio del sidebar de cada página
-// (WatchDog, Telemetry, Manifest, etc.): eyebrow en mayúsculas + título +
-// subtítulo opcional. Antes cada página lo reimplementaba con sus propios
-// colores sueltos (rgba(255,255,255,0.55), #fff...); acá vive una sola vez.
+// A header block repeated, literally, at the top of each page's sidebar
+// (WatchDog, Telemetry, Manifest, etc.): an uppercase eyebrow + title +
+// optional subtitle. Each page used to reimplement it with its own loose colors
+// (rgba(255,255,255,0.55), #fff...); here it lives once.
 export default function PageHeader({ eyebrow, title, subtitle }: Props) {
   return (
     <div style={{ padding: "24px 20px", borderBottom: "1px solid var(--border-light)", background: "var(--bg-panel)" }}>

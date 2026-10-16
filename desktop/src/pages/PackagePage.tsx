@@ -49,9 +49,9 @@ export default function PackagePage({ projectName, projectPath }: Props) {
       console.error("Error reading local packages:", e)
     }
 
-    // La lista de features verificadas viaja con la app
-    // (`supported-packages.json`); de la red solo se bajan los descriptores,
-    // para que las versiones sean siempre las de upstream.
+    // The list of verified features travels with the app
+    // (`supported-packages.json`); only the descriptors are downloaded from the
+    // network, so the versions are always upstream's.
     const fetchedFeatures: MarsFeature[] = []
     const failedUrls: string[] = []
     for (const url of SUPPORTED_FEATURE_URLS) {
@@ -113,7 +113,7 @@ export default function PackagePage({ projectName, projectPath }: Props) {
     }
   }
 
-  // Combinación: local + catálogo verificado, sin duplicados
+  // Combination: local + verified catalog, without duplicates
   const combined = useMemo(() => {
     const map = new Map<string, CombinedFeature>()
     catalogData.forEach(p => map.set(p.featureId, { ...p, isInstalled: false }))
@@ -283,7 +283,7 @@ export default function PackagePage({ projectName, projectPath }: Props) {
         </div>
       </div>
 
-      {/* Keyframe local para el ícono de refresh/loading, sin depender de CSS global */}
+      {/* A local keyframe for the refresh/loading icon, without depending on global CSS */}
       <style>{`
         @keyframes mars-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         .mars-spin { display: inline-block; animation: mars-spin 1s linear infinite; }

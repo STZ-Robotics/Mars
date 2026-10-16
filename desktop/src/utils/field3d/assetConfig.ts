@@ -1,24 +1,24 @@
-// Lectura del `config.json` de un asset 3D, en el formato de AdvantageScope.
+// Reading a 3D asset's `config.json`, in AdvantageScope's format.
 //
-// Un asset es una carpeta con un `config.json` y uno o varios `model*.glb`.
-// Hay dos clases y se distinguen por lo que declara el propio config, no por
-// el nombre de la carpeta:
+// An asset is a folder with a `config.json` and one or more `model*.glb`.
+// There are two kinds and they are told apart by what the config itself
+// declares, not by the folder's name:
 //
-//   Cancha  ->  trae widthInches/heightInches (el área de juego)
-//   Robot   ->  no las trae; trae components/cameras
+//   Field  ->  carries widthInches/heightInches (the playing area)
+//   Robot  ->  does not; carries components/cameras
 //
-// Se acepta el formato TAL CUAL lo publica AdvantageScope para que los .zip
-// oficiales (github.com/Mechanical-Advantage/AdvantageScopeAssets) se
-// instalen sin editar nada, y para que un equipo que ya arma sus assets no
-// tenga que mantener dos versiones.
+// The format is accepted EXACTLY as AdvantageScope publishes it so the official
+// .zip files (github.com/Mechanical-Advantage/AdvantageScopeAssets) install
+// without editing anything, and so a team that already builds its assets does
+// not have to maintain two versions.
 //
-// Todo campo ausente cae a un default razonable en vez de invalidar el
-// paquete: un config escrito a mano al que le falta `defaultOrigin` sigue
-// siendo perfectamente usable.
+// Every missing field falls back to a reasonable default instead of invalidating
+// the package: a hand-written config missing `defaultOrigin` is still perfectly
+// usable.
 
 import { Field3dCoordinateSystem, FieldSize, Quat, quatMultiply } from "./frames"
 
-/** Giro alrededor de un eje del mundo, en grados. Se aplican EN ORDEN. */
+/** A turn around a world axis, in degrees. They are applied IN ORDER. */
 export interface AxisRotation {
   axis: "x" | "y" | "z"
   degrees: number
@@ -31,16 +31,16 @@ export interface GamePieceConfig {
   rotations: AxisRotation[]
   position: [number, number, number]
   /**
-   * Nombres de los nodos del modelo de la cancha que representan a ESTA pieza
-   * ya colocada en su lugar de partida. Cuando el robot publica el topic de la
-   * pieza se ocultan: si no, cada pieza aparecería dos veces, la de verdad y
-   * la que trae pintada el modelo de la cancha.
+   * Names of the field model's nodes that represent THIS piece already placed
+   * at its starting spot. They are hidden when the robot publishes the piece's
+   * topic: otherwise each piece would show up twice, the real one and the one
+   * painted into the field model.
    */
   stagedObjects: string[]
 }
 
 export interface AprilTagConfig {
-  /** Familia y tamaño, p. ej. "36h11-6.5in". */
+  /** Family and size, e.g. "36h11-6.5in". */
   variant: string
   id: number
   rotations: AxisRotation[]
@@ -52,12 +52,12 @@ export interface FieldAssetConfig {
   name: string
   isFTC: boolean
   coordinateSystem: Field3dCoordinateSystem
-  /** Giros que llevan el modelo del archivo al marco Z-arriba de la escena. */
+  /** Turns that take the file's model into the scene's Z-up frame. */
   rotations: AxisRotation[]
-  /** Área de juego en metros; sale de widthInches/heightInches. */
+  /** Playing area in meters; it comes from widthInches/heightInches. */
   size: FieldSize
   defaultOrigin: OriginPreference
-  /** Posiciones de las driver stations en el marco del modelo (6 en FRC). */
+  /** Positions of the driver stations in the model's frame (6 in FRC). */
   driverStations: [number, number][]
   gamePieces: GamePieceConfig[]
   aprilTags: AprilTagConfig[]
@@ -66,15 +66,15 @@ export interface FieldAssetConfig {
 export interface RobotCameraConfig {
   name: string
   rotations: AxisRotation[]
-  /** Posición relativa al centro del robot, en metros. */
+  /** Position relative to the robot's center, in meters. */
   position: [number, number, number]
   resolution: [number, number]
-  /** Campo de visión HORIZONTAL en grados. */
+  /** HORIZONTAL field of view in degrees. */
   fov: number
 }
 
 export interface RobotComponentConfig {
-  /** Pose del componente cuando su Pose3d publicada es la identidad. */
+  /** The component's pose when its published Pose3d is the identity. */
   zeroedRotations: AxisRotation[]
   zeroedPosition: [number, number, number]
 }
@@ -120,8 +120,8 @@ function parseCoordinateSystem(value: unknown): Field3dCoordinateSystem {
     case "wall-alliance": return "wall-alliance"
     case "center-red": return "center-red"
     case "center-rotated": return "center-rotated"
-    // Sin dato explícito se asume el sistema clásico de WPILib, que es el que
-    // publica todo el código de robot escrito antes de 2027.
+    // With no explicit value WPILib's classic system is assumed, which is what
+    // all robot code written before 2027 publishes.
     default: return "wall-blue"
   }
 }
@@ -133,11 +133,11 @@ function parseOrigin(value: unknown): OriginPreference {
 // --- Parseo ------------------------------------------------------------------
 
 /**
- * Convierte el texto de un `config.json` en un asset tipado.
+ * Turns a `config.json`'s text into a typed asset.
  *
- * Devuelve `null` en vez de lanzar cuando el JSON no se puede leer o no
- * declara ni un nombre: el panel de assets lista carpetas que puede haber
- * dejado cualquiera, y una sola rota no debe tumbar la lista entera.
+ * Returns `null` instead of throwing when the JSON cannot be read or does not
+ * even declare a name: the assets panel lists folders anyone could have left,
+ * and a single broken one must not bring the whole list down.
  */
 export function parseAssetConfig(text: string): AssetConfig | null {
   let raw: any
@@ -154,8 +154,8 @@ export function parseAssetConfig(text: string): AssetConfig | null {
   const isFTC = raw.isFTC === true
   const rotations = parseRotations(raw.rotations)
 
-  // Es una cancha si declara el área de juego. Un asset de robot no la trae,
-  // y es la única diferencia estructural entre los dos formatos.
+  // It is a field if it declares the playing area. A robot asset does not carry
+  // it, and it is the only structural difference between the two formats.
   const hasSize = typeof raw.widthInches === "number" && typeof raw.heightInches === "number"
 
   if (hasSize) {
@@ -227,14 +227,14 @@ export function parseAssetConfig(text: string): AssetConfig | null {
 const DEG = Math.PI / 180
 
 /**
- * Compone una lista de giros por eje en un solo cuaternión.
+ * Composes a list of per-axis turns into a single quaternion.
  *
- * Los giros son alrededor de los ejes del MUNDO y se aplican en el orden en
- * que vienen, que es lo que documenta AdvantageScope: por eso cada uno
- * premultiplica al acumulado en vez de posmultiplicar.
+ * The turns are around the WORLD axes and are applied in the order they come,
+ * which is what AdvantageScope documents: that is why each one premultiplies
+ * the accumulated one instead of postmultiplying.
  *
- * El caso típico es `[{axis:"x", degrees:90}]`, que lleva un glTF (Y arriba
- * por convención del formato) al marco Z-arriba de WPILib que usa la escena.
+ * The typical case is `[{axis:"x", degrees:90}]`, which takes a glTF (Y up by
+ * the format's convention) into WPILib's Z-up frame the scene uses.
  */
 export function composeRotations(rotations: AxisRotation[]): Quat {
   let result: Quat = [1, 0, 0, 0]
@@ -251,7 +251,7 @@ export function composeRotations(rotations: AxisRotation[]): Quat {
   return result
 }
 
-/** Tamaño legible de un paquete, para el panel de assets. */
+/** A package's readable size, for the assets panel. */
 export function formatBytes(bytes: number): string {
   if (bytes >= 1_048_576) return `${(bytes / 1_048_576).toFixed(1)} MB`
   if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`

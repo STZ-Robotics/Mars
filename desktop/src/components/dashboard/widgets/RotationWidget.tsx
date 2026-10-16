@@ -9,8 +9,8 @@ interface Props {
   unit?: string
 }
 
-// struct dedicado con opción de brújula y unidad real (rad/deg). El struct
-// WPILib de Rotation2d siempre serializa en radianes.
+// A dedicated struct with a compass option and a real unit (rad/deg). WPILib's
+// Rotation2d struct always serializes in radians.
 export default function RotationWidget({ rawVal, style, unit }: Props) {
   if (!Array.isArray(rawVal) || rawVal.length < 8) {
     return <UnsupportedValue message="Unsupported struct: Rotation2d" />

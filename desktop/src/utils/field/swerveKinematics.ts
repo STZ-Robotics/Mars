@@ -1,17 +1,17 @@
-// Cinemática directa de un swerve, resuelta por mínimos cuadrados.
+// Forward kinematics of a swerve, solved by least squares.
 //
-// Cada módulo en la posición (x_i, y_i) del marco del robot aporta dos
-// ecuaciones sobre las incógnitas del chasis (vx, vy, ω):
+// Each module at position (x_i, y_i) of the robot's frame contributes two
+// equations on the chassis' unknowns (vx, vy, ω):
 //
 //   vx_i = vx − ω·y_i
 //   vy_i = vy + ω·x_i
 //
-// Con 4 módulos quedan 8 ecuaciones y 3 incógnitas: el sistema está
-// sobredeterminado, así que en general NO tiene solución exacta. Eso es
-// justamente lo útil: el residuo del ajuste mide cuánto se contradicen los
-// módulos entre sí. Si los 4 describen el mismo movimiento de cuerpo rígido
-// el residuo es 0; si uno patina, tiene el offset de encoder corrido o el
-// radio de rueda mal, ese módulo se despega del ajuste y su residuo sube.
+// With 4 modules there are 8 equations and 3 unknowns: the system is
+// overdetermined, so in general it has NO exact solution. That is exactly what
+// is useful: the fit's residual measures how much the modules contradict each
+// other. If all 4 describe the same rigid-body motion the residual is 0; if one
+// slips, has a shifted encoder offset or the wrong wheel radius, that module
+// comes off the fit and its residual goes up.
 
 import { ModuleState } from "./swerveExtraction"
 
@@ -24,15 +24,15 @@ export interface KinematicsSolution {
   vx: number
   vy: number
   omega: number
-  /** Vector que CADA módulo debería tener si el ajuste fuera exacto. */
+  /** The vector EACH module should have if the fit were exact. */
   predicted: { vx: number; vy: number }[]
-  /** |medido − predicho| por módulo, en m/s. */
+  /** |measured − predicted| per module, in m/s. */
   residuals: number[]
-  /** Residuo cuadrático medio, en m/s. */
+  /** Root mean square residual, in m/s. */
   rmsResidual: number
 }
 
-// Ubicación de los módulos en el orden de dibujo FL, FR, BL, BR.
+// Module locations in drawing order FL, FR, BL, BR.
 export function moduleLocations(frameLength: number, frameWidth: number): ModuleLocation[] {
   const halfL = frameLength / 2
   const halfW = frameWidth / 2
@@ -44,7 +44,7 @@ export function moduleLocations(frameLength: number, frameWidth: number): Module
   ]
 }
 
-// Componentes cartesianas del vector de un módulo, en el marco del robot.
+// Cartesian components of a module's vector, in the robot's frame.
 function moduleVector(state: ModuleState): { vx: number; vy: number } {
   return {
     vx: state.speed * Math.cos(state.angle),
@@ -52,8 +52,8 @@ function moduleVector(state: ModuleState): { vx: number; vy: number } {
   }
 }
 
-// Inversa de una matriz simétrica 3x3. Devuelve null si es singular (pasa,
-// por ejemplo, si todos los módulos están en el mismo punto).
+// Inverse of a symmetric 3x3 matrix. Returns null if it is singular (it
+// happens, for example, if all the modules are at the same point).
 function invert3x3(m: number[][]): number[][] | null {
   const [a, b, c] = m[0]
   const [d, e, f] = m[1]
@@ -69,12 +69,12 @@ function invert3x3(m: number[][]): number[][] | null {
   ]
 }
 
-// Resuelve las ecuaciones normales AᵀA·u = Aᵀb.
+// Solves the normal equations AᵀA·u = Aᵀb.
 //
-// Para el layout simétrico habitual, AᵀA se vuelve diagonal y esto se reduce a
-// promediar los vectores (vx, vy) y a repartir el momento entre los módulos;
-// se resuelve el caso general igual, para que siga funcionando con chasis
-// asimétricos o con menos de 4 módulos.
+// For the usual symmetric layout, AᵀA becomes diagonal and this reduces to
+// averaging the (vx, vy) vectors and sharing the moment among the modules;
+// the general case is solved anyway, so it keeps working with asymmetric
+// chassis or with fewer than 4 modules.
 export function solveChassis(
   states: ModuleState[],
   locations: ModuleLocation[],
@@ -93,7 +93,7 @@ export function solveChassis(
     const { x, y } = locations[i]
     const v = moduleVector(states[i])
 
-    // Fila [1, 0, −y] con término independiente vx_i
+    // Row [1, 0, −y] with independent term vx_i
     ata[0][0] += 1
     ata[0][2] += -y
     ata[2][0] += -y
@@ -101,7 +101,7 @@ export function solveChassis(
     atb[0] += v.vx
     atb[2] += -y * v.vx
 
-    // Fila [0, 1, x] con término independiente vy_i
+    // Row [0, 1, x] with independent term vy_i
     ata[1][1] += 1
     ata[1][2] += x
     ata[2][1] += x
@@ -135,29 +135,29 @@ export function solveChassis(
   return { vx, vy, omega, predicted, residuals, rmsResidual: Math.sqrt(sumSquares / n) }
 }
 
-// Centro instantáneo de rotación, en el marco del robot: el punto alrededor
-// del cual el chasis está girando en este instante. Para traslación pura
-// (ω ≈ 0) se va al infinito, así que no se devuelve nada.
+// The instantaneous center of rotation, in the robot's frame: the point the
+// chassis is turning around at this instant. For pure translation (ω ≈ 0) it
+// goes to infinity, so nothing is returned.
 export function computeICR(vx: number, vy: number, omega: number): { x: number; y: number } | null {
   if (Math.abs(omega) < 0.05) return null
   return { x: -vy / omega, y: vx / omega }
 }
 
-// Convierte un vector cartesiano del marco del robot a la forma
-// (rapidez, ángulo) que usa el renderer de módulos.
+// Converts a cartesian vector of the robot's frame to the (speed, angle) form
+// the module renderer uses.
 export function vectorToModuleState(v: { vx: number; vy: number }): ModuleState {
   return { speed: Math.hypot(v.vx, v.vy), angle: Math.atan2(v.vy, v.vx) }
 }
 
-// Lleva un ángulo a (−180, 180]. Los módulos suelen publicar el azimut
-// acumulado sin envolver (11246° en vez de 86°): para el dibujo da igual
-// porque sin/cos son periódicos, pero para LEERLO no.
+// Brings an angle to (−180, 180]. Modules usually publish the accumulated,
+// unwrapped azimuth (11246° instead of 86°): for drawing it does not matter
+// because sin/cos are periodic, but for READING it, it does.
 export function wrapDegrees(degrees: number): number {
   return ((((degrees + 180) % 360) + 360) % 360) - 180
 }
 
-// Diferencia angular más corta entre dos ángulos, en grados. Sin esto, el
-// error entre 179° y −179° daría 358° en vez de 2°.
+// The shortest angular difference between two angles, in degrees. Without this,
+// the error between 179° and −179° would give 358° instead of 2°.
 export function angleErrorDegrees(fromRadians: number, toRadians: number): number {
   const delta = (toRadians - fromRadians) * (180 / Math.PI)
   return wrapDegrees(delta)

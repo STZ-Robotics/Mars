@@ -1,13 +1,13 @@
-// Extracción de estados de módulos swerve, velocidades de chasis y rotación
-// desde valores NT4, reutilizando el decodificador de structs de la Dashboard.
+// Extraction of swerve module states, chassis speeds and rotation from NT4
+// values, reusing the Dashboard's struct decoder.
 
 import { decodeStructBytes, decodeStructArrayBytes } from "../dashboard/valueDecoding"
 import { getStructDef } from "../../store/structSchemaStore"
 import { classifyTopic } from "../dashboard/topicClassification"
 
 export interface ModuleState {
-  speed: number   // m/s (para SwerveModulePosition es 0: ese struct no trae rapidez)
-  angle: number   // RADIANES
+  speed: number   // m/s (for SwerveModulePosition it is 0: that struct carries no speed)
+  angle: number   // RADIANS
 }
 
 export interface ChassisVelocities {
@@ -17,7 +17,7 @@ export interface ChassisVelocities {
 }
 
 export interface ModulePosition {
-  distance: number  // m acumulados por la rueda
+  distance: number  // m accumulated by the wheel
   angle: number     // RADIANES
 }
 
@@ -35,7 +35,7 @@ function isNumericTopic(topicType: string): boolean {
   return classifyTopic(topicType).isNumber
 }
 
-// --- ¿Qué topics acepta cada tipo de fuente? -------------------------------
+// --- Which topics does each source type accept? -------------------------------
 
 export function isModulesTopic(topicType: string): boolean {
   const c = classifyTopic(topicType)
@@ -64,7 +64,7 @@ export function isSwerveTopic(topicType: string): boolean {
   return isModulesTopic(topicType) || isChassisTopic(topicType) || isRotationTopic(topicType)
 }
 
-// El tipo de fuente que corresponde por defecto al soltar este topic.
+// The source type that matches by default when this topic is dropped.
 export function defaultSourceTypeFor(topicType: string): "modules" | "positions" | "chassis" | "rotation" {
   const c = classifyTopic(topicType)
   if (c.isStructArray && c.structName === "SwerveModulePosition") return "positions"
@@ -75,8 +75,8 @@ export function defaultSourceTypeFor(topicType: string): "modules" | "positions"
   return "modules"
 }
 
-// SwerveModulePosition = [Distance, Angle]: distancia acumulada por la rueda,
-// que es de donde sale la odometría por dead-reckoning.
+// SwerveModulePosition = [Distance, Angle]: the distance accumulated by the
+// wheel, which is where dead-reckoning odometry comes from.
 export function extractModulePositions(liveValue: any, topicType: string): ModulePosition[] {
   if (!liveValue) return []
   if (!isPositionsTopic(topicType)) return []
@@ -92,10 +92,10 @@ export function extractModulePositions(liveValue: any, topicType: string): Modul
   }))
 }
 
-// --- Extracción ------------------------------------------------------------
+// --- Extraction ------------------------------------------------------------
 
 // SwerveModuleState = [Speed, Angle]; SwerveModulePosition = [Distance, Angle].
-// En ambos, decodeStructBytes ya devolvió el ángulo en grados.
+// In both, decodeStructBytes already returned the angle in degrees.
 export function extractModuleStates(liveValue: any, topicType: string): ModuleState[] {
   if (!liveValue) return []
   const c = classifyTopic(topicType)
@@ -108,8 +108,8 @@ export function extractModuleStates(liveValue: any, topicType: string): ModuleSt
 
     const isPosition = c.structName === "SwerveModulePosition"
     return decodeStructArrayBytes(bytes, def).map(fields => ({
-      // En SwerveModulePosition el primer campo es distancia recorrida, no
-      // rapidez: se dibuja solo la orientación del módulo.
+      // In SwerveModulePosition the first field is the distance traveled, not
+      // speed: only the module's orientation is drawn.
       speed: isPosition ? 0 : (fields[0]?.value ?? 0),
       angle: (fields[1]?.value ?? 0) * DEG_TO_RAD,
     }))
@@ -118,7 +118,7 @@ export function extractModuleStates(liveValue: any, topicType: string): ModuleSt
   if (isNumericArrayTopic(topicType)) {
     const arr: number[] | undefined = liveValue.NumberArray
     if (!arr) return []
-    // Formato del widget "SwerveDrive" de WPILib: pares [ángulo°, rapidez].
+    // The format of WPILib's "SwerveDrive" widget: [angle°, speed] pairs.
     const out: ModuleState[] = []
     for (let i = 0; i + 1 < arr.length; i += 2) {
       out.push({ angle: arr[i] * DEG_TO_RAD, speed: arr[i + 1] })
@@ -142,7 +142,7 @@ export function extractChassisVelocities(liveValue: any, topicType: string): Cha
     return {
       vx: fields[0]?.value ?? 0,
       vy: fields[1]?.value ?? 0,
-      omega: (fields[2]?.value ?? 0) * DEG_TO_RAD, // ω venía en °/s por isAngle
+      omega: (fields[2]?.value ?? 0) * DEG_TO_RAD, // ω came in °/s because of isAngle
     }
   }
 
@@ -155,7 +155,7 @@ export function extractChassisVelocities(liveValue: any, topicType: string): Cha
   return null
 }
 
-// Devuelve la rotación del chasis en RADIANES.
+// Returns the chassis' rotation in RADIANS.
 export function extractRotation(
   liveValue: any,
   topicType: string,
@@ -170,7 +170,7 @@ export function extractRotation(
     const bytes: number[] | undefined = liveValue.Raw
     if (!bytes || bytes.length === 0) return null
     const fields = decodeStructBytes(bytes, def)
-    // Rotation2d: [θ]. Pose2d/Transform2d: [X, Y, θ]. Siempre el último campo.
+    // Rotation2d: [θ]. Pose2d/Transform2d: [X, Y, θ]. Always the last field.
     const theta = fields[fields.length - 1]?.value ?? 0
     return theta * DEG_TO_RAD
   }

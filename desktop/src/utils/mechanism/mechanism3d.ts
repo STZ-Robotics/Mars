@@ -1,10 +1,10 @@
-// Núcleo del Mechanism 3D: cómo se lee el valor de una articulación desde NT,
-// cómo se convierte en una transformación, cómo se arma el árbol de piezas y
-// cómo se exporta/importa la configuración completa.
+// The Mechanism 3D's core: how a joint's value is read from NT, how it turns
+// into a transform, how the part tree is built and how the whole configuration
+// is exported/imported.
 //
-// Todo lo de este archivo es PURO (sin three, sin React, sin DOM) a propósito:
-// es la parte que se puede equivocar en silencio — un signo, una unidad, un
-// índice de campo — y que conviene poder probar sin montar una escena.
+// Everything in this file is PURE (no three, no React, no DOM) on purpose: it
+// is the part that can be silently wrong — a sign, a unit, a field index — and
+// that is worth being able to test without mounting a scene.
 
 import {
   Mechanism3dJoint, Mechanism3dJointUnits, Mechanism3dPart, Mechanism3dRoutine,
@@ -18,7 +18,7 @@ import { getStructDef } from "../../store/structSchemaStore"
 const DEG = Math.PI / 180
 
 export type Vec3 = [number, number, number]
-/** Cuaternión en el orden de three.js: (x, y, z, w). */
+/** A quaternion in three.js' order: (x, y, z, w). */
 export type Quat = [number, number, number, number]
 
 export const IDENTITY_QUAT: Quat = [0, 0, 0, 1]
@@ -36,12 +36,13 @@ export const IDENTITY_TRANSFORM: JointTransform = {
 // --- Unidades ---------------------------------------------------------------
 
 /**
- * Factor para pasar de la unidad elegida a la unidad interna (radianes para
- * las articulaciones que giran, metros para las que se desplazan).
+ * Factor to go from the chosen unit to the internal unit (radians for joints
+ * that rotate, meters for the ones that slide).
  *
- * Si se eligió una unidad del otro tipo (grados en un prismático, por ejemplo)
- * se cae al neutro en vez de devolver un factor sin sentido: la pieza queda
- * quieta y se ve que falta corregir el selector, en vez de irse a la Luna.
+ * If a unit of the other kind was chosen (degrees on a prismatic, for example)
+ * it falls back to neutral instead of returning a meaningless factor: the
+ * piece stays still and it is visible that the selector needs fixing, instead
+ * of flying off to the Moon.
  */
 export function unitScale(units: Mechanism3dJointUnits, kind: "angle" | "length"): number {
   if (kind === "angle") {
@@ -84,8 +85,8 @@ export function unitLabel(units: Mechanism3dJointUnits): string {
 
 export function normalizeAxis(axis: Vec3): Vec3 {
   const length = Math.hypot(axis[0], axis[1], axis[2])
-  // Un eje nulo dejaría la matriz de rotación en NaN y haría desaparecer toda
-  // la rama del árbol; se cae a +Z, que es el default de una pieza nueva.
+  // A null axis would leave the rotation matrix at NaN and make the whole tree
+  // branch disappear; it falls back to +Z, which is a new part's default.
   if (!isFinite(length) || length < 1e-9) return [0, 0, 1]
   return [axis[0] / length, axis[1] / length, axis[2] / length]
 }
@@ -99,18 +100,18 @@ export function axisAngleQuat(axis: Vec3, angle: number): Quat {
 
 // --- Lectura del topic --------------------------------------------------------
 
-/** Tipos de topic que pueden manejar una articulación. */
+/** Topic types that can drive a joint. */
 export function isJointTopic(topicType: string): boolean {
-  // boolean[] va antes que el filtro de arrays de texto: classifyTopic mete
-  // todo array no numérico y no struct en `isTextArray`, y un boolean[] sí
-  // sirve para manejar una fila de solenoides.
+  // boolean[] goes before the text arrays filter: classifyTopic puts every
+  // non-numeric, non-struct array into `isTextArray`, and a boolean[] is useful
+  // for driving a row of solenoids.
   if (topicType === "boolean[]") return true
   const c = classifyTopic(topicType)
   if (c.isField2d || c.isString || c.isTextArray) return false
   return c.isNumber || c.isBoolean || c.isNumericArray || c.isStructSingle || c.isStructArray
 }
 
-/** Un topic que puede manejar una articulación de tipo `pose`. */
+/** A topic that can drive a `pose` joint. */
 export function isPoseTopic(topicType: string): boolean {
   const c = classifyTopic(topicType)
   return c.isStructType && c.structName !== null && POSE_STRUCTS.has(c.structName)
@@ -121,7 +122,7 @@ const POSE_STRUCTS = new Set([
   "Translation3d", "Translation2d", "Rotation3d", "Rotation2d", "Quaternion",
 ])
 
-/** Campos ya decodificados del struct que apunta la articulación, o null. */
+/** The already decoded fields of the struct the joint points at, or null. */
 function decodeJointStruct(liveValue: any, joint: Mechanism3dJoint): DecodedStructField[] | null {
   const c = classifyTopic(joint.topicType)
   const def = getStructDef(c.structName)
@@ -138,12 +139,12 @@ function decodeJointStruct(liveValue: any, joint: Mechanism3dJoint): DecodedStru
 }
 
 /**
- * Número crudo que publica el topic, sin escalar ni convertir.
+ * The raw number the topic publishes, without scaling or converting.
  *
- * OJO con los structs: `decodeStructBytes` ya devuelve los campos marcados
- * como ángulo en GRADOS (es lo que hace toda la Dashboard), así que un
- * Rotation2d llega en grados y el selector de unidades tiene que decir
- * "degrees". Está puesto así por default.
+ * CAREFUL with structs: `decodeStructBytes` already returns the fields marked
+ * as an angle in DEGREES (it is what the whole Dashboard does), so a
+ * Rotation2d arrives in degrees and the units selector has to say "degrees".
+ * It is set that way by default.
  */
 export function resolveJointScalar(liveValue: any, joint: Mechanism3dJoint): number | null {
   if (!liveValue || !joint.topicName) return null
@@ -164,8 +165,8 @@ export function resolveJointScalar(liveValue: any, joint: Mechanism3dJoint): num
   if (joint.topicType === "boolean[]") {
     const array: boolean[] | undefined = liveValue.BooleanArray
     const value = array?.[joint.arrayIndex ?? 0]
-    // Un solenoide es un joint prismático de dos posiciones: 0 o el recorrido
-    // completo. Devolver 0/1 deja que `scale` fije ese recorrido.
+    // A solenoid is a two-position prismatic joint: 0 or the full travel.
+    // Returning 0/1 lets `scale` set that travel.
     return typeof value === "boolean" ? (value ? 1 : 0) : null
   }
 
@@ -190,16 +191,16 @@ function clampToLimits(joint: Mechanism3dJoint, value: number): number {
 }
 
 /**
- * Valor final de la articulación EN SUS PROPIAS UNIDADES (las que muestra el
- * panel). Es el número que se ve en el inspector y sobre el que aplican los
- * límites; la conversión a rad/m viene después.
+ * The joint's final value IN ITS OWN UNITS (the ones the panel shows). It is
+ * the number seen in the inspector and the one the limits apply to; the
+ * conversion to rad/m comes after.
  */
 export function jointValue(joint: Mechanism3dJoint, liveValue: any, manualOverride: boolean): number {
   if (manualOverride || !joint.topicName) return clampToLimits(joint, joint.manual)
 
   const raw = resolveJointScalar(liveValue, joint)
-  // Sin dato se usa el valor manual: si no, abrir la pestaña sin conexión
-  // dejaría todo el mecanismo plegado en cero sin explicación.
+  // With no data the manual value is used: otherwise opening the tab without a
+  // connection would leave the whole mechanism folded at zero with no explanation.
   if (raw === null) return clampToLimits(joint, joint.manual)
 
   const signed = joint.invert ? -raw : raw
@@ -209,12 +210,12 @@ export function jointValue(joint: Mechanism3dJoint, liveValue: any, manualOverri
 // --- Poses -------------------------------------------------------------------
 
 /**
- * Transformación completa publicada como struct. Es el equivalente a los
- * "component poses" de AdvantageScope: el robot publica un Pose3d[] y cada
- * pieza toma un índice.
+ * A full transform published as a struct. It is the equivalent of
+ * AdvantageScope's "component poses": the robot publishes a Pose3d[] and each
+ * part takes an index.
  *
- * El struct se identifica por NOMBRE y no por cantidad de campos: Pose2d y
- * Translation3d tienen los dos tres campos y significan cosas distintas.
+ * The struct is identified by NAME and not by field count: Pose2d and
+ * Translation3d both have three fields and mean different things.
  */
 export function poseTransform(liveValue: any, joint: Mechanism3dJoint): JointTransform | null {
   const c = classifyTopic(joint.topicType)
@@ -227,12 +228,12 @@ export function poseTransform(liveValue: any, joint: Mechanism3dJoint): JointTra
   switch (c.structName) {
     case "Pose3d":
     case "Transform3d":
-      // X, Y, Z, QW, QX, QY, QZ -> three usa (x, y, z, w).
+      // X, Y, Z, QW, QX, QY, QZ -> three uses (x, y, z, w).
       return { position: [at(0), at(1), at(2)], quaternion: [at(4), at(5), at(6), at(3)] }
 
     case "Pose2d":
     case "Transform2d":
-      // El tercer campo es un ángulo, así que llega en GRADOS.
+      // The third field is an angle, so it arrives in DEGREES.
       return { position: [at(0), at(1), 0], quaternion: axisAngleQuat([0, 0, 1], at(2) * DEG) }
 
     case "Translation3d":
@@ -254,7 +255,7 @@ export function poseTransform(liveValue: any, joint: Mechanism3dJoint): JointTra
   }
 }
 
-/** Transformación que la articulación aplica a su pieza, respecto de su origen. */
+/** The transform the joint applies to its part, relative to its origin. */
 export function jointTransform(
   joint: Mechanism3dJoint,
   liveValue: any,
@@ -263,8 +264,8 @@ export function jointTransform(
   if (joint.type === "fixed") return IDENTITY_TRANSFORM
 
   if (joint.type === "pose") {
-    // Una pose no tiene "valor manual": son seis grados de libertad, no un
-    // número. Sin dato la pieza se queda en el origen de su padre.
+    // A pose has no "manual value": it is six degrees of freedom, not a number.
+    // With no data the part stays at its parent's origin.
     if (manualOverride || !joint.topicName) return IDENTITY_TRANSFORM
     return poseTransform(liveValue, joint) ?? IDENTITY_TRANSFORM
   }
@@ -273,11 +274,11 @@ export function jointTransform(
 }
 
 /**
- * Transformación de una articulación a partir de un valor ya resuelto, en las
- * unidades de la articulación.
+ * A joint's transform from an already resolved value, in the joint's units.
  *
- * Existe aparte porque el valor no siempre sale de NT: una rutina de animación
- * lo produce sola, y tiene que llegar a la escena por el mismo camino.
+ * It exists separately because the value does not always come from NT: an
+ * animation routine produces it on its own, and it has to reach the scene by
+ * the same path.
  */
 export function jointTransformFromValue(joint: Mechanism3dJoint, value: number): JointTransform {
   if (joint.type === "fixed" || joint.type === "pose") return IDENTITY_TRANSFORM
@@ -299,19 +300,19 @@ export function jointTransformFromValue(joint: Mechanism3dJoint, value: number):
 
 // --- Enlace de topics ----------------------------------------------------------
 
-/** Structs que traen una transformación completa (o al menos una rotación 3D). */
+/** Structs that carry a full transform (or at least a 3D rotation). */
 const TRANSFORM_STRUCTS = new Set([
   "Pose3d", "Transform3d", "Pose2d", "Transform2d",
   "Translation3d", "Translation2d", "Rotation3d", "Quaternion",
 ])
 
 /**
- * Articulación con un topic recién enlazado, ya con los defaults que
- * corresponden a ESE tipo de dato.
+ * A joint with a freshly bound topic, already with the defaults that match
+ * THAT data type.
  *
- * Elegir el tipo automáticamente solo pasa cuando la articulación todavía era
- * `fixed`: si el usuario ya decidió que es un prismático, enlazar un topic no
- * tiene por qué cambiárselo.
+ * Choosing the type automatically only happens when the joint was still
+ * `fixed`: if the user already decided it is a prismatic, binding a topic has
+ * no reason to change that.
  */
 export function bindJointTopic(
   joint: Mechanism3dJoint,
@@ -327,8 +328,8 @@ export function bindJointTopic(
     if (c.structName !== null && TRANSFORM_STRUCTS.has(c.structName)) type = "pose"
     else type = "revolute"
   }
-  // Rotation2d y los campos marcados como ángulo salen del decodificador en
-  // grados, así que ese es el selector correcto.
+  // Rotation2d and the fields marked as an angle come out of the decoder in
+  // degrees, so that is the right selector.
   if (type === "revolute" || type === "continuous") {
     if (!ANGULAR_UNITS.includes(units)) units = "degrees"
   } else if (type === "prismatic" && !LINEAR_UNITS.includes(units)) {
@@ -348,14 +349,14 @@ export function bindJointTopic(
 // --- Pivote ---------------------------------------------------------------------
 
 /**
- * Dónde termina un punto de la pieza después de aplicar la articulación,
- * girando alrededor de `pivot` en vez de alrededor del origen.
+ * Where a point of the part ends up after applying the joint, turning around
+ * `pivot` instead of around the origin.
  *
  *   world = P + T + R·(p − P)
  *
- * En reposo (R identidad, T cero) el punto NO se mueve por más que se cambie
- * el pivote: por eso mover el centro de rotación no reacomoda el modelo, que
- * es justo lo que no se puede hacer corriendo el offset de la malla.
+ * At rest (R identity, T zero) the point does NOT move however the pivot is
+ * changed: that is why moving the center of rotation does not rearrange the
+ * model, which is exactly what cannot be done by shifting the mesh's offset.
  */
 export function applyJointToPoint(point: Vec3, pivot: Vec3, transform: JointTransform): Vec3 {
   const local: Vec3 = [point[0] - pivot[0], point[1] - pivot[1], point[2] - pivot[2]]
@@ -370,7 +371,7 @@ export function applyJointToPoint(point: Vec3, pivot: Vec3, transform: JointTran
 /** v' = q · v · q* */
 export function rotateByQuat(v: Vec3, q: Quat): Vec3 {
   const [x, y, z, w] = q
-  // Fórmula de Rodrigues en forma de cuaternión: v + 2w(u×v) + 2u×(u×v).
+  // Rodrigues' formula in quaternion form: v + 2w(u×v) + 2u×(u×v).
   const ux = y * v[2] - z * v[1]
   const uy = z * v[0] - x * v[2]
   const uz = x * v[1] - y * v[0]
@@ -381,16 +382,16 @@ export function rotateByQuat(v: Vec3, q: Quat): Vec3 {
   ]
 }
 
-/** Recorrido permitido de un prismático, ya en METROS. */
+/** A prismatic's allowed travel, already in METERS. */
 export function travelRange(joint: Mechanism3dJoint, fallback: number): { min: number; max: number } {
   const factor = unitScale(joint.units, "length")
   const min = joint.min !== null && isFinite(joint.min) ? joint.min * factor : -fallback
   const max = joint.max !== null && isFinite(joint.max) ? joint.max * factor : fallback
-  // Un rango invertido (min > max) dejaría el riel con largo negativo.
+  // An inverted range (min > max) would leave the rail with a negative length.
   return min <= max ? { min, max } : { min: max, max: min }
 }
 
-/** Recorrido permitido de un revoluto, ya en RADIANES; null = sin límites. */
+/** A revolute's allowed travel, already in RADIANS; null = no limits. */
 export function sweepRange(joint: Mechanism3dJoint): { min: number; max: number } | null {
   if (joint.min === null || joint.max === null) return null
   if (!isFinite(joint.min) || !isFinite(joint.max)) return null
@@ -402,7 +403,7 @@ export function sweepRange(joint: Mechanism3dJoint): { min: number; max: number 
   return { min, max }
 }
 
-// --- Árbol de piezas ----------------------------------------------------------
+// --- Part tree ----------------------------------------------------------
 
 export interface PartNode {
   part: Mechanism3dPart
@@ -411,9 +412,9 @@ export interface PartNode {
 }
 
 /**
- * Arma el árbol a partir de `parentId`. Una pieza cuyo padre no existe, o que
- * forma un ciclo, se cuelga de la raíz: con un archivo importado a mano eso
- * pasa, y es preferible verla mal colocada a que desaparezca sin aviso.
+ * Builds the tree from `parentId`. A part whose parent does not exist, or that
+ * forms a cycle, hangs from the root: with a hand-imported file that happens,
+ * and it is better to see it misplaced than to have it vanish without warning.
  */
 export function buildPartTree(parts: Mechanism3dPart[]): PartNode[] {
   const byId = new Map(parts.map(p => [p.id, p]))
@@ -451,7 +452,7 @@ export function buildPartTree(parts: Mechanism3dPart[]): PartNode[] {
   return roots
 }
 
-/** El árbol aplanado en orden de dibujo, para listarlo en el panel. */
+/** The tree flattened in drawing order, to list it in the panel. */
 export function flattenTree(roots: PartNode[]): PartNode[] {
   const out: PartNode[] = []
   const walk = (node: PartNode) => {
@@ -462,7 +463,7 @@ export function flattenTree(roots: PartNode[]): PartNode[] {
   return out
 }
 
-/** Ids de la pieza y de todo lo que cuelga de ella (para borrarla en bloque). */
+/** Ids of the part and of everything hanging from it (to delete it as a block). */
 export function descendantIds(parts: Mechanism3dPart[], id: string): string[] {
   const out = [id]
   let added = true
@@ -479,8 +480,8 @@ export function descendantIds(parts: Mechanism3dPart[], id: string): string[] {
 }
 
 /**
- * ¿Se puede colgar `partId` de `candidateId` sin armar un ciclo? El selector de
- * padre usa esto para no ofrecer opciones que romperían el árbol.
+ * Can `partId` hang from `candidateId` without forming a cycle? The parent
+ * selector uses this so as not to offer options that would break the tree.
  */
 export function canReparent(parts: Mechanism3dPart[], partId: string, candidateId: string | null): boolean {
   if (candidateId === null) return true
@@ -488,7 +489,7 @@ export function canReparent(parts: Mechanism3dPart[], partId: string, candidateI
   return !descendantIds(parts, partId).includes(candidateId)
 }
 
-// --- Normalización ------------------------------------------------------------
+// --- Normalization ------------------------------------------------------------
 
 function num(value: unknown, fallback: number): number {
   return typeof value === "number" && isFinite(value) ? value : fallback
@@ -537,9 +538,9 @@ export function normalizeJoint(raw: any): Mechanism3dJoint {
 }
 
 /**
- * Una pieza sin id no se puede referenciar ni borrar, así que se descarta. Todo
- * lo demás se rellena con el default: un config exportado por una versión
- * anterior tiene que seguir abriendo.
+ * A part without an id cannot be referenced or deleted, so it is discarded.
+ * Everything else is filled with the default: a config exported by an earlier
+ * version has to keep opening.
  */
 export function normalizePart(raw: any): Mechanism3dPart | null {
   if (!raw || typeof raw !== "object") return null
@@ -575,8 +576,8 @@ export function normalizeParts(raw: unknown): Mechanism3dPart[] {
   if (!Array.isArray(raw)) return []
   const parts = raw.map(normalizePart).filter((p): p is Mechanism3dPart => p !== null)
 
-  // Dos piezas con el mismo id romperían el árbol y la selección; gana la
-  // primera, que es la que ya estaba.
+  // Two parts with the same id would break the tree and the selection; the
+  // first one wins, which is the one that was already there.
   const seen = new Set<string>()
   return parts.filter(part => {
     if (seen.has(part.id)) return false
@@ -602,9 +603,9 @@ export function normalizeSettings(raw: any): Mechanism3dSettings {
   }
 }
 
-// --- Rutinas de animación ---------------------------------------------------------
+// --- Animation routines ---------------------------------------------------------
 
-/** Cuánto dura la rutina completa, en ms. 0 = no tiene nada que animar. */
+/** How long the whole routine lasts, in ms. 0 = it has nothing to animate. */
 export function routineDuration(routine: Mechanism3dRoutine): number {
   return routine.steps.reduce((longest, step) => {
     const total = step.startMs + step.durationMs * (step.pingPong ? 2 : 1)
@@ -613,19 +614,18 @@ export function routineDuration(routine: Mechanism3dRoutine): number {
 }
 
 function ease(t: number, easing: Mechanism3dRoutineStep["easing"]): number {
-  // smoothstep: arranca y frena suave, que es lo que hace que un movimiento
-  // repetido no se vea robótico en un showcase.
+  // smoothstep: it starts and stops smoothly, which is what keeps a repeated
+  // movement from looking robotic in a showcase.
   return easing === "smooth" ? t * t * (3 - 2 * t) : t
 }
 
 /**
- * Valor de cada pieza en el instante `timeMs`, en las unidades de su
- * articulación.
+ * Each part's value at instant `timeMs`, in its joint's units.
  *
- * Antes de que un paso arranque la pieza se queda en su valor inicial, y
- * después de terminar en el final (o de vuelta en el inicial si va y viene):
- * así el mecanismo nunca salta a una pose sin transición. Si dos pasos apuntan
- * a la misma pieza, manda el último de la lista.
+ * Before a step starts the part stays at its initial value, and after it ends
+ * at the final one (or back at the initial one if it goes back and forth):
+ * that way the mechanism never jumps to a pose without a transition. If two
+ * steps point at the same part, the last one in the list wins.
  */
 export function evaluateRoutine(routine: Mechanism3dRoutine, timeMs: number): Record<string, number> {
   const out: Record<string, number> = {}
@@ -660,7 +660,7 @@ export function normalizeRoutineStep(raw: any): Mechanism3dRoutineStep | null {
     from: num(raw.from, 0),
     to: num(raw.to, 0),
     startMs: Math.max(0, num(raw.startMs, 0)),
-    // Una duración de 0 dividiría por cero al interpolar.
+    // A duration of 0 would divide by zero when interpolating.
     durationMs: Math.max(1, num(raw.durationMs, 1000)),
     easing: oneOf(raw.easing, ["linear", "smooth"] as const, "smooth"),
     pingPong: raw.pingPong !== false,
@@ -691,9 +691,9 @@ export function normalizeRoutines(raw: unknown): Mechanism3dRoutine[] {
 }
 
 /**
- * Paso de "ida y vuelta" para una articulación, que es el showcase que se pide
- * el 90% de las veces. Toma los límites si están puestos; si no, un recorrido
- * razonable según lo que la articulación hace.
+ * A "back and forth" step for a joint, which is the showcase asked for 90% of
+ * the time. It takes the limits if they are set; if not, a reasonable travel
+ * according to what the joint does.
  */
 export function sweepStep(part: Mechanism3dPart, id: string): Mechanism3dRoutineStep | null {
   const kind = jointKind(part.joint)
@@ -715,7 +715,7 @@ export function sweepStep(part: Mechanism3dPart, id: string): Mechanism3dRoutine
   }
 }
 
-// --- Configuración exportable --------------------------------------------------
+// --- Exportable configuration --------------------------------------------------
 
 export const MECHANISM3D_FORMAT = "mars-mechanism3d"
 export const MECHANISM3D_VERSION = 1
@@ -740,9 +740,9 @@ export function serializeMechanism3d(parts: Mechanism3dPart[], settings: Mechani
 }
 
 /**
- * Lee un config exportado. Lanza con un mensaje legible en vez de devolver
- * null: el usuario acaba de elegir un archivo a mano y necesita saber POR QUÉ
- * no sirve.
+ * Reads an exported config. Throws with a readable message instead of
+ * returning null: the user just picked a file by hand and needs to know WHY it
+ * is no good.
  */
 export function parseMechanism3d(text: string): { parts: Mechanism3dPart[]; settings: Mechanism3dSettings } {
   let raw: any
@@ -767,7 +767,7 @@ export function parseMechanism3d(text: string): { parts: Mechanism3dPart[]; sett
   return { parts, settings }
 }
 
-/** Copia de una pieza con id nuevo, lista para insertar junto a la original. */
+/** A copy of a part with a new id, ready to insert next to the original. */
 export function duplicatePart(part: Mechanism3dPart, id: string): Mechanism3dPart {
   return {
     ...part,

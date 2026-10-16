@@ -6,9 +6,9 @@ export type PlotMode = "fit" | "residual"
 interface Props {
   diagnostics: RunDiagnostics[]
   /**
-   * "fit"      -> medido vs predicho. Un ajuste perfecto cae sobre la recta 45°.
-   * "residual" -> error vs velocidad. Si hay estructura (una curva, un escalón)
-   *               el modelo está dejando física afuera.
+   * "fit"      -> measured vs predicted. A perfect fit falls on the 45° line.
+   * "residual" -> error vs velocity. If there is structure (a curve, a step)
+   *               the model is leaving physics out.
    */
   mode: PlotMode
   height?: number
@@ -16,7 +16,7 @@ interface Props {
 
 const PADDING = { top: 10, right: 12, bottom: 26, left: 44 }
 const POINT_RADIUS = 1.4
-/** Muestras dibujadas por corrida: 20k puntos matan el canvas y no aportan. */
+/** Samples drawn per run: 20k points kill the canvas and add nothing. */
 const MAX_POINTS_PER_RUN = 1500
 
 export default function SysIdDiagnosticPlot({ diagnostics, mode, height = 200 }: Props) {
@@ -49,7 +49,7 @@ export default function SysIdDiagnosticPlot({ diagnostics, mode, height = 200 }:
   )
 }
 
-/** Submuestreo uniforme: conserva la forma sin dibujar todo. */
+/** Uniform subsampling: keeps the shape without drawing everything. */
 function thin<T>(items: T[], max: number): T[] {
   if (items.length <= max) return items
   const step = items.length / max
@@ -135,15 +135,15 @@ function render(
   }
 
   if (mode === "fit") {
-    // Los dos ejes son voltios: comparten rango para que la recta ideal quede
-    // a 45° de verdad y una desviación se vea como tal.
+    // Both axes are volts: they share a range so the ideal line really sits at
+    // 45° and a deviation shows as such.
     const lo = Math.min(xMin, yMin)
     const hi = Math.max(xMax, yMax)
     xMin = yMin = lo
     xMax = yMax = hi
   } else {
-    // El residuo se centra en 0: si no, un sesgo constante parecería estar
-    // "en el medio" en vez de estar corrido.
+    // The residual is centered on 0: otherwise a constant bias would seem to be
+    // "in the middle" instead of being shifted.
     const extent = Math.max(Math.abs(yMin), Math.abs(yMax), 1e-6)
     yMin = -extent
     yMax = extent
@@ -205,7 +205,7 @@ function render(
   ctx.lineWidth = 1
   ctx.beginPath()
   if (mode === "fit") {
-    // Recta y = x: donde caerían los puntos con un ajuste perfecto.
+    // The y = x line: where the points would fall with a perfect fit.
     ctx.moveTo(toX(xMin), toY(xMin))
     ctx.lineTo(toX(xMax), toY(xMax))
   } else {
@@ -253,7 +253,7 @@ function render(
   ctx.restore()
 }
 
-/** Leyenda compartida por los dos gráficos. */
+/** Legend shared by both plots. */
 export function DiagnosticLegend({ diagnostics }: { diagnostics: RunDiagnostics[] }) {
   return (
     <div style={{ display: "flex", gap: 12, flexWrap: "wrap", padding: "2px 10px 6px" }}>

@@ -2,14 +2,14 @@ import { useEffect, useState } from "react"
 import { useSelectionStore } from "../../store/selectionStore"
 
 /**
- * Única fuente de verdad de "cuándo toca releer NetworkTables y con qué
- * timestamp". Nada más en la app debería tener su propio setInterval de
- * polling ni su propio chequeo de isLive — todo se construye sobre este hook.
+ * The single source of truth for "when to re-read NetworkTables and with which
+ * timestamp". Nothing else in the app should have its own polling setInterval
+ * or its own isLive check — everything is built on top of this hook.
  *
- * EN VIVO: emite un tick cada `intervalMs` con Date.now() en microsegundos
- *          (mismo formato que usa client.rs / SystemTime en Rust).
- * EN PAUSA: no hay timer corriendo. Solo emite un tick cuando `selectedTime`
- *           cambia (el usuario mueve el cursor de la timeline).
+ * LIVE: emits a tick every `intervalMs` with Date.now() in microseconds
+ *       (the same format client.rs / SystemTime use in Rust).
+ * PAUSED: no timer running. It only emits a tick when `selectedTime`
+ *         changes (the user moves the timeline's cursor).
  */
 export function useNTTick(intervalMs: number): number | null {
   const isLive = useSelectionStore((s) => s.isLive)

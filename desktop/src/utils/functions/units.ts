@@ -1,12 +1,12 @@
-// Detección automática de unidad a partir del nombre de un topic, inspirada
-// en el mismo espíritu que Units.getUnitForField de AdvantageScope: mira el
-// sufijo del último segmento del path (ej. "Elevator/HeightMeters" -> "m")
-// y solo lo acepta si el sufijo empieza en un límite de palabra "de verdad"
-// (una mayúscula en camelCase, o un guion bajo) para no confundir
-// "Timestamp" con "amp" o similares falsos positivos.
+// Automatic unit detection from a topic's name, in the same spirit as
+// AdvantageScope's Units.getUnitForField: it looks at the suffix of the path's
+// last segment (e.g. "Elevator/HeightMeters" -> "m") and only accepts it if the
+// suffix starts at a "real" word boundary (an uppercase letter in camelCase, or
+// an underscore) so as not to confuse "Timestamp" with "amp" or similar false
+// positives.
 //
-// No pretende ser exhaustivo como la tabla completa de AdvantageScope, cubre
-// las unidades más comunes en telemetría de FRC.
+// It does not try to be as exhaustive as AdvantageScope's full table, it covers
+// the most common units in FRC telemetry.
 
 const UNIT_SUFFIXES: Record<string, string> = {
   meters: "m",
@@ -51,8 +51,8 @@ const UNIT_SUFFIXES: Record<string, string> = {
   ms: "ms",
 }
 
-// Ordenados de más largo a más corto para que "milliseconds" gane sobre "seconds"
-// al buscar la coincidencia más específica.
+// Sorted from longest to shortest so "milliseconds" wins over "seconds" when
+// looking for the most specific match.
 const SORTED_SUFFIXES = Object.keys(UNIT_SUFFIXES).sort((a, b) => b.length - a.length)
 
 function isUpperCaseChar(c: string | undefined): boolean {

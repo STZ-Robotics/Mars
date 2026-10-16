@@ -1,15 +1,15 @@
 import React from "react"
 
 interface Props {
-  /** Acepta un nodo para que una página pueda hacerlo editable en el lugar. */
+  /** Accepts a node so a page can make it editable in place. */
   title: React.ReactNode
   meta?: React.ReactNode
   action?: React.ReactNode
 }
 
-// Barra de 48px sobre el panel principal de cada página (título + contador/
-// estado + acción opcional a la derecha). Mismo patrón que PageHeader pero
-// para el área de contenido en vez del sidebar.
+// A 48px bar over each page's main panel (title + counter/status + optional
+// action on the right). The same pattern as PageHeader but for the content
+// area instead of the sidebar.
 export default function PanelHeader({ title, meta, action }: Props) {
   return (
     <div style={{ height: 48, background: "var(--bg-menubar)", borderBottom: "1px solid var(--border-main)", display: "flex", alignItems: "center", padding: "0 24px", gap: 16, flexShrink: 0 }}>

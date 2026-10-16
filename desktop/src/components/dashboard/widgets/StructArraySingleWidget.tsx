@@ -9,9 +9,9 @@ interface Props {
   index: number
 }
 
-// Igual que StructWidget pero recorta un único elemento de un struct:X[]
-// (se usa cuando el widget se creó arrastrando un índice puntual del array
-// desde el Data Directory, en vez del array completo).
+// Same as StructWidget but cuts out a single element of a struct:X[] (used when
+// the widget was created by dragging a single index of the array from the Data
+// Directory, instead of the whole array).
 export default function StructArraySingleWidget({ rawVal, structName, index }: Props) {
   const def = useStructDef(structName)
   if (!def || !Array.isArray(rawVal)) {

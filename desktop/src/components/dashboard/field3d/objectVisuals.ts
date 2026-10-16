@@ -1,15 +1,14 @@
-// Los objetos que se dibujan SOBRE la cancha 3D: robots, fantasmas, piezas
-// articuladas, trayectorias, marcas de visión, piezas de juego y marcadores.
+// The objects drawn ON the 3D field: robots, ghosts, articulated parts,
+// trajectories, vision marks, game pieces and markers.
 //
-// Cada tipo se construye una vez (cuando cambia la configuración) y después
-// solo se ACTUALIZA por frame. Reconstruir la geometría en cada muestra sería
-// lo más simple de escribir y lo peor de usar: con un par de trayectorias y un
-// robot con componentes, la recolección de basura sola ya se come el
-// presupuesto de 16 ms.
+// Each type is built once (when the configuration changes) and afterwards only
+// UPDATED per frame. Rebuilding the geometry on every sample would be the
+// simplest to write and the worst to use: with a couple of trajectories and a
+// robot with components, garbage collection alone eats the 16 ms budget.
 //
-// Todo trabaja en el marco del modelo de la cancha: origen al centro, +X hacia
-// el rojo, +Y hacia la izquierda vista desde el azul, +Z arriba. La página ya
-// convirtió las poses antes de llegar acá.
+// Everything works in the field model's frame: origin at the center, +X towards
+// red, +Y to the left seen from blue, +Z up. The page already converted the
+// poses before they get here.
 
 import {
   BoxGeometry, BufferGeometry, CatmullRomCurve3, ConeGeometry, DoubleSide,
@@ -27,7 +26,7 @@ import { LoadedAsset, disposeSceneTree, instantiateAsset } from "../../../utils/
 import { TrailStore } from "../../../utils/field3d/trails"
 import { makeAxes, makeTextSprite } from "../three/sceneKit"
 
-/** Un objeto de la lista con sus poses de este frame, ya en el marco del modelo. */
+/** An object of the list with its poses for this frame, already in the model's frame. */
 export interface RenderedField3dObject {
   id: string
   type: Field3dObjectType
@@ -40,7 +39,7 @@ export interface RenderedField3dObject {
 export interface RobotAssetEntry {
   config: RobotAssetConfig
   base: LoadedAsset
-  /** `model_0.glb`, `model_1.glb`... en el orden de `config.components`. */
+  /** `model_0.glb`, `model_1.glb`... in `config.components`' order. */
   components: LoadedAsset[]
 }
 
@@ -56,13 +55,13 @@ export interface VisualContext {
   gamePieces: GamePieceEntry[]
 }
 
-/** Lo que cambia en cada frame y necesitan varios tipos de objeto. */
+/** What changes every frame and several object types need. */
 export interface FrameContext {
   now: number
   trails: TrailStore
-  /** Pose del objeto `robot` al que se ancla un componente o una visión. */
+  /** Pose of the `robot` object a component or a vision mark is anchored to. */
   anchorPose: (anchorId: string | null) => Pose3D | null
-  /** Cámara del asset del robot anclado, ya compuesta con su pose. */
+  /** Camera of the anchored robot's asset, already composed with its pose. */
   anchorCamera: (anchorId: string | null, cameraIndex: number) => Pose3D | null
 }
 
@@ -74,7 +73,7 @@ export interface ObjectVisual {
 
 // --- Utilidades compartidas ---------------------------------------------------
 
-/** three guarda el cuaternión como (x, y, z, w); WPILib lo publica como (w, x, y, z). */
+/** three stores the quaternion as (x, y, z, w); WPILib publishes it as (w, x, y, z). */
 export function applyPose(object: Object3D, pose: Pose3D) {
   object.position.set(pose.x, pose.y, pose.z)
   object.quaternion.set(pose.qx, pose.qy, pose.qz, pose.qw)
@@ -88,17 +87,18 @@ function tint(object: Object3D, color: string | null, opacity: number, quality: 
     materials.forEach(material => {
       const phong = material as MeshPhongMaterial
       if (color !== null) {
-        // Los modelos importados traen su color en un atributo de VÉRTICE, y
-        // ese atributo se MULTIPLICA con `material.color`. Sin apagarlo, pintar
-        // un fantasma de azul daría azul-por-el-color-original, o sea casi
-        // negro. Apagarlo es lo que hace que el color pedido sea el que se ve.
+        // Imported models carry their color in a VERTEX attribute, and that
+        // attribute is MULTIPLIED with `material.color`. Without turning it off,
+        // painting a ghost blue would give blue-times-the-original-color, i.e.
+        // almost black. Turning it off is what makes the requested color the one
+        // you see.
         phong.vertexColors = false
         phong.color?.set(color)
       }
       phong.transparent = opacity < 1
       phong.opacity = opacity
-      // Sin esto, un fantasma se tapa a sí mismo: las caras traseras escriben
-      // profundidad y las delanteras quedan descartadas contra ellas.
+      // Without this, a ghost covers itself: the back faces write depth and the
+      // front ones get discarded against them.
       phong.depthWrite = opacity >= 1
       phong.side = DoubleSide
       phong.needsUpdate = true
@@ -109,16 +109,16 @@ function tint(object: Object3D, color: string | null, opacity: number, quality: 
 }
 
 /**
- * Chasis genérico: una caja con bumpers del color del objeto y una cuña al
- * frente. Es lo que se ve mientras el equipo no haya importado su CAD, y tiene
- * que ser suficiente por sí solo — la mayoría de las prácticas se miran así.
+ * Generic chassis: a box with bumpers in the object's color and a wedge at the
+ * front. It is what you see until the team imports its CAD, and it has to be
+ * enough on its own — most practices are watched like this.
  */
 function makeGenericChassis(settings: Field3dSettings, color: string): Group {
   const group = new Group()
   const { robotLength: length, robotWidth: width, robotHeight: height } = settings
 
-  // El bumper es el anillo exterior de color; el cuerpo va gris y un poco más
-  // chico, para que el color no se coma toda la silueta.
+  // The bumper is the colored outer ring; the body goes grey and a bit smaller,
+  // so the color does not eat the whole silhouette.
   const bumperHeight = Math.min(height * 0.35, 0.13)
   const bumper = new Mesh(
     new BoxGeometry(length, width, bumperHeight),
@@ -141,8 +141,8 @@ function makeGenericChassis(settings: Field3dSettings, color: string): Group {
   outline.position.z = height / 2
   group.add(outline)
 
-  // Cuña al frente: sin ella no hay forma de saber hacia dónde mira el robot
-  // cuando la cámara lo ve desde arriba, que es la vista más usada.
+  // A wedge at the front: without it there is no way to know which way the robot
+  // faces when the camera sees it from above, which is the most used view.
   const nose = new Mesh(
     new ConeGeometry(width * 0.12, length * 0.2, 4).rotateZ(-Math.PI / 2),
     new MeshPhongMaterial({ color: 0xf2f2f5, shininess: 0 }),
@@ -154,13 +154,12 @@ function makeGenericChassis(settings: Field3dSettings, color: string): Group {
 }
 
 /**
- * Nodo intermedio con la colocación "en cero" que declara el asset.
+ * Intermediate node with the "at zero" placement the asset declares.
  *
- * Los componentes y las cámaras de un asset de robot vienen exportados en el
- * origen; `zeroedPosition`/`zeroedRotations` dicen dónde van cuando la pose
- * publicada es la identidad. Meterlo como un nodo aparte deja que la pose
- * publicada se aplique al PADRE, que es exactamente la composición que hace
- * AdvantageScope.
+ * A robot asset's components and cameras come exported at the origin;
+ * `zeroedPosition`/`zeroedRotations` say where they go when the published pose
+ * is the identity. Putting it in as a separate node lets the published pose be
+ * applied to the PARENT, which is exactly the composition AdvantageScope does.
  */
 function makeZeroedSlot(position: [number, number, number], rotations: ReturnType<typeof composeRotations>): Group {
   const slot = new Group()
@@ -182,8 +181,8 @@ function createRobot(object: RenderedField3dObject, ctx: VisualContext): ObjectV
   let instance: Object3D
   let usedModel = false
   if (entry && object.options.useModel) {
-    // El asset trae su propia orientación y su propio desplazamiento respecto
-    // del centro del robot; el nodo de colocación los aplica una sola vez.
+    // The asset carries its own orientation and its own offset from the robot's
+    // center; the placement node applies them only once.
     const slot = makeZeroedSlot(entry.config.position, composeRotations(entry.config.rotations))
     slot.add(instantiateAsset(entry.base))
     instance = slot
@@ -192,15 +191,15 @@ function createRobot(object: RenderedField3dObject, ctx: VisualContext): ObjectV
     instance = makeGenericChassis(ctx.settings, object.color)
   }
 
-  // Con modelo importado se respetan sus materiales salvo que sea un fantasma:
-  // ahí el color del objeto es la única forma de distinguirlo del robot real.
+  // With an imported model its materials are kept unless it is a ghost: there
+  // the object's color is the only way to tell it from the real robot.
   const isGhost = object.type === "ghost"
   tint(instance, usedModel && !isGhost ? null : object.color, object.options.opacity, ctx.quality)
 
-  // El grupo exterior se queda en el origen de la cancha y solo el interior se
-  // mueve con la pose. La estela vive en coordenadas de CANCHA: colgada del
-  // grupo que gira con el robot, se vería girar con él en vez de quedarse
-  // marcada en el piso.
+  // The outer group stays at the field's origin and only the inner one moves
+  // with the pose. The trail lives in FIELD coordinates: hung from the group that
+  // turns with the robot, it would be seen turning with it instead of staying
+  // marked on the floor.
   const poseGroup = new Group()
   poseGroup.add(instance)
   group.add(poseGroup)
@@ -211,9 +210,8 @@ function createRobot(object: RenderedField3dObject, ctx: VisualContext): ObjectV
     poseGroup.add(label)
   }
 
-  // La estela usa un buffer de tamaño fijo con un `drawRange` móvil: recrear
-  // la geometría en cada frame es lo que hace que una estela larga arruine los
-  // fps.
+  // The trail uses a fixed-size buffer with a moving `drawRange`: recreating the
+  // geometry every frame is what makes a long trail ruin the fps.
   const trail = makeTrailLine(object.options.trailSeconds > 0 ? object.color : null)
   if (trail) group.add(trail.line)
 
@@ -240,11 +238,11 @@ function createRobot(object: RenderedField3dObject, ctx: VisualContext): ObjectV
 // --- Componentes articulados ---------------------------------------------------
 
 /**
- * Las piezas móviles del robot, movidas por un `Pose3d[]` relativo al robot.
+ * The robot's moving parts, moved by a `Pose3d[]` relative to the robot.
  *
- * El índice de cada pose elige el `model_N.glb` del asset: la pose 0 mueve el
- * componente 0, y así. Es la convención de AdvantageScope, y la que ya usan
- * los equipos que publican `AdvantageKit`.
+ * Each pose's index picks the asset's `model_N.glb`: pose 0 moves component 0,
+ * and so on. It is AdvantageScope's convention, and the one teams publishing
+ * `AdvantageKit` already use.
  */
 function createComponents(object: RenderedField3dObject, ctx: VisualContext): ObjectVisual {
   const group = new Group()
@@ -286,9 +284,9 @@ function createComponents(object: RenderedField3dObject, ctx: VisualContext): Ob
 
       slots.forEach((slot, index) => {
         const pose = next.poses[index]
-        // Un componente sin pose publicada se apaga en vez de quedarse en la
-        // última que llegó: en un log recortado eso deja el brazo levantado
-        // para siempre y confunde más que no dibujarlo.
+        // A component with no published pose is turned off instead of staying at
+        // the last one that arrived: in a trimmed log that leaves the arm raised
+        // forever and confuses more than not drawing it.
         slot.pivot.visible = pose !== undefined
         if (pose) applyPose(slot.pivot, composePose(anchor, pose))
       })
@@ -301,7 +299,7 @@ function createComponents(object: RenderedField3dObject, ctx: VisualContext): Ob
 
 // --- Trayectoria ---------------------------------------------------------------
 
-const TRAJECTORY_SEGMENTS = 6  // lados del tubo; más no se nota a esta escala
+const TRAJECTORY_SEGMENTS = 6  // sides of the tube; more does not show at this scale
 
 function createTrajectory(object: RenderedField3dObject, ctx: VisualContext): ObjectVisual {
   const group = new Group()
@@ -343,9 +341,9 @@ function createTrajectory(object: RenderedField3dObject, ctx: VisualContext): Ob
       const geometry = new BufferGeometry().setFromPoints(points)
       drawn = new Line(geometry, lineMaterial)
     } else {
-      // El tubo se muestrea más fino que los waypoints para que las curvas no
-      // se vean facetadas, pero con un techo: una trayectoria de mil puntos no
-      // necesita cinco mil segmentos.
+      // The tube is sampled finer than the waypoints so curves do not look
+      // faceted, but with a ceiling: a thousand-point trajectory does not need
+      // five thousand segments.
       const curve = new CatmullRomCurve3(points, false, "catmullrom", 0.1)
       const segments = Math.min(Math.max(points.length * 4, 24), 900)
       drawn = new Mesh(
@@ -373,9 +371,9 @@ function createTrajectory(object: RenderedField3dObject, ctx: VisualContext): Ob
       group.visible = !next.options.hidden
       if (!group.visible) return
 
-      // Una trayectoria se publica una vez y no cambia; rehacer el tubo en
-      // cada frame sería tirar el presupuesto entero. La firma barata detecta
-      // el cambio sin recorrer dos veces el array.
+      // A trajectory is published once and does not change; redoing the tube
+      // every frame would blow the whole budget. The cheap signature detects the
+      // change without walking the array twice.
       let checksum = 0
       for (const pose of next.poses) checksum += pose.x + pose.y * 3 + pose.z * 7
       const nextSignature = [
@@ -401,20 +399,20 @@ function createTrajectory(object: RenderedField3dObject, ctx: VisualContext): Ob
   }
 }
 
-// --- Marcas de visión ----------------------------------------------------------
+// --- Vision marks ----------------------------------------------------------
 
-/** Techo de marcas dibujadas a la vez; por encima el buffer se recorta. */
+/** Cap on marks drawn at once; above it the buffer is trimmed. */
 const MAX_VISION_TARGETS = 64
 
-// Las marcas no proyectan sombra (flotan en el aire y la sombra confundiría
-// más de lo que ayuda), así que este tipo no mira la calidad de render.
+// The marks cast no shadow (they float in the air and the shadow would confuse
+// more than help), so this type does not look at the render quality.
 function createVision(object: RenderedField3dObject): ObjectVisual {
   const group = new Group()
   group.name = `vision:${object.id}`
 
-  // Un par de vértices por marca, con el buffer reservado de entrada: la
-  // cantidad de marcas cambia de frame a frame y recrear la geometría cada vez
-  // es lo que hace que la visión sea el objeto más caro de la escena.
+  // A pair of vertices per mark, with the buffer reserved up front: the number
+  // of marks changes from frame to frame and recreating the geometry each time is
+  // what makes vision the most expensive object in the scene.
   const positions = new Float32BufferAttribute(new Float32Array(MAX_VISION_TARGETS * 6), 3)
   positions.setUsage(DynamicDrawUsage)
   const geometry = new BufferGeometry()
@@ -428,8 +426,8 @@ function createVision(object: RenderedField3dObject): ObjectVisual {
   const markers = new Group()
   group.add(markers)
   const markerGeometry = new SphereGeometry(object.options.markerSize / 2, 12, 10)
-  // Las marcas de visión se emiten un poco: son puntos de interés que tienen
-  // que leerse aunque queden en la sombra de una estructura de la cancha.
+  // The vision marks are slightly emissive: they are points of interest that
+  // have to read even when they fall in the shadow of a field structure.
   const markerMaterial = new MeshPhongMaterial({
     color: object.color, emissive: object.color, emissiveIntensity: 0.35, shininess: 20,
   })
@@ -445,9 +443,9 @@ function createVision(object: RenderedField3dObject): ObjectVisual {
         ?? frame.anchorPose(next.options.anchorId)
       const targets = next.poses.slice(0, MAX_VISION_TARGETS)
 
-      // Se crean marcadores a demanda y no se destruyen: la cuenta de marcas
-      // oscila mucho (una cámara ve tres tags y al frame siguiente uno), y
-      // crear y tirar mallas a ese ritmo se nota.
+      // Markers are created on demand and not destroyed: the number of marks
+      // swings a lot (a camera sees three tags and one on the next frame), and
+      // creating and throwing away meshes at that pace shows.
       while (pool.length < targets.length) {
         const marker = new Mesh(markerGeometry, markerMaterial)
         markers.add(marker)
@@ -487,7 +485,7 @@ function createVision(object: RenderedField3dObject): ObjectVisual {
 
 // --- Piezas de juego ------------------------------------------------------------
 
-/** Techo de piezas dibujadas a la vez. */
+/** Cap on pieces drawn at once. */
 const MAX_GAME_PIECES = 128
 
 function createGamePiece(object: RenderedField3dObject, ctx: VisualContext): ObjectVisual {
@@ -497,14 +495,14 @@ function createGamePiece(object: RenderedField3dObject, ctx: VisualContext): Obj
   const entry = ctx.gamePieces[object.options.gamePieceIndex]
   const pool: Object3D[] = []
 
-  // El config de la cancha dice cómo está exportada la pieza; ese giro y ese
-  // desplazamiento son parte del modelo, no de la pose publicada.
+  // The field's config says how the piece is exported; that rotation and that
+  // offset are part of the model, not of the published pose.
   const zeroedRotation = composeRotations(entry?.config.rotations ?? [])
   const zeroedPosition = entry?.config.position ?? [0, 0, 0]
 
-  // Sin modelo (cancha esquemática, o una pieza que el asset no trae) se cae a
-  // una esfera del color del objeto: es mejor ver DÓNDE está la pieza con la
-  // forma equivocada que no verla.
+  // Without a model (schematic field, or a piece the asset does not carry) it
+  // falls back to a sphere in the object's color: it is better to see WHERE the
+  // piece is with the wrong shape than not to see it.
   const fallbackGeometry = new SphereGeometry(object.options.markerSize / 2, 14, 12)
   const fallbackMaterial = new MeshPhongMaterial({
     color: object.color, shininess: 10,
@@ -574,8 +572,8 @@ function createMarker(object: RenderedField3dObject, ctx: VisualContext): Object
     if (isAxes) {
       pivot.add(makeAxes(size * 2))
     } else {
-      // El cono se dibuja apuntando hacia ARRIBA y elevado media altura: así
-      // la punta marca el punto y el cuerpo no queda enterrado en la alfombra.
+      // The cone is drawn pointing UP and raised half its height: that way the
+      // tip marks the point and the body is not buried in the carpet.
       const mesh = new Mesh(geometry!, material!)
       mesh.rotation.x = Math.PI / 2
       mesh.position.z = size * 0.8
@@ -610,7 +608,7 @@ function createMarker(object: RenderedField3dObject, ctx: VisualContext): Object
 
 // --- Estelas ---------------------------------------------------------------------
 
-/** Techo de puntos de una estela; por encima se muestran los más recientes. */
+/** A trail's point ceiling; above it the most recent ones are shown. */
 const MAX_TRAIL_POINTS = 4000
 
 interface TrailLine {
@@ -644,8 +642,8 @@ function updateTrailLine(trail: TrailLine, samples: { x: number; y: number; z: n
     const sample = samples[start + i]
     array[i * 3] = sample.x
     array[i * 3 + 1] = sample.y
-    // Un pelo sobre la alfombra: a la misma altura la línea desaparece a
-    // trozos por el z-fighting contra el piso.
+    // A hair above the carpet: at the same height the line disappears in
+    // patches from z-fighting against the floor.
     array[i * 3 + 2] = sample.z + 0.02
   }
 
@@ -654,7 +652,7 @@ function updateTrailLine(trail: TrailLine, samples: { x: number; y: number; z: n
   trail.line.visible = count > 1
 }
 
-// --- Fábrica ----------------------------------------------------------------------
+// --- Factory ----------------------------------------------------------------------
 
 export function createObjectVisual(
   object: RenderedField3dObject,
@@ -679,11 +677,12 @@ export function createObjectVisual(
 }
 
 /**
- * Firma con todo lo que obliga a RECONSTRUIR el objeto (y no solo a moverlo).
+ * Signature with everything that forces REBUILDING the object (and not just
+ * moving it).
  *
- * Cambiar el color o el tipo cambia mallas y materiales; cambiar la pose no.
- * Separar las dos cosas es lo que permite que la escena solo toque matrices en
- * el 99 % de los frames.
+ * Changing the color or the type changes meshes and materials; changing the
+ * pose does not. Separating the two is what lets the scene touch only
+ * matrices in 99 % of frames.
  */
 export function visualSignature(object: RenderedField3dObject): string {
   const o = object.options

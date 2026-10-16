@@ -1,9 +1,9 @@
-// Piezas de three.js compartidas por las vistas 3D (Swerve 3D, Mechanism 3D).
+// three.js pieces shared by the 3D views (Swerve 3D, Mechanism 3D).
 //
-// Todas las escenas de la app trabajan con Z ARRIBA, X adelante y Y a la
-// izquierda, que es el marco de WPILib: así los ángulos y las poses que
-// publica el robot entran tal cual salen de NT, sin conversiones sueltas
-// repartidas por el código.
+// Every scene in the app works with Z UP, X forward and Y to the left, which is
+// WPILib's frame: that way the angles and poses the robot publishes go in
+// exactly as they come out of NT, with no loose conversions spread around the
+// code.
 
 import {
   BufferGeometry, CanvasTexture, Color, ConeGeometry, CylinderGeometry,
@@ -15,12 +15,12 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js"
 
 export const DEG = Math.PI / 180
 
-/** Eje X rojo, Y verde, Z azul — el mismo código de color que RViz y WPILib. */
+/** X axis red, Y green, Z blue — the same color code as RViz and WPILib. */
 export const AXIS_COLORS = [0xc21c1c, 0x1c8f1c, 0x2f6fdb] as const
 
 // --- Luces -------------------------------------------------------------------
 
-/** Iluminación neutra: una key alta, un fill opuesto y ambiente para las sombras. */
+/** Neutral lighting: a high key, an opposite fill and ambient for the shadows. */
 export function addStandardLights(scene: Scene) {
   scene.add(new HemisphereLight(0xffffff, 0x9a9aa2, 1.4))
   scene.add(new AmbientLight(0xffffff, 0.35))
@@ -34,7 +34,7 @@ export function addStandardLights(scene: Scene) {
   scene.add(fill)
 }
 
-// --- Cámara ------------------------------------------------------------------
+// --- Camera ------------------------------------------------------------------
 
 export function makeOrbitControls(
   camera: PerspectiveCamera | OrthographicCamera,
@@ -46,18 +46,18 @@ export function makeOrbitControls(
   controls.dampingFactor = 0.12
   controls.minDistance = options.minDistance ?? 0.2
   controls.maxDistance = options.maxDistance ?? 40
-  // Un poco antes del horizonte: mirar exactamente de canto deja la escena
-  // reducida a una línea.
+  // A little before the horizon: looking exactly edge-on reduces the scene to a
+  // line.
   controls.maxPolarAngle = Math.PI / 2 - 0.02
   return controls
 }
 
-// --- Geometría de apoyo -------------------------------------------------------
+// --- Supporting geometry -------------------------------------------------------
 
 /**
- * Grilla de piso en el plano XY. Conviene dibujarla mucho más grande que el
- * encuadre: las vistas que la desplazan (el piso móvil del swerve) no deben
- * dejar ver nunca dónde termina.
+ * Floor grid on the XY plane. It is worth drawing it much bigger than the
+ * framing: the views that move it (the swerve's moving floor) must never show
+ * where it ends.
  */
 export function makeFloorGrid(halfSize: number, cell: number, color = 0x9a9aa2): LineSegments {
   const points: number[] = []
@@ -72,7 +72,7 @@ export function makeFloorGrid(halfSize: number, cell: number, color = 0x9a9aa2):
   }))
 }
 
-/** Triedro X/Y/Z desde el origen del grupo en que se cuelgue. */
+/** X/Y/Z axes from the origin of whatever group it hangs from. */
 export function makeAxes(length: number): Group {
   const group = new Group()
   const directions: [number, number, number][] = [
@@ -91,8 +91,8 @@ export function makeAxes(length: number): Group {
 }
 
 /**
- * Flecha a lo largo de +X, de largo unitario. Se estira con `setArrowLength`
- * en vez de reconstruirse: escalar solo el cuerpo deja la punta sin deformar.
+ * An arrow along +X, of unit length. It is stretched with `setArrowLength`
+ * instead of being rebuilt: scaling only the body leaves the tip undistorted.
  */
 export function makeArrow(color: string | number, radius: number): Group {
   const head = radius * 3.2
@@ -116,7 +116,7 @@ export function makeArrow(color: string | number, radius: number): Group {
   return group
 }
 
-/** `length` es el largo TOTAL de la flecha, punta incluida. */
+/** `length` is the arrow's TOTAL length, tip included. */
 export function setArrowLength(arrow: Group, length: number) {
   const head: number = arrow.userData.headLength
   arrow.visible = length > head * 0.6
@@ -139,11 +139,11 @@ export function setArrowOpacity(arrow: Group, opacity: number) {
 }
 
 /**
- * Etiqueta de texto que siempre mira a la cámara. `depthTest: false` a
- * propósito: una etiqueta tapada por la pieza que nombra no sirve de nada.
+ * A text label that always faces the camera. `depthTest: false` on purpose: a
+ * label hidden by the part it names is useless.
  */
 export function makeTextSprite(text: string, options: {
-  /** Alto del sprite en metros de la escena. */
+  /** The sprite's height in scene meters. */
   height?: number
   color?: string
   background?: string
@@ -157,8 +157,8 @@ export function makeTextSprite(text: string, options: {
   canvas.width = Math.ceil(textWidth) + 24
   canvas.height = 64
 
-  // Cambiar el tamaño del canvas resetea el contexto, así que la fuente se
-  // vuelve a fijar después de dimensionarlo.
+  // Resizing the canvas resets the context, so the font is set again after
+  // sizing it.
   ctx.font = "bold 38px 'Segoe UI', Arial, sans-serif"
   ctx.textAlign = "center"
   ctx.textBaseline = "middle"
@@ -175,18 +175,18 @@ export function makeTextSprite(text: string, options: {
   return sprite
 }
 
-/** Verde -> amarillo -> rojo según qué fracción del máximo se esté usando. */
+/** Green -> yellow -> red according to what fraction of the maximum is in use. */
 export function ratioColor(ratio: number): Color {
   const clamped = Math.min(Math.max(ratio, 0), 1)
   return new Color().setHSL((130 * (1 - clamped)) / 360, 0.72, 0.4)
 }
 
-// --- Limpieza ----------------------------------------------------------------
+// --- Cleanup -----------------------------------------------------------------
 
 /**
- * Vacía un grupo liberando geometrías y materiales. Se usa cada vez que la
- * configuración cambia y hay que reconstruir: sin esto, tocar un checkbox
- * cincuenta veces deja cincuenta mallas huérfanas en la GPU.
+ * Empties a group releasing geometries and materials. It is used every time
+ * the configuration changes and things have to be rebuilt: without it,
+ * touching a checkbox fifty times leaves fifty orphaned meshes on the GPU.
  */
 export function disposeGroup(group: Group) {
   group.children.slice().forEach(child => {

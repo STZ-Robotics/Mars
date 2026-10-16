@@ -2,10 +2,10 @@ import { describe, it, expect } from "vitest"
 import { composeRotations, formatBytes, parseAssetConfig } from "./assetConfig"
 import { rotateVector } from "./frames"
 
-// Recorte del config.json real de `Field3d_2026FRCFieldV1`, el paquete oficial
-// de AdvantageScope. Se copia literal (incluida la lista de piezas ya
-// colocadas) para que los tests fallen si el parseo deja de aceptar el formato
-// tal como lo publican.
+// An excerpt of the real config.json of `Field3d_2026FRCFieldV1`, AdvantageScope's
+// official package. It is copied verbatim (including the list of pieces already
+// in place) so the tests fail if parsing stops accepting the format as they
+// publish it.
 const FIELD_2026 = JSON.stringify({
   name: "2026 Field",
   isFTC: false,
@@ -43,37 +43,37 @@ const ROBOT = JSON.stringify({
   ],
 })
 
-describe("config de cancha", () => {
+describe("field config", () => {
   const config = parseAssetConfig(FIELD_2026)!
 
-  it("se reconoce como cancha por traer el área de juego", () => {
+  it("is recognized as a field because it carries the playing area", () => {
     expect(config.kind).toBe("field")
   })
 
-  it("pasa las pulgadas del config a los metros de la escena", () => {
-    if (config.kind !== "field") throw new Error("no es una cancha")
-    // 651.22 in = 16.541 m; es la cancha FRC de siempre.
+  it("converts the config's inches to the scene's meters", () => {
+    if (config.kind !== "field") throw new Error("not a field")
+    // 651.22 in = 16.541 m; it is the usual FRC field.
     expect(config.size.length).toBeCloseTo(16.541, 3)
     expect(config.size.width).toBeCloseTo(8.069, 3)
   })
 
-  it("lee el sistema de coordenadas, las driver stations y los tags", () => {
-    if (config.kind !== "field") throw new Error("no es una cancha")
+  it("reads the coordinate system, the driver stations and the tags", () => {
+    if (config.kind !== "field") throw new Error("not a field")
     expect(config.coordinateSystem).toBe("wall-blue")
     expect(config.driverStations).toHaveLength(6)
     expect(config.aprilTags[0].id).toBe(1)
     expect(config.aprilTags[0].position).toEqual([-3.607, -3.39, 0.889])
   })
 
-  it("conserva los nodos de las piezas ya colocadas", () => {
-    if (config.kind !== "field") throw new Error("no es una cancha")
-    // De esta lista sale qué apagar cuando el robot publica sus propias
-    // piezas, para no ver cada una dos veces.
+  it("keeps the nodes of the pieces already in place", () => {
+    if (config.kind !== "field") throw new Error("not a field")
+    // This list is where what to turn off comes from when the robot publishes its
+    // own pieces, so each one is not seen twice.
     expect(config.gamePieces[0].stagedObjects).toEqual(["GE-26900_Fuel", "GE-26900_Fuel_1"])
   })
 
-  it("las driver stations caen sobre las paredes de extremo", () => {
-    if (config.kind !== "field") throw new Error("no es una cancha")
+  it("the driver stations land on the end walls", () => {
+    if (config.kind !== "field") throw new Error("not a field")
     const halfLength = config.size.length / 2
     config.driverStations.forEach(([x]) => {
       expect(Math.abs(Math.abs(x) - halfLength)).toBeLessThan(0.05)
@@ -81,15 +81,15 @@ describe("config de cancha", () => {
   })
 })
 
-describe("config de robot", () => {
+describe("robot config", () => {
   const config = parseAssetConfig(ROBOT)!
 
-  it("se reconoce como robot por NO traer el área de juego", () => {
+  it("is recognized as a robot because it does NOT carry the playing area", () => {
     expect(config.kind).toBe("robot")
   })
 
-  it("lee cámaras y componentes", () => {
-    if (config.kind !== "robot") throw new Error("no es un robot")
+  it("reads cameras and components", () => {
+    if (config.kind !== "robot") throw new Error("not a robot")
     expect(config.cameras[0].fov).toBe(75)
     expect(config.cameras[0].resolution).toEqual([1280, 800])
     expect(config.components).toHaveLength(2)
@@ -98,25 +98,25 @@ describe("config de robot", () => {
 })
 
 describe("tolerancia a configs incompletos", () => {
-  it("rechaza lo que no es JSON o no tiene nombre", () => {
+  it("rejects what is not JSON or has no name", () => {
     expect(parseAssetConfig("{ roto")).toBeNull()
     expect(parseAssetConfig("{}")).toBeNull()
     expect(parseAssetConfig("[]")).toBeNull()
   })
 
-  it("un config mínimo sigue siendo usable", () => {
-    // Escrito a mano, sin nada opcional: tiene que cargar igual.
+  it("a minimal config is still usable", () => {
+    // Written by hand, with nothing optional: it has to load all the same.
     const config = parseAssetConfig(JSON.stringify({
       name: "Mi cancha", widthInches: 600, heightInches: 300,
     }))!
-    if (config.kind !== "field") throw new Error("no es una cancha")
+    if (config.kind !== "field") throw new Error("not a field")
     expect(config.coordinateSystem).toBe("wall-blue")
     expect(config.rotations).toEqual([])
     expect(config.gamePieces).toEqual([])
     expect(config.defaultOrigin).toBe("auto")
   })
 
-  it("descarta ejes inventados en vez de girar por un eje indefinido", () => {
+  it("drops made-up axes instead of turning around an undefined axis", () => {
     const config = parseAssetConfig(JSON.stringify({
       name: "R", rotations: [{ axis: "w", degrees: 90 }, { axis: "x", degrees: 90 }],
     }))!
@@ -125,21 +125,21 @@ describe("tolerancia a configs incompletos", () => {
 })
 
 describe("composeRotations", () => {
-  it("sin giros devuelve la identidad", () => {
+  it("with no turns it returns the identity", () => {
     expect(composeRotations([])).toEqual([1, 0, 0, 0])
   })
 
-  it("un giro de +90° en X lleva un glTF (Y arriba) al marco Z arriba", () => {
-    // Es exactamente lo que declara el config de la cancha 2026, y la razón
-    // por la que el modelo se carga crudo en vez de rotarlo a ciegas.
+  it("a +90° turn around X takes a glTF (Y up) into the Z-up frame", () => {
+    // It is exactly what the 2026 field's config declares, and the reason the
+    // model is loaded raw instead of rotating it blindly.
     const [x, y, z] = rotateVector(composeRotations([{ axis: "x", degrees: 90 }]), [0, 1, 0])
     expect(x).toBeCloseTo(0, 9)
     expect(y).toBeCloseTo(0, 9)
     expect(z).toBeCloseTo(1, 9)
   })
 
-  it("aplica los giros en el orden en que vienen", () => {
-    // Primero +90° en Z (X pasa a +Y) y después +90° en X (Y pasa a +Z).
+  it("applies the turns in the order they come", () => {
+    // First +90° around Z (X becomes +Y) and then +90° around X (Y becomes +Z).
     const q = composeRotations([{ axis: "z", degrees: 90 }, { axis: "x", degrees: 90 }])
     const [x, y, z] = rotateVector(q, [1, 0, 0])
     expect(x).toBeCloseTo(0, 9)
@@ -149,7 +149,7 @@ describe("composeRotations", () => {
 })
 
 describe("formatBytes", () => {
-  it("elige la unidad según el tamaño", () => {
+  it("picks the unit by size", () => {
     expect(formatBytes(512)).toBe("512 B")
     expect(formatBytes(4096)).toBe("4 KB")
     expect(formatBytes(18_182_328)).toBe("17.3 MB")

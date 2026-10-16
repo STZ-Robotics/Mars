@@ -4,10 +4,10 @@ import TreeDirectory from "./TreeDirectory"
 
 interface Props {
   topics: Map<string, TopicAnnounce>
-  /** Qué tipos acepta esta página; los demás se ven atenuados. */
+  /** Which types this page accepts; the rest are shown dimmed. */
   dragFilter?: (topic: TopicAnnounce) => boolean
   folderDragType?: (fullPath: string) => string | null
-  /** Línea de ayuda bajo el título (los tipos que la página sabe recibir). */
+  /** Help line under the title (the types the page can receive). */
   hint?: ReactNode
   width?: number
 }
@@ -15,10 +15,10 @@ interface Props {
 const DEFAULT_WIDTH = 268
 const COLLAPSED_WIDTH = 24
 
-// Dock estilo "Displays" de RViz: barra de título con ícono + nombre + botón
-// de cerrar a la derecha, y debajo el árbol denso. Reemplaza al PageHeader de
-// 24px de padding que gastaba tres renglones (eyebrow + título + subtítulo)
-// en decir algo que el ícono y una línea ya dicen.
+// RViz "Displays"-style dock: a title bar with icon + name + close button on
+// the right, and the dense tree below. It replaces the 24px-padded PageHeader
+// that spent three lines (eyebrow + title + subtitle) saying what the icon
+// and one line already say.
 export default function DataDirectoryPanel({
   topics, dragFilter, folderDragType, hint, width = DEFAULT_WIDTH,
 }: Props) {
@@ -39,8 +39,8 @@ export default function DataDirectoryPanel({
         }}
       >
         <img src="/icons/data-directory.svg" alt="" aria-hidden width={14} height={14} draggable={false} style={{ display: "block" }} />
-        {/* El título en vertical: colapsado no queda ancho para nada más, pero
-            un riel mudo no dice qué se está escondiendo. */}
+        {/* The title, vertical: collapsed there is no width for anything else,
+            but a mute rail does not say what is being hidden. */}
         <span style={{
           writingMode: "vertical-rl", fontSize: 10, letterSpacing: 0.5,
           color: "var(--text-muted)", userSelect: "none",

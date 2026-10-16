@@ -21,7 +21,7 @@ export interface PlottedSeries {
 }
 
 export interface GraphCanvasHandle {
-  /** PNG del gráfico tal como se ve, para el botón de export. */
+  /** The plot's PNG exactly as it looks, for the export button. */
   toDataURL: () => string | null
 }
 
@@ -36,7 +36,7 @@ interface Props {
   /** Rangos fijos; null = autoescala con suavizado. */
   leftRange?: [number, number] | null
   rightRange?: [number, number] | null
-  /** Modo X-Y: cada serie se dibuja contra `phaseX` en vez de contra el tiempo. */
+  /** X-Y mode: each series is drawn against `phaseX` instead of against time. */
   phaseData?: { xLabel: string; xUnit: string | null; bySeries: Record<string, PhasePoint[]> } | null
 }
 
@@ -60,8 +60,8 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, Props>(function GraphCanvas(pr
   const smoothRef = useRef<SmoothState>({ left: null, right: null })
   const [cursorX, setCursorX] = useState<number | null>(null)
 
-  // El estado que lee el loop de dibujo vive en un ref para no recrear el rAF
-  // en cada frame de datos (llegan a 20Hz).
+  // The state the draw loop reads lives in a ref so the rAF is not recreated on
+  // every data frame (they arrive at 20Hz).
   const latest = useRef({ props, cursorX })
   useEffect(() => { latest.current = { props, cursorX } })
 
@@ -332,8 +332,8 @@ function renderFrame(
     ctx.beginPath()
     pts.forEach((p, i) => {
       if (i === 0) ctx.moveTo(p.x, p.y)
-      // "stepped" mantiene el valor hasta la muestra siguiente, que es lo
-      // correcto para señales que solo cambian cuando el robot las publica.
+      // "stepped" holds the value until the next sample, which is right for
+      // signals that only change when the robot publishes them.
       else if (s.lineStyle === "stepped") { ctx.lineTo(p.x, pts[i - 1].y); ctx.lineTo(p.x, p.y) }
       else ctx.lineTo(p.x, p.y)
     })
@@ -395,8 +395,8 @@ function renderFrame(
   let guard = 0
   while (xTick <= xMax && guard++ < 200) {
     const x = toX(xTick)
-    // En modo tiempo el eje se rotula RELATIVO al presente: un timestamp
-    // absoluto del servidor (decenas de miles de segundos) no dice nada.
+    // In time mode the axis is labeled RELATIVE to the present: an absolute
+    // server timestamp (tens of thousands of seconds) says nothing.
     const label = isPhase ? formatTick(xTick, xUnit) : `${(xTick - xMax).toFixed(xStep < 1 ? 1 : 0)}s`
     ctx.fillText(label, x, graphBottom + 8)
     ctx.beginPath()
@@ -409,7 +409,7 @@ function renderFrame(
   ctx.strokeStyle = colorBorder
   ctx.strokeRect(graphLeft, graphTop, graphWidth, graphHeight)
 
-  // --- Título y leyenda -----------------------------------------------------
+  // --- Title and legend -----------------------------------------------------
   ctx.fillStyle = colorText
   ctx.font = "bold 12px 'Segoe UI', Arial, sans-serif"
   ctx.textAlign = "left"
@@ -440,8 +440,8 @@ function renderFrame(
   }
 }
 
-// Caja con el valor de cada serie en la posición del cursor. Es lo que
-// convierte el gráfico en algo medible en vez de solo mirable.
+// A box with each series' value at the cursor's position. It is what turns the
+// plot into something measurable instead of just something to look at.
 function drawCursorReadout(
   ctx: CanvasRenderingContext2D,
   o: {
@@ -476,8 +476,8 @@ function drawCursorReadout(
       }
       value = best ? best.y : null
     } else {
-      // Última muestra en o antes del cursor: es el valor que el robot tenía
-      // en ese instante, no una interpolación inventada.
+      // The last sample at or before the cursor: it is the value the robot had
+      // at that instant, not a made-up interpolation.
       let found: number | null = null
       for (const p of s.points) {
         if (p.t <= o.xValue) found = p.v
@@ -496,7 +496,7 @@ function drawCursorReadout(
   const boxW = Math.max(...rows.map(r => ctx.measureText(`${r.label}  ${r.value}`).width)) + padding * 2 + 10
   const boxH = rows.length * lineH + padding * 2
 
-  // Se voltea al otro lado del cursor si no entra a la derecha.
+  // It flips to the other side of the cursor if it does not fit on the right.
   let boxX = o.cursorX + 10
   if (boxX + boxW > o.graphRight) boxX = o.cursorX - 10 - boxW
   if (boxX < o.graphLeft) boxX = o.graphLeft

@@ -4,13 +4,13 @@ interface Props {
   icon?: string // sufijo de icono tabler, ej. "ti-heart-rate-monitor"
   message: React.ReactNode
   hint?: React.ReactNode
-  dashed?: boolean // borde punteado (listas/paneles vacíos); false = solo texto centrado
+  dashed?: boolean // dotted border (empty lists/panels); false = centered text only
   padding?: string
 }
 
-// Estado "sin datos todavía" — cubre los casos hoy duplicados en
-// WatchDogPage, SeriesPanel, TreeDirectory, GraphCanvas, cada uno con su
-// propio padding/borde/mensaje pero el mismo propósito.
+// "No data yet" state — it covers the cases currently duplicated in
+// WatchDogPage, SeriesPanel, TreeDirectory, GraphCanvas, each with its own
+// padding/border/message but the same purpose.
 export default function EmptyState({ icon, message, hint, dashed = true, padding = "60px 40px" }: Props) {
   return (
     <div

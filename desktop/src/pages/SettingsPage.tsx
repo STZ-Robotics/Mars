@@ -61,9 +61,9 @@ export default function SettingsPage() {
           </div>
         </Panel>
 
-        {/* El puerto NT4 no es siempre 5810: la Driver Station reexpone los
-            datos en 6767 sobre localhost y Systemcore usa 6810. Antes estaba
-            fijo en el cliente de Rust. */}
+        {/* The NT4 port is not always 5810: the Driver Station re-exposes the
+            data on 6767 over localhost and Systemcore uses 6810. It used to
+            be fixed in the Rust client. */}
         <Panel title="NetworkTables" icon="ti-antenna">
           <div>
             <PropertyRow label="Server target">
@@ -131,8 +131,8 @@ export default function SettingsPage() {
           </div>
         </Panel>
 
-        {/* Prefill del wizard de features: se guarda acá para no volver a
-            escribir autor y usuario de GitHub en cada paquete nuevo. */}
+        {/* The feature wizard's prefill: it is saved here so the author and the
+            GitHub user are not typed again for every new package. */}
         <Panel title="Feature Publishing" icon="ti-puzzle">
           <div>
             <PropertyRow label="Feature author">
@@ -178,8 +178,8 @@ function clampPort(raw: string): number {
   return Math.min(65535, Math.max(1, n))
 }
 
-// Misma derivación que hace el backend (3472 -> 10.34.72.2); acá solo sirve
-// para mostrarle al usuario a dónde va a ir si deja la dirección vacía.
+// The same derivation the backend does (3472 -> 10.34.72.2); here it only shows
+// the user where it will go if the address is left empty.
 function teamAddress(team: string): string {
   const n = parseInt(team.trim(), 10)
   if (isNaN(n)) return team.trim() || "—"

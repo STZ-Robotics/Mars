@@ -1,16 +1,16 @@
-// Repertorio de ecuaciones listas para insertar.
+// A repertoire of equations ready to insert.
 //
-// Cada preset trae los nombres de variable que espera; si no están enlazadas
-// todavía, la ecuación se inserta igual y avisa qué símbolo falta. La idea es
-// que sirva de punto de partida y de recordatorio de la fórmula, no que
-// funcione mágicamente sin configurar nada.
+// Each preset carries the variable names it expects; if they are not bound yet,
+// the equation is inserted anyway and says which symbol is missing. The idea is
+// for it to work as a starting point and a reminder of the formula, not to work
+// magically without configuring anything.
 
 export interface EquationPreset {
   name: string
   expression: string
   unit: string
   description: string
-  /** Variables que hay que enlazar a un topic para que dé un número. */
+  /** Variables that have to be bound to a topic for it to give a number. */
   needs: string[]
 }
 

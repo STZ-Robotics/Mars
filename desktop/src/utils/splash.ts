@@ -1,26 +1,28 @@
 import { MARS_ENABLED } from "@mars"
 
-// Control de la pantalla de carga que vive en index.html.
+// Control of the loading screen that lives in index.html.
 //
-// El splash lo pinta el HTML (ver el <style> de index.html) porque tiene que
-// estar en pantalla ANTES de que el bundle termine de evaluarse. Desde React
-// solo queda decirle en qué paso va, cuánto lleva, y al final sacarlo.
+// The HTML paints the splash (see index.html's <style>) because it has to be
+// on screen BEFORE the bundle finishes evaluating. From React all that is left
+// is telling it which step it is on, how far along it is, and removing it at
+// the end.
 //
-// La versión anterior era una barra indeterminada y una línea de texto: decía
-// "está haciendo algo", que es justo lo que no hace falta saber. Esta enumera
-// los pasos REALES del arranque, marca cada uno cuando termina y mueve la
-// barra con ellos, así que cuando algo tarda o falla se ve exactamente qué.
+// The previous version was an indeterminate bar and a line of text: it said
+// "it is doing something", which is exactly what there is no need to know. This
+// one lists the REAL startup steps, checks each one off when it finishes and
+// moves the bar with them, so when something takes long or fails it shows
+// exactly what.
 
 const SPLASH_ID = "mars-splash"
 const FADE_MS = 300
-/** Lo que se sostiene el 100% antes de fundir, para que se llegue a ver. */
+/** How long 100% is held before fading, so it can be seen. */
 const HOLD_MS = 240
-/** Si algún paso falló, el splash se queda un momento más para poder leerlo. */
+/** If any step failed, the splash stays a moment longer so it can be read. */
 const LINGER_MS = 1800
 
 const $ = (id: string) => document.getElementById(id)
 
-const TODOS_LOS_PASOS = [
+const ALL_STEPS = [
   ["prefs", "Read preferences"],
   ["project", "Locate the MARS project"],
   ["assets", "Scan 3D asset packs"],
@@ -29,7 +31,7 @@ const TODOS_LOS_PASOS = [
   ["ui", "Build the interface"],
 ] as const
 
-export type SplashStepKey = (typeof TODOS_LOS_PASOS)[number][0]
+export type SplashStepKey = (typeof ALL_STEPS)[number][0]
 
 /**
  * The steps, in the real order they happen. SplashProgress uses the key.
@@ -39,19 +41,19 @@ export type SplashStepKey = (typeof TODOS_LOS_PASOS)[number][0]
  * that does not exist.
  */
 export const SPLASH_STEPS: readonly (readonly [SplashStepKey, string])[] =
-  MARS_ENABLED ? TODOS_LOS_PASOS : TODOS_LOS_PASOS.filter(([k]) => k !== "project")
+  MARS_ENABLED ? ALL_STEPS : ALL_STEPS.filter(([k]) => k !== "project")
 
 type Row = { li: HTMLLIElement; mark: HTMLSpanElement; note: HTMLElement }
 
-// StrictMode monta el efecto de arranque dos veces en desarrollo. La segunda
-// instancia repinta la lista desde cero, y sin esto la primera seguiría
-// escribiendo el porcentaje sobre la misma barra: dos secuencias peleándose.
+// StrictMode mounts the startup effect twice in development. The second
+// instance repaints the list from scratch, and without this the first one would
+// keep writing the percentage over the same bar: two sequences fighting.
 let active: SplashProgress | null = null
 
 export class SplashProgress {
   private done = 0
   private rows = new Map<string, Row>()
-  /** Un paso en rojo cambia cómo se cierra el splash (se queda más tiempo). */
+  /** A step in red changes how the splash closes (it stays longer). */
   private broke = false
 
   constructor() {
@@ -77,7 +79,7 @@ export class SplashProgress {
     }
   }
 
-  /** Marca el paso como en curso y lo pone en la línea de estado. */
+  /** Marks the step as in progress and puts it in the status line. */
   start(key: SplashStepKey) {
     if (active !== this) return
     const row = this.rows.get(key)
@@ -89,26 +91,27 @@ export class SplashProgress {
     if (line) line.textContent = `${labelOf(key)}…`
   }
 
-  /** Lo cierra en verde. `detail` es el resumen corto de lo que encontró. */
+  /** Closes it in green. `detail` is the short summary of what it found. */
   finish(key: SplashStepKey, detail?: string) {
     this.close(key, "ok", "✓", detail)
   }
 
   /**
-   * Lo cierra en gris: el paso no aplicaba (no hay proyecto configurado, por
-   * ejemplo). Cuenta para el porcentaje igual, porque ya no queda nada que
-   * esperar de él.
+   * Closes it in grey: the step did not apply (no project configured, for
+   * example). It counts towards the percentage anyway, because there is
+   * nothing left to wait for from it.
    */
   skip(key: SplashStepKey, detail?: string) {
     this.close(key, "skip", "–", detail)
   }
 
   /**
-   * Lo cierra en rojo y deja el error a la vista.
+   * Closes it in red and leaves the error in sight.
    *
-   * A diferencia del Simulation Studio, acá ningún paso es imprescindible: la
-   * app abre igual sin preferencias, sin proyecto y sin layout guardado. Por
-   * eso un fallo no detiene el arranque, solo se queda escrito.
+   * Unlike the Simulation Studio, here no step is essential: the app opens
+   * anyway without preferences, without a project and without a saved
+   * layout. That is why a failure does not stop the startup, it only stays
+   * written.
    */
   fail(key: SplashStepKey, error: unknown) {
     this.broke = true
@@ -124,8 +127,8 @@ export class SplashProgress {
   }
 
   /**
-   * Corre un paso: lo marca, espera, y lo cierra en verde o en rojo.
-   * Devuelve lo que devolvió `fn`, o `null` si falló.
+   * Runs a step: marks it, waits, and closes it in green or red.
+   * Returns what `fn` returned, or `null` if it failed.
    */
   async run<T>(key: SplashStepKey, fn: () => Promise<T>, summary?: (result: T) => string): Promise<T | null> {
     this.start(key)
@@ -140,7 +143,7 @@ export class SplashProgress {
     }
   }
 
-  /** Cierra el último paso y funde el splash. */
+  /** Closes the last step and fades the splash. */
   end() {
     this.finish("ui")
     hideSplash(this.broke ? LINGER_MS : HOLD_MS)
@@ -169,11 +172,11 @@ function labelOf(key: SplashStepKey): string {
 }
 
 /**
- * Desvanece el splash y lo saca del DOM.
+ * Fades the splash out and removes it from the DOM.
  *
- * Se llama cuando el workspace terminó de restaurarse, no cuando React montó:
- * si no, se vería un cuadro de app vacía antes de que aparezcan las pestañas
- * guardadas, que es peor que un splash un poco más largo.
+ * It is called when the workspace finished restoring, not when React mounted:
+ * otherwise an empty app frame would show before the saved tabs appear, which
+ * is worse than a slightly longer splash.
  */
 export function hideSplash(delayMs = 0) {
   window.setTimeout(() => {

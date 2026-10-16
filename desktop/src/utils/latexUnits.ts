@@ -1,6 +1,6 @@
-// Mapa compartido: unidad del UnitProcessor -> notación LaTeX (para react-katex).
-// Usado por ProjectVariablesPage (columna NOTATION) y por SubsystemWizardPage
-// (previsualizador al anotar campos con @Unit).
+// A shared map: UnitProcessor unit -> LaTeX notation (for react-katex).
+// Used by ProjectVariablesPage (the NOTATION column) and by SubsystemWizardPage
+// (the preview when annotating fields with @Unit).
 export const LATEX_UNIT_MAP: Record<string, string> = {
   // --- Electrical ---
   Volts: "V",

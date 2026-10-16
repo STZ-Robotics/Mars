@@ -13,39 +13,39 @@ function object(overrides: Partial<Field3dObjectConfig> = {}): Field3dObjectConf
 }
 
 describe("opciones resueltas", () => {
-  it("el fantasma nace translúcido", () => {
-    // Es lo que lo distingue del robot de verdad; tener que bajarle la
-    // opacidad a mano cada vez sería absurdo.
+  it("the ghost is born translucent", () => {
+    // It is what sets it apart from the real robot; having to lower its
+    // opacity by hand every time would be absurd.
     const ghost = resolveField3dOptions(object({ type: "ghost" }), defaultField3dSettings)
     expect(ghost.opacity).toBeLessThan(1)
     const robot = resolveField3dOptions(object({ type: "robot" }), defaultField3dSettings)
     expect(robot.opacity).toBe(1)
   })
 
-  it("el interruptor general apaga todas las estelas", () => {
+  it("the master switch turns off every trail", () => {
     const settings = { ...defaultField3dSettings, showTrails: false }
     const opts = resolveField3dOptions(object({ trailSeconds: 10 }), settings)
     expect(opts.trailSeconds).toBe(0)
   })
 
-  it("un objeto sin estela propia hereda la de la pestaña", () => {
+  it("an object without a trail of its own inherits the tab's", () => {
     const settings = { ...defaultField3dSettings, showTrails: true, trailSeconds: 7 }
     expect(resolveField3dOptions(object(), settings).trailSeconds).toBe(7)
   })
 
-  it("el asset de robot cae al default de la pestaña", () => {
+  it("the robot asset falls back to the tab's default", () => {
     const settings = { ...defaultField3dSettings, robotAssetKey: "Robot_Kit" }
     expect(resolveField3dOptions(object(), settings).robotAssetKey).toBe("Robot_Kit")
     expect(resolveField3dOptions(object({ robotAssetKey: "Robot_Mio" }), settings).robotAssetKey)
       .toBe("Robot_Mio")
   })
 
-  it("sin cámara elegida la visión sale del centro del robot", () => {
+  it("with no camera chosen vision comes from the robot's center", () => {
     expect(resolveField3dOptions(object({ type: "vision" }), defaultField3dSettings).visionCameraIndex)
       .toBe(-1)
   })
 
-  it("un número corrupto cae a su default en vez de dejar la malla invisible", () => {
+  it("a corrupt number falls back to its default instead of leaving the mesh invisible", () => {
     const opts = resolveField3dOptions(
       object({ trajectoryWidth: NaN, markerSize: -3 }),
       defaultField3dSettings,
@@ -55,22 +55,22 @@ describe("opciones resueltas", () => {
   })
 })
 
-describe("qué se puede soltar", () => {
-  it("acepta geometría y rechaza el resto", () => {
+describe("what can be dropped", () => {
+  it("accepts geometry and rejects the rest", () => {
     expect(isField3dDroppable("struct:Pose3d[]")).toBe(true)
     expect(isField3dDroppable("double[]")).toBe(true)
     expect(isField3dDroppable("boolean")).toBe(false)
   })
 })
 
-describe("tipo por defecto al soltar", () => {
-  it("una pose suelta es el robot y un array es una trayectoria", () => {
+describe("default type on drop", () => {
+  it("a loose pose is the robot and an array is a trajectory", () => {
     expect(defaultField3dTypeFor("/Odometry/Pose", "struct:Pose3d")).toBe("robot")
     expect(defaultField3dTypeFor("/Auto/Poses", "struct:Pose3d[]")).toBe("trajectory")
   })
 
-  it("el nombre manda sobre la forma", () => {
-    // Un `Targets` con tres poses no es un camino.
+  it("the name wins over the shape", () => {
+    // A `Targets` with three poses is not a path.
     expect(defaultField3dTypeFor("/Vision/Targets", "struct:Pose3d[]")).toBe("vision")
     expect(defaultField3dTypeFor("/Robot/Components", "struct:Pose3d[]")).toBe("component")
     expect(defaultField3dTypeFor("/Drive/Setpoint", "struct:Pose2d")).toBe("ghost")
@@ -79,27 +79,27 @@ describe("tipo por defecto al soltar", () => {
 })
 
 describe("etiquetas", () => {
-  it("numera las repeticiones del mismo topic", () => {
+  it("numbers repeats of the same topic", () => {
     const objects = [object()]
     expect(nextField3dLabel(objects, "/Robot/Pose")).toBe("Pose (2)")
     expect(nextField3dLabel([], "/Robot/Pose")).toBe("Pose")
   })
 })
 
-describe("saneo de layouts guardados", () => {
-  it("descarta entradas sin id ni topic", () => {
+describe("sanitizing saved layouts", () => {
+  it("drops entries with neither an id nor a topic", () => {
     expect(normalizeField3dObjects([{ id: "a" }, { topicName: "/x" }, null, 5])).toEqual([])
-    expect(normalizeField3dObjects("no es un array")).toEqual([])
+    expect(normalizeField3dObjects("not an array")).toEqual([])
   })
 
-  it("un tipo inventado cae al robot en vez de dejar el objeto sin dibujar", () => {
+  it("a made-up type falls back to the robot instead of leaving the object undrawn", () => {
     const [result] = normalizeField3dObjects([{ id: "a", topicName: "/x", type: "hologram" }])
     expect(result.type).toBe("robot")
   })
 
-  it("deja fuera los números que no son finitos", () => {
-    // Un NaN acá deja la geometría en una matriz inválida y la pieza
-    // desaparece sin ningún error visible.
+  it("leaves out numbers that are not finite", () => {
+    // A NaN here leaves the geometry with an invalid matrix and the piece
+    // disappears without any visible error.
     const [result] = normalizeField3dObjects([{
       id: "a", topicName: "/x", opacity: NaN, trajectoryWidth: "ancho", markerSize: Infinity,
     }])
@@ -108,7 +108,7 @@ describe("saneo de layouts guardados", () => {
     expect(result.markerSize).toBeUndefined()
   })
 
-  it("conserva lo que sí es válido", () => {
+  it("keeps whatever is valid", () => {
     const [result] = normalizeField3dObjects([{
       id: "a", topicName: "/x", type: "trajectory", color: "#fff",
       trajectoryStyle: "line", trajectoryWidth: 0.08, arrayFormat: "pose3d",
@@ -119,15 +119,15 @@ describe("saneo de layouts guardados", () => {
   })
 })
 
-describe("saneo de los ajustes", () => {
-  it("un layout vacío da los defaults", () => {
+describe("sanitizing the settings", () => {
+  it("an empty layout gives the defaults", () => {
     const settings = normalizeField3dSettings(undefined)
     expect(settings.fieldKey).toBe(EVERGREEN_FIELD_KEY)
     expect(settings.quality).toBe("standard")
     expect(settings.cameraMode).toBe("orbit")
   })
 
-  it("acota los índices y los rangos", () => {
+  it("bounds the indices and the ranges", () => {
     const settings = normalizeField3dSettings({
       driverStationIndex: 99, fov: 500, gridCell: 0, robotLength: -1, trailSeconds: 1e6,
     })
@@ -138,18 +138,18 @@ describe("saneo de los ajustes", () => {
     expect(settings.trailSeconds).toBeLessThanOrEqual(120)
   })
 
-  it("un enum inventado cae a su default", () => {
+  it("a made-up enum falls back to its default", () => {
     const settings = normalizeField3dSettings({
       quality: "ultra", cameraMode: "dron", origin: "verde", coordinateSystem: "polar",
     })
     expect(settings.quality).toBe("standard")
     expect(settings.cameraMode).toBe("orbit")
     expect(settings.origin).toBe("auto")
-    // null = "usar el que declare el config de la cancha".
+    // null = "use whatever the field's config declares".
     expect(settings.coordinateSystem).toBeNull()
   })
 
-  it("respeta un sistema de coordenadas válido", () => {
+  it("respects a valid coordinate system", () => {
     expect(normalizeField3dSettings({ coordinateSystem: "center-red" }).coordinateSystem)
       .toBe("center-red")
   })

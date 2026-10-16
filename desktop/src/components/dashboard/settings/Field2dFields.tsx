@@ -44,8 +44,9 @@ export default function Field2dFields({
         </select>
       </div>
 
-      {/* Si la pose sale espejada o girada 90°, casi siempre es que el robot
-          publica en otro marco de coordenadas y no que el dato esté mal. */}
+      {/* If the pose comes out mirrored or rotated 90°, it is almost always
+          that the robot publishes in another coordinate frame and not that the
+          data is wrong. */}
       <div>
         <label style={labelStyle}>COORDINATE SYSTEM</label>
         <select
@@ -81,8 +82,8 @@ export default function Field2dFields({
         </div>
       </div>
 
-      {/* El chasis rectangular importa: un robot de 33"x27" dibujado cuadrado
-          miente sobre cuánto espacio le queda contra la pared. */}
+      {/* The rectangular chassis matters: a 33"x27" robot drawn square
+          lies about how much room it has left against the wall. */}
       <div style={{ display: "flex", gap: 8 }}>
         <div style={{ flex: 1 }}>
           <label style={labelStyle}>LENGTH (m)</label>

@@ -27,7 +27,7 @@ interface Props {
 const POLL_MS = 250
 const HISTORY_LIMIT = 12
 
-/** Icono tabler de respaldo mientras no estén los SVG de severidad. */
+/** A tabler fallback icon until the severity SVGs exist. */
 const SEVERITY_FALLBACK: Record<Severity, string> = {
   critical: "ti-alert-octagon",
   error: "ti-alert-triangle",
@@ -36,12 +36,12 @@ const SEVERITY_FALLBACK: Record<Severity, string> = {
   unknown: "ti-help-circle",
 }
 
-/** Color de la app para cada severidad (los tiles usan el hex DEL ROBOT). */
+/** The app's color for each severity (the tiles use the ROBOT's hex). */
 const SEVERITY_COLORS: Record<Severity, string> = {
   critical: "var(--status-error)",
-  // Naranja propio: el framework separa TIMEOUT (naranja) de HARDWARE_FAULT
-  // (rojo), y en el desglose las dos filas tienen que distinguirse. Oscurecido
-  // como --status-warning para leerse sobre el fondo claro.
+  // An orange of its own: the framework separates TIMEOUT (orange) from
+  // HARDWARE_FAULT (red), and in the breakdown the two rows have to be told
+  // apart. Darkened like --status-warning to read on the light background.
   error: "#c0561a",
   warning: "var(--status-warning)",
   ok: "var(--status-sim)",
@@ -68,15 +68,15 @@ export default function SubsystemsPage({ projectName, topics, connection, logSou
     [prefixes, values]
   )
 
-  // El historial se acumula en un ref y no en estado: llega una muestra cada
-  // 250ms por subsistema y casi ninguna cambia nada. pushStatusChange devuelve
-  // el mismo array cuando no hubo cambio, así que acá solo re-renderizamos si
-  // de verdad se agregó algo.
+  // The history accumulates in a ref and not in state: a sample arrives every
+  // 250ms per subsystem and almost none changes anything. pushStatusChange
+  // returns the same array when nothing changed, so here we only re-render if
+  // something was really added.
   const historyRef = useRef<Map<string, StatusChange[]>>(new Map())
 
   useEffect(() => {
-    // Al mover el cursor de la timeline estamos mirando el pasado: apilar eso
-    // como si fueran cambios nuevos ensuciaría el historial real.
+    // Moving the timeline's cursor means looking at the past: stacking that as
+    // if they were new changes would pollute the real history.
     if (!isLive) return
     const now = Date.now()
     let changed = false
@@ -134,8 +134,8 @@ export default function SubsystemsPage({ projectName, topics, connection, logSou
 
         <div style={{ padding: "24px 20px", display: "flex", flexDirection: "column", gap: 24, overflowY: "auto" }}>
 
-          {/* El gate de AlertRegistry.hasCriticalAlerts(): la pregunta que se
-              hace en la fila antes de un partido. */}
+          {/* AlertRegistry.hasCriticalAlerts()'s gate: the question asked in the
+              queue before a match. */}
           <PreMatchGate critical={critical} total={statuses.length} live={isLive} />
 
           <Panel title="Filters" icon="ti-filter">
@@ -183,10 +183,10 @@ export default function SubsystemsPage({ projectName, topics, connection, logSou
               ))}
             </div>
             <div style={{ fontSize: 9, color: "var(--text-muted)", lineHeight: 1.45, padding: 8 }}>
-              El framework publica solo Name, Hex y Message — la severidad no viaja
-              por NetworkTables. Se deduce del nombre cuando es un GlobalColorCode
-              (NOMINAL / WORKING / TIMEOUT / HARDWARE_FAULT) y, si no, del tono del
-              color. El color que ves en cada tile es siempre el hex crudo del robot.
+              The framework only publishes Name, Hex and Message — the severity does not travel
+              over NetworkTables. It is inferred from the name when it is a GlobalColorCode
+              (NOMINAL / WORKING / TIMEOUT / HARDWARE_FAULT) and, if not, from the color's
+              hue. The color you see on each tile is always the robot's raw hex.
             </div>
           </Panel>
 
@@ -301,9 +301,9 @@ function PreMatchGate({ critical, total, live }: { critical: boolean; total: num
 }
 
 /**
- * Un tile por subsistema. El color dominante es el hex que mandó el robot —
- * el mismo que va a los LEDs — porque cambia con la acción que está
- * ejecutando, no solo con su salud. La severidad va aparte, en el icono.
+ * One tile per subsystem. The dominant color is the hex the robot sent — the
+ * same one that goes to the LEDs — because it changes with the action it is
+ * running, not only with its health. The severity goes separately, in the icon.
  */
 function StatusTile({ status, history, selected, onSelect }: {
   status: SubsystemStatus
@@ -313,8 +313,8 @@ function StatusTile({ status, history, selected, onSelect }: {
 }) {
   const hsl = status.hex ? hexToHsl(status.hex) : null
   const band = status.hex && hsl ? status.hex : "var(--bg-panel-header)"
-  // Texto oscuro sobre colores claros (amarillo, cian) — si no, el código
-  // del estado queda ilegible justo en los que más miras.
+  // Dark text on light colors (yellow, cyan) — otherwise the state's code is
+  // unreadable on exactly the ones you look at most.
   const onBand = hsl && hsl.l > 0.62 ? "#1a1a1e" : "#ffffff"
 
   return (
@@ -328,7 +328,7 @@ function StatusTile({ status, history, selected, onSelect }: {
         display: "flex", flexDirection: "column",
       }}
     >
-      {/* Banda con el color crudo del robot */}
+      {/* A band with the robot's raw color */}
       <div style={{
         background: band, padding: "8px 10px",
         display: "flex", alignItems: "center", gap: 8, minHeight: 34,
@@ -366,8 +366,8 @@ function StatusTile({ status, history, selected, onSelect }: {
         <div style={{
           fontSize: 10.5, color: status.message ? "var(--text-primary)" : "var(--text-muted)",
           lineHeight: 1.45, minHeight: 30, fontFamily: "monospace",
-          // El mensaje del framework puede ser largo ("Holding at 45.00 deg,
-          // error 0.12"): dos líneas y corta, para que la grilla no baile.
+          // The framework's message can be long ("Holding at 45.00 deg,
+          // error 0.12"): two lines and cut, so the grid does not jump around.
           display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden",
         }}>
           {status.message ?? "no message"}
@@ -379,7 +379,7 @@ function StatusTile({ status, history, selected, onSelect }: {
   )
 }
 
-/** Tira de los últimos colores por los que pasó el subsistema. */
+/** A strip of the last colors the subsystem went through. */
 function ChangeStrip({ history }: { history: StatusChange[] }) {
   if (history.length === 0) {
     return <div style={{ height: 8, fontSize: 8.5, color: "var(--text-muted)", fontFamily: "monospace" }}>—</div>
@@ -394,8 +394,8 @@ function ChangeStrip({ history }: { history: StatusChange[] }) {
             flex: 1,
             background: change.hex ?? "var(--grid-line)",
             border: "1px solid var(--border-light)",
-            // El más reciente es el último y va a plena opacidad; los viejos
-            // se desvanecen para leer la dirección del cambio de un vistazo.
+            // The most recent is the last one, at full opacity; the old ones fade
+            // so the direction of the change reads at a glance.
             opacity: 0.35 + 0.65 * ((i + 1) / history.length),
           }}
         />

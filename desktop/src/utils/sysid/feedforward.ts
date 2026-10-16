@@ -1,13 +1,13 @@
-// Ajuste de feedforward al estilo de SysId de WPILib.
+// Feedforward fitting in the style of WPILib's SysId.
 //
-// Modelos (docs.wpilib.org, System Identification):
+// Models (docs.wpilib.org, System Identification):
 //
 //   Simple    V = kS·sgn(v) + kV·v + kA·a
 //   Elevator  V = kG + kS·sgn(v) + kV·v + kA·a
 //   Arm       V = kG·cos(θ) + kS·sgn(v) + kV·v + kA·a
 //
-// El ajuste es OLS sobre la forma CONTINUA (la que documenta WPILib); la
-// aceleración sale de derivar la velocidad por diferencias centradas.
+// The fit is OLS over the CONTINUOUS form (the one WPILib documents); the
+// acceleration comes from differentiating the velocity by centered differences.
 
 import { solveOls, OlsResult, POOR_CONDITIONING } from "./ols"
 
@@ -19,7 +19,7 @@ export const MECHANISM_LABELS: Record<MechanismType, string> = {
   arm: "Arm (gravity varies with angle)",
 }
 
-/** Los cuatro tests estándar de SysId. */
+/** SysId's four standard tests. */
 export type SysIdTestType =
   | "quasistatic-forward"
   | "quasistatic-backward"
@@ -40,13 +40,13 @@ export const ALL_TESTS: SysIdTestType[] = [
   "dynamic-backward",
 ]
 
-/** Una muestra sincronizada de un test. */
+/** A synchronized sample of a test. */
 export interface SysIdSample {
   /** Segundos. */
   t: number
   /** Voltios aplicados al motor. */
   voltage: number
-  /** Posición (m o rad). Solo la usa el modelo de brazo. */
+  /** Position (m or rad). Only the arm model uses it. */
   position: number
   /** Velocidad (m/s o rad/s). */
   velocity: number
@@ -61,7 +61,7 @@ export interface FeedforwardGains {
   kS: number
   kV: number
   kA: number
-  /** Solo en elevator y arm. */
+  /** Only on elevator and arm. */
   kG?: number
 }
 
@@ -71,18 +71,18 @@ export interface FeedforwardFit {
   rSquared: number
   rmse: number
   sampleCount: number
-  /** Avisos que NO invalidan el ajuste pero lo vuelven sospechoso. */
+  /** Warnings that do NOT invalidate the fit but make it suspicious. */
   warnings: string[]
 }
 
 /**
- * Velocidad mínima para considerar que el mecanismo se está moviendo.
- * Con el mecanismo quieto, sgn(v) salta entre -1 y 1 por ruido y arruina la
- * estimación de kS; SysId descarta esas muestras por el mismo motivo.
+ * Minimum velocity to consider the mechanism moving.
+ * With the mechanism still, sgn(v) jumps between -1 and 1 from noise and ruins
+ * the kS estimate; SysId discards those samples for the same reason.
  */
 const MOVING_THRESHOLD = 1e-4
 
-/** Aceleración por diferencias centradas sobre la velocidad. */
+/** Acceleration by centered differences over the velocity. */
 export function accelerationOf(samples: SysIdSample[]): number[] {
   const out: number[] = []
   for (let i = 0; i < samples.length; i++) {
@@ -101,7 +101,7 @@ export const TEST_COLORS: Record<SysIdTestType, string> = {
   "dynamic-backward": "#e08a3c",
 }
 
-/** Columnas de la matriz de diseño para cada tipo de mecanismo. */
+/** The design matrix's columns for each mechanism type. */
 function designRow(
   mechanism: MechanismType,
   sample: SysIdSample,
@@ -112,11 +112,11 @@ function designRow(
     case "simple":
       return [sgn, sample.velocity, accel]
     case "elevator":
-      // La gravedad en un elevador es constante, así que entra como término
-      // independiente.
+      // Gravity on an elevator is constant, so it goes in as an independent
+      // term.
       return [1, sgn, sample.velocity, accel]
     case "arm":
-      // En un brazo la gravedad depende del ángulo: cos(θ) medido desde la
+      // On an arm gravity depends on the angle: cos(θ) measured from the
       // horizontal.
       return [Math.cos(sample.position), sgn, sample.velocity, accel]
   }
@@ -132,9 +132,9 @@ function gainsFrom(mechanism: MechanismType, coefficients: number[]): Feedforwar
 }
 
 /**
- * Ajusta los gains a partir de las corridas. Se le pasan TODAS juntas porque
- * cada una aporta una parte distinta de la información: las cuasi-estáticas
- * fijan kS y kV (aceleración ~0) y las dinámicas fijan kA.
+ * Fits the gains from the runs. They are passed ALL together because each one
+ * contributes a different part of the information: the quasistatic ones pin
+ * kS and kV (acceleration ~0) and the dynamic ones pin kA.
  */
 export function fitFeedforward(
   mechanism: MechanismType,
@@ -149,7 +149,7 @@ export function fitFeedforward(
     const accel = accelerationOf(run.samples)
     run.samples.forEach((sample, i) => {
       if (!isFinite(sample.voltage) || !isFinite(sample.velocity)) return
-      // Muestras con el mecanismo quieto: sgn(v) es ruido puro ahí.
+      // Samples with the mechanism still: sgn(v) is pure noise there.
       if (Math.abs(sample.velocity) < MOVING_THRESHOLD) { discardedStill++; return }
       x.push(designRow(mechanism, sample, accel[i]))
       y.push(sample.voltage)
@@ -169,8 +169,8 @@ export function fitFeedforward(
   }
 }
 
-// Un ajuste puede "cerrar" numéricamente y aun así ser inservible. Estos son
-// los casos que más se ven en la práctica.
+// A fit can "close" numerically and still be useless. These are the cases seen
+// most in practice.
 function buildWarnings(
   mechanism: MechanismType,
   runs: SysIdTestRun[],
@@ -189,8 +189,8 @@ function buildWarnings(
   if (gains.kA <= 0) warnings.push("kA is not positive: the dynamic tests may be too short to see acceleration.")
   if (gains.kS < 0) warnings.push("kS is negative, which is not physical.")
   if (result.rSquared < 0.9) warnings.push(`Low fit quality (R² = ${result.rSquared.toFixed(3)}).`)
-  // Va con su propio aviso porque el R² NO lo delata: un sistema casi
-  // singular ajusta los datos perfecto y aun así reparte mal los gains.
+  // It gets its own warning because R² does NOT give it away: an almost
+  // singular system fits the data perfectly and still splits the gains badly.
   if (result.conditioning < POOR_CONDITIONING) {
     warnings.push(
       "Terms are nearly indistinguishable — the tests do not separate kS from kA. " +
@@ -205,7 +205,7 @@ function buildWarnings(
   return warnings
 }
 
-/** Una muestra con lo medido y lo que el modelo ajustado predice. */
+/** A sample with what was measured and what the fitted model predicts. */
 export interface DiagnosticPoint {
   measured: number
   predicted: number
@@ -219,7 +219,7 @@ export interface RunDiagnostics {
   points: DiagnosticPoint[]
 }
 
-/** Voltaje que predice el modelo para una muestra dada. */
+/** The voltage the model predicts for a given sample. */
 export function predictVoltage(
   mechanism: MechanismType,
   gains: FeedforwardGains,
@@ -234,12 +234,12 @@ export function predictVoltage(
 }
 
 /**
- * Compara medido contra predicho muestra a muestra. Es lo que convierte un R²
- * en algo accionable: un número alto puede tapar que UNA de las cuatro
- * corridas se desvía, y en el gráfico eso salta a la vista.
+ * Compares measured against predicted sample by sample. It is what turns an R²
+ * into something actionable: a high number can hide that ONE of the four runs
+ * deviates, and in the plot that jumps out.
  *
- * Descarta exactamente las mismas muestras que el ajuste (las que tienen el
- * mecanismo quieto), o el gráfico mostraría puntos que nunca participaron.
+ * It discards exactly the same samples as the fit (the ones with the
+ * mechanism still), or the plot would show points that never took part.
  */
 export function buildDiagnostics(
   mechanism: MechanismType,
@@ -273,9 +273,10 @@ export function buildDiagnostics(
 }
 
 /**
- * Empareja voltaje, posición y velocidad en una sola grilla temporal.
- * Los tres topics se publican por separado y casi nunca comparten timestamps,
- * así que se toma el de voltaje como referencia y se interpolan los otros.
+ * Pairs voltage, position and velocity on a single time grid.
+ * The three topics are published separately and almost never share
+ * timestamps, so the voltage one is taken as the reference and the others are
+ * interpolated.
  */
 export function buildSamples(
   voltage: { t: number; v: number }[],

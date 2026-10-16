@@ -14,9 +14,10 @@ interface Props {
   topics: Map<string, TopicAnnounce>
 }
 
-// Debe calzar con el path que arma NetworkIO.set("WatchDog/ElapsedSeconds", subsystemName, ...)
-// en MARSWatchdog.java. Si tu NetworkIO construye el topic distinto (ej. sin
-// la barra final, con mayúsculas distintas, etc.) ajusta esta constante.
+// Has to match the path NetworkIO.set("WatchDog/ElapsedSeconds", subsystemName, ...)
+// builds in MARSWatchdog.java. If your NetworkIO builds the topic differently (e.g.
+// without the trailing slash, with different capitalization, etc.) adjust this
+// constant.
 const WATCHDOG_PREFIX = "WatchDog/ElapsedSeconds/"
 const HISTORY_LENGTH = 60
 const POLL_MS = 100
@@ -35,7 +36,7 @@ interface SubsystemRow {
   topicName: string
   name: string
   current: number | null // ms
-  history: number[]      // ms, más viejo -> más nuevo
+  history: number[]      // ms, oldest -> newest
   max: number
   overruns: number
 }
@@ -51,8 +52,8 @@ export default function WatchdogPage({ projectName, topics }: Props) {
   const thresholdRef = useRef(thresholdMs)
   thresholdRef.current = thresholdMs
 
-  // Historial acumulado en el cliente por topic. No es persistente: se
-  // resetea al abrir la página o al presionar "Reset session stats".
+  // History accumulated on the client per topic. It is not persistent: it
+  // resets when the page opens or when "Reset session stats" is pressed.
   const statsRef = useRef<Map<string, { history: number[]; max: number; overruns: number }>>(new Map())
 
   const watchdogTopics = useMemo(

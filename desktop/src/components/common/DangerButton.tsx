@@ -5,9 +5,9 @@ interface Props {
   onClick?: () => void
 }
 
-// Botón fantasma de ancho completo para acciones destructivas/reset
-// ("RESET SESSION STATS", "CLEAR ALL FILTERS"), repetido idéntico en
-// WatchDogPage, ManifestPage, ProjectVariablesPage y TelemetryPage.
+// Full-width ghost button for destructive/reset actions
+// ("RESET SESSION STATS", "CLEAR ALL FILTERS"), repeated identically in
+// WatchDogPage, ManifestPage, ProjectVariablesPage and TelemetryPage.
 export default function DangerButton({ children, onClick }: Props) {
   return (
     <button

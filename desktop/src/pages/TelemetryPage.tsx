@@ -16,14 +16,14 @@ interface Props {
   topics: Map<string, TopicAnnounce>
 }
 
-/** Una línea de Java candidata a ser la que publica el topic. */
+/** A Java line that is a candidate to be the one publishing the topic. */
 interface SourceMatch {
   file: string
   path: string
   line: number
   kind: string
   snippet: string
-  /** 0-100. El backend puntúa según si coinciden tabla y key literales. */
+  /** 0-100. The backend scores by whether literal table and key match. */
   confidence: number
 }
 
@@ -32,11 +32,11 @@ interface TopicSourceResult {
   table: string
   key: string
   matches: SourceMatch[]
-  /** Se llena cuando el topic lo publica el jar de MARS y no el proyecto. */
+  /** Filled when MARS's jar publishes the topic and not the project. */
   note: string | null
 }
 
-/** A partir de acá se salta directo al editor sin preguntar. */
+/** From here on it jumps straight to the editor without asking. */
 const DIRECT_JUMP_CONFIDENCE = 85
 
 type TypeFilter = "all" | "numeric" | "boolean" | "string" | "struct" | "array"
@@ -88,8 +88,8 @@ export default function TelemetryPage({ projectName, projectPath, topics }: Prop
   const topicsRef = useRef(topics)
   topicsRef.current = topics
 
-  // Poll de valores en vivo para toda la tabla. Intervalo más relajado que
-  // el del Dashboard (aquí puede haber cientos de topics a la vez).
+  // A poll of live values for the whole table. A more relaxed interval than the
+  // Dashboard's (here there can be hundreds of topics at once).
   useEffect(() => {
     if (topics.size === 0) { setLiveValues({}); return }
     let active = true
@@ -116,8 +116,8 @@ export default function TelemetryPage({ projectName, projectPath, topics }: Prop
     }
   }
 
-  // Un único candidato claro se abre solo; si hay empate o dudas se muestran
-  // todos, porque el resolutor es un escaneo con regex y puede equivocarse.
+  // A single clear candidate opens on its own; if there is a tie or doubts they
+  // are all shown, because the resolver is a regex scan and can be wrong.
   const handleGoTo = async (topicName: string) => {
     if (!projectPath) return
     setLookup({ topic: topicName, loading: true, result: null, error: null })
@@ -356,9 +356,9 @@ export default function TelemetryPage({ projectName, projectPath, topics }: Prop
   )
 }
 
-// Se muestra cuando el resolutor no tiene un ganador claro: varios candidatos
-// con la misma confianza, ninguno, o un topic que en realidad publica el
-// framework. Saltar a ciegas en esos casos abre el archivo equivocado.
+// Shown when the resolver has no clear winner: several candidates with the same
+// confidence, none, or a topic the framework actually publishes. Jumping blindly
+// in those cases opens the wrong file.
 function SourceLookupOverlay({ topic, result, error, onOpen, onClose }: {
   topic: string
   result: TopicSourceResult | null

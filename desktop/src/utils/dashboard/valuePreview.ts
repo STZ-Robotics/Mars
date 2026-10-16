@@ -1,20 +1,20 @@
-// Texto corto que se muestra al lado de cada topic en el Data Directory,
-// igual que la columna de valores del sidebar de AdvantageScope.
+// Short text shown next to each topic in the Data Directory, like the values
+// column of AdvantageScope's sidebar.
 //
-// No es lo mismo que lo que dibuja un widget: acá todo tiene que entrar en una
-// línea, así que los arrays se resumen y los structs se aplanan.
+// It is not the same as what a widget draws: here everything has to fit on one
+// line, so arrays are summarized and structs flattened.
 
 import { classifyTopic } from "./topicClassification"
 import { decodeStructBytes, unpackLiveValue } from "./valueDecoding"
 import { getStructDef } from "../../store/structSchemaStore"
 
-/** Cuántos elementos de un array se listan antes de cortar con "…". */
+/** How many elements of an array are listed before cutting with "…". */
 const ARRAY_PREVIEW_LIMIT = 6
 const STRING_PREVIEW_LIMIT = 40
 
-// Misma escala que usa AdvantageScope: notación científica en los extremos,
-// enteros sin decimales y 3 decimales en el resto. Un "12.000000000001" en el
-// árbol no aporta nada y descoloca las filas.
+// The same scale AdvantageScope uses: scientific notation at the extremes,
+// integers without decimals and 3 decimals for the rest. A "12.000000000001" in
+// the tree adds nothing and throws the rows off.
 export function formatNumber(value: number): string {
   if (!isFinite(value)) return String(value)
   if (Math.abs(value) < 1e-9) return "0"
@@ -36,13 +36,13 @@ function formatScalar(value: unknown): string {
   return String(value)
 }
 
-/** Cantidad de elementos de un array, o null si el topic no es un array. */
+/** Number of elements of an array, or null if the topic is not an array. */
 export function arrayLengthOf(topicType: string, liveValue: any): number | null {
   const c = classifyTopic(topicType)
 
   if (c.isStructArray) {
-    // Un struct array son bytes crudos: la cantidad sale de dividir por el
-    // tamaño de UNA instancia, que solo se conoce si hay schema.
+    // A struct array is raw bytes: the count comes from dividing by the size of
+    // ONE instance, which is only known if there is a schema.
     const def = getStructDef(c.structName)
     const bytes: number[] | undefined = liveValue?.Raw
     if (!def || !bytes || def.length === 0) return null
@@ -54,7 +54,7 @@ export function arrayLengthOf(topicType: string, liveValue: any): number | null 
   return Array.isArray(raw) ? raw.length : null
 }
 
-/** Texto de UN elemento de un array (para las filas de índice del árbol). */
+/** The text of ONE element of an array (for the tree's index rows). */
 export function formatArrayElement(topicType: string, liveValue: any, index: number): string | null {
   const c = classifyTopic(topicType)
 
@@ -75,16 +75,16 @@ export function formatArrayElement(topicType: string, liveValue: any, index: num
 }
 
 /**
- * Resumen del valor de un topic. Devuelve null cuando todavía no llegó nada,
- * que es distinto de un valor vacío: la fila simplemente no muestra columna.
+ * Summary of a topic's value. Returns null when nothing has arrived yet,
+ * which is different from an empty value: the row simply shows no column.
  */
 export function formatTopicValue(topicType: string, liveValue: any): string | null {
   if (liveValue === undefined || liveValue === null) return null
   const c = classifyTopic(topicType)
 
-  // Struct suelto: se aplana a "campo: valor, campo: valor". Sin schema no se
-  // puede decodificar, pero cae abajo al conteo de bytes en vez de devolver
-  // null: una fila en blanco no se distingue de "todavía no llegó nada".
+  // A loose struct: flattened to "field: value, field: value". Without a schema
+  // it cannot be decoded, but it falls through to the byte count instead of
+  // returning null: a blank row cannot be told from "nothing has arrived yet".
   if (c.isStructSingle) {
     const def = getStructDef(c.structName)
     const bytes: number[] | undefined = liveValue?.Raw
@@ -100,9 +100,9 @@ export function formatTopicValue(topicType: string, liveValue: any): string | nu
     if (count !== null) return `${count} × ${c.structName}`
   }
 
-  // El chequeo de Raw va ANTES del de array: unpackLiveValue devuelve los
-  // bytes como number[], así que un struct sin schema se imprimía como una
-  // lista de bytes sueltos ("[1, 2, 3, 4]") en vez de decir cuántos son.
+  // The Raw check goes BEFORE the array one: unpackLiveValue returns the bytes
+  // as number[], so a struct without a schema was printed as a list of loose
+  // bytes ("[1, 2, 3, 4]") instead of saying how many there are.
   if (Array.isArray(liveValue?.Raw)) {
     return `${liveValue.Raw.length} bytes`
   }

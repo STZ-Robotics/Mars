@@ -15,19 +15,19 @@ interface Props {
   widget: DashboardWidget
   rawVal: any
   classification: TopicClassification
-  /** Necesario solo para los widgets que leen una TABLA entera (Field2d). */
+  /** Only needed for the widgets that read a whole TABLE (Field2d). */
   topics: Map<string, TopicAnnounce>
 }
 
-// Único lugar donde se decide "este tipo de topic -> este componente".
-// Para agregar un tipo nuevo (ej. ChassisSpeeds): 1) STRUCT_DEFS en
-// utils/dashboard/valueDecoding.ts si es un struct, 2) su componente en
-// ./widgets, 3) un case aquí.
+// The only place where "this topic type -> this component" is decided.
+// To add a new type (e.g. ChassisSpeeds): 1) STRUCT_DEFS in
+// utils/dashboard/valueDecoding.ts if it is a struct, 2) its component in
+// ./widgets, 3) a case here.
 export default function WidgetRenderer({ widget, rawVal, classification, topics }: Props) {
   const { isBoolean, isRotationSingle, isStructSingle, isStructArray, isNumericArray, isTextArray, isString, isField2d, structName } = classification
 
-  // Va ANTES del chequeo de rawVal: un Field2d no tiene valor propio, se lo
-  // arma leyendo los topics que cuelgan de su tabla.
+  // It goes BEFORE the rawVal check: a Field2d has no value of its own, it is
+  // built by reading the topics hanging from its table.
   if (isField2d) {
     return <Field2dWidget widget={widget} topics={topics} />
   }
@@ -49,15 +49,15 @@ export default function WidgetRenderer({ widget, rawVal, classification, topics 
   }
 
   if (isStructArray) {
-    // Widget creado arrastrando UN índice puntual (ej. ModulePositions[2])
-    // desde el Data Directory, en vez del array completo.
+    // A widget created by dragging ONE single index (e.g. ModulePositions[2])
+    // from the Data Directory, instead of the whole array.
     if (widget.arrayIndex !== undefined) {
       return <StructArraySingleWidget rawVal={rawVal} structName={structName!} index={widget.arrayIndex} />
     }
     return <StructArrayWidget rawVal={rawVal} structName={structName!} />
   }
 
-  // Un solo elemento del array (se arrastró su fila de índice en el árbol).
+  // A single element of the array (its index row was dragged in the tree).
   if ((isNumericArray || isTextArray) && widget.arrayIndex !== undefined) {
     const element = Array.isArray(rawVal) ? rawVal[widget.arrayIndex] : undefined
     if (element === undefined) {
@@ -77,7 +77,7 @@ export default function WidgetRenderer({ widget, rawVal, classification, topics 
     return <NumberArrayWidget values={Array.isArray(rawVal) ? rawVal : []} />
   }
 
-  // boolean[] / string[] — sin magnitud que graficar, van como lista de texto.
+  // boolean[] / string[] — no magnitude to plot, they go as a text list.
   if (isTextArray) {
     return <ValueListWidget values={Array.isArray(rawVal) ? rawVal : []} />
   }

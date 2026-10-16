@@ -1,30 +1,29 @@
-# Canchas y robots 3D que viajan con la app
+# 3D fields and robots that ship with the app
 
-Para que una cancha o un robot 3D aparezca en el selector del Field 3D **sin
-que el usuario tenga que descargar nada**, dejá acá una carpeta con el formato
-de AdvantageScope:
+For a 3D field or robot to show up in the Field 3D selector **without the user
+having to download anything**, drop a folder here in AdvantageScope's format:
 
-    public/fields3d/<Nombre>/config.json
-    public/fields3d/<Nombre>/model.glb
-    public/fields3d/<Nombre>/model_0.glb   (opcional: piezas de juego / componentes)
+    public/fields3d/<Name>/config.json
+    public/fields3d/<Name>/model.glb
+    public/fields3d/<Name>/model_0.glb   (optional: game pieces / components)
 
-El glob de `src/utils/field3d/assetStore.ts` las recoge en el build sin tocar
-código, igual que las canchas 2D de `public/fields/`.
+The glob in `src/utils/field3d/assetStore.ts` picks them up at build time
+without touching code, just like the 2D fields in `public/fields/`.
 
-**Pensalo dos veces antes de usarlo.** El modelo oficial de una temporada pesa
-~18 MB; meterlo acá lo suma al repositorio y a cada build. Lo normal es
-instalarlo desde la pestaña **Assets** del Field 3D, que lo descarga una vez y
-lo guarda en `%APPDATA%/MARS/assets3d/` (o el equivalente del sistema). Esta
-carpeta es para canchas propias y chicas: un campo de práctica, una maqueta.
+**Think twice before using it.** A season's official model weighs ~18 MB;
+putting it here adds it to the repository and to every build. The usual way is
+to install it from the Field 3D's **Assets** tab, which downloads it once and
+keeps it in `%APPDATA%/MARS/assets3d/` (or the system's equivalent). This folder
+is for small fields of your own: a practice field, a mock-up.
 
-## Formato
+## Format
 
-`config.json` es el mismo que documenta AdvantageScope. Lo mínimo para una
-cancha:
+`config.json` is the same one AdvantageScope documents. The minimum for a
+field:
 
 ```json
 {
-  "name": "Mi cancha",
+  "name": "My field",
   "coordinateSystem": "wall-blue",
   "rotations": [{ "axis": "x", "degrees": 90 }],
   "widthInches": 651.22,
@@ -32,11 +31,11 @@ cancha:
 }
 ```
 
-`rotations` es lo que lleva el modelo del archivo al marco Z-arriba de WPILib;
-un glTF exportado con la convención del formato (Y arriba) necesita el +90° en
-X del ejemplo. Después de aplicarlas, el modelo tiene que quedar centrado en el
-área de juego y con la alianza azul en -X.
+`rotations` is what takes the file's model into WPILib's Z-up frame; a glTF
+exported with the format's convention (Y up) needs the example's +90° around X.
+After applying them, the model has to end up centered on the playing area with
+the blue alliance at -X.
 
-**Un `.step` no sirve acá.** Es un formato de CAD por fronteras, sin mallas.
-Convertilo a `.glb` primero (CAD Assistant, con *merge faces within the same
-part* activado).
+**A `.step` does not work here.** It is a boundary-representation CAD format,
+with no meshes. Convert it to `.glb` first (CAD Assistant, with *merge faces
+within the same part* turned on).

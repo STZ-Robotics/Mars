@@ -1,14 +1,13 @@
-// Tabla /Preferences del robot.
+// The robot's /Preferences table.
 //
-// Es la hermana persistente de la NT Session: lo que se escribe acá sobrevive
-// un reinicio del robot, porque WPILib le marca a esos topics la propiedad
-// `persistent` y el servidor los guarda en `networktables.json` del roboRIO.
+// It is the NT Session's persistent sibling: what is written here survives a
+// robot restart, because WPILib marks those topics with the `persistent`
+// property and the server saves them in the roboRIO's `networktables.json`.
 //
-// La diferencia que manda en todo el diseño de esta página: las preferencias
-// las DECLARA el código del robot, no el dashboard. Desde acá se cambian
-// valores y se agregan claves, pero quién las crea de verdad — y quién las
-// borra de verdad — es el robot. Por eso cada fila sabe darte la línea de Java
-// que le corresponde.
+// The difference that drives this page's whole design: preferences are DECLARED
+// by the robot code, not the dashboard. From here values are changed and keys
+// added, but who really creates them — and who really deletes them — is the
+// robot. That is why each row knows how to give you its matching Java line.
 
 import React, { useEffect, useMemo, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
@@ -49,8 +48,8 @@ export default function PreferencesPage({ topics, connection }: Props) {
   const topicNames = useMemo(() => rows.map(row => row.topicName), [rows])
   const values = useNTSnapshot(topicNames, 250)
 
-  // Lo escrito pero todavía no mandado, por clave. Igual que en la NT Session:
-  // publicar en cada tecla manda basura y aquí encima la basura persiste.
+  // What was written but not sent yet, per key. Same as in the NT Session:
+  // publishing on every keystroke sends garbage, and here the garbage persists.
   const [drafts, setDrafts] = useState<Record<string, string>>({})
   const [toast, setToast] = useState<{ kind: "ok" | "error"; message: string } | null>(null)
   const [showJava, setShowJava] = useState(false)
@@ -361,7 +360,7 @@ export default function PreferencesPage({ topics, connection }: Props) {
   )
 }
 
-// --- Crear una preferencia nueva ---------------------------------------------------
+// --- Creating a new preference ---------------------------------------------------
 
 function NewPreference({
   connected, onCreate, onCopy,

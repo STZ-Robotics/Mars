@@ -1,15 +1,15 @@
-// Parser de expresiones matemáticas: tokenizador + descenso recursivo.
+// Parser of math expressions: tokenizer + recursive descent.
 //
-// Se escribió a mano en vez de usar una librería porque los operadores
-// temporales (d/dt, ∫) tienen que poder aplicarse a CUALQUIER subexpresión
-// —no solo a una variable suelta—, y eso pide control sobre el AST.
+// It was written by hand instead of using a library because the temporal
+// operators (d/dt, ∫) have to be applicable to ANY subexpression —not just a
+// loose variable—, and that calls for control over the AST.
 //
-// Precedencia, de menor a mayor:
+// Precedence, lowest to highest:
 //   1. + −
 //   2. * / %
-//   3. − unario
-//   4. ^  (asociativo a derecha)
-//   5. literales, variables, llamadas a función, paréntesis
+//   3. unary −
+//   4. ^  (right-associative)
+//   5. literals, variables, function calls, parentheses
 
 export type Node =
   | { kind: "number"; value: number }
@@ -17,7 +17,7 @@ export type Node =
   | { kind: "unary"; op: "-" | "+"; operand: Node }
   | { kind: "binary"; op: "+" | "-" | "*" | "/" | "%" | "^"; left: Node; right: Node }
   | { kind: "call"; name: string; args: Node[] }
-  /** Literal matricial: [[1,2],[3,4]]. Una sola fila es un vector fila. */
+  /** A matrix literal: [[1,2],[3,4]]. A single row is a row vector. */
   | { kind: "matrix"; rows: Node[][] }
 
 export class ParseError extends Error {
@@ -51,7 +51,7 @@ function tokenize(input: string): Token[] {
       continue
     }
 
-    // Números, con decimales y notación científica (1.5e-3)
+    // Numbers, with decimals and scientific notation (1.5e-3)
     if (/[0-9.]/.test(char)) {
       const start = i
       while (i < input.length && /[0-9.]/.test(input[i])) i++
@@ -62,7 +62,7 @@ function tokenize(input: string): Token[] {
         if (i < input.length && /[0-9]/.test(input[i])) {
           while (i < input.length && /[0-9]/.test(input[i])) i++
         } else {
-          i = expStart // no era un exponente, se devuelve
+          i = expStart // it was not an exponent, step back
         }
       }
       const text = input.slice(start, i)
@@ -139,7 +139,7 @@ export function parseExpression(input: string): Node {
     return parsePower()
   }
 
-  // Asociativo a derecha, y el exponente admite unario para escribir 2^-1.
+  // Right-associative, and the exponent allows a unary minus to write 2^-1.
   const parsePower = (): Node => {
     const base = parsePrimary()
     if (expectOperator("^")) {
@@ -184,7 +184,7 @@ export function parseExpression(input: string): Node {
       return inner
     }
 
-    // Literal matricial. [[1,2],[3,4]] es 2×2; [1,2,3] es un vector fila 1×3.
+    // A matrix literal. [[1,2],[3,4]] is 2×2; [1,2,3] is a 1×3 row vector.
     if (token.type === "lbracket") {
       const isNested = peek().type === "lbracket"
       const rows: Node[][] = []
@@ -222,8 +222,8 @@ export function parseExpression(input: string): Node {
     throw new ParseError(`Unexpected "${token.text}"`, token.position)
   }
 
-  // Entradas de una fila, hasta el "]" que la cierra. Para el vector plano
-  // ([1,2,3]) el "]" de cierre lo consume quien llama.
+  // A row's entries, up to the "]" that closes it. For the flat vector
+  // ([1,2,3]) the closing "]" is consumed by the caller.
   function parseRowEntries(isFlatVector = false): Node[] {
     const entries: Node[] = []
     if (peek().type !== "rbracket") {
@@ -250,7 +250,7 @@ export function parseExpression(input: string): Node {
   return result
 }
 
-// Nombres de todas las variables que aparecen en el árbol (sin repetir).
+// Names of every variable that appears in the tree (without repeats).
 export function collectVariables(node: Node, out: Set<string> = new Set()): Set<string> {
   switch (node.kind) {
     case "variable": out.add(node.name); break

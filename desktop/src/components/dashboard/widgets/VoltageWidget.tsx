@@ -7,8 +7,8 @@ interface Props {
   orientation: "horizontal" | "vertical"
 }
 
-// Barra lineal amarilla con etiquetas de división, réplica funcional del
-// LinearGauge de Elastic (sin la librería geekyants_flutter_gauges).
+// A yellow linear bar with division labels, a functional replica of Elastic's
+// LinearGauge (without the geekyants_flutter_gauges library).
 export default function VoltageWidget({ value, min, max, divisions, inverted, orientation }: Props) {
   const clamped = Math.max(min, Math.min(max, value))
   const range = max - min || 1

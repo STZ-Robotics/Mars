@@ -8,7 +8,7 @@ export interface TopicClassification {
   isString: boolean
   isNumericArray: boolean
   isTextArray: boolean
-  /** Tabla sendable de WPILib, no un topic (su valor no se lee con unpackLiveValue). */
+  /** A WPILib sendable table, not a topic (its value is not read with unpackLiveValue). */
   isField2d: boolean
   isStructSingle: boolean
   isStructArray: boolean
@@ -18,9 +18,9 @@ export interface TopicClassification {
 
 const NUMERIC_BASE_TYPES = ["double", "float", "int"]
 
-// Clasifica un topicType de NT4 en las categorías que la Dashboard sabe
-// renderizar. Distinguimos structs sueltos de arreglos de structs, y
-// arreglos numéricos planos de todo lo demás.
+// Classifies an NT4 topicType into the categories the Dashboard knows how to
+// render. We tell loose structs from arrays of structs, and flat numeric arrays
+// from everything else.
 export function classifyTopic(topicType: string): TopicClassification {
   const isArrayType = topicType.endsWith("[]")
   const baseType = isArrayType ? topicType.slice(0, -2) : topicType
@@ -31,9 +31,9 @@ export function classifyTopic(topicType: string): TopicClassification {
   const isBoolean = !isStructType && !isArrayType && topicType === "boolean"
   const isNumber = !isStructType && !isArrayType && (topicType === "double" || topicType === "int" || topicType === "float")
   const isString = !isStructType && !isArrayType && topicType.includes("string")
-  // Antes CUALQUIER array no-struct contaba como numérico. Eso funcionaba
-  // solo porque el backend descartaba boolean[]/string[]; ahora que llegan de
-  // verdad, mandarlos al widget numérico reventaría en value.toFixed().
+  // Before, ANY non-struct array counted as numeric. That only worked because
+  // the backend discarded boolean[]/string[]; now that they really arrive,
+  // sending them to the numeric widget would blow up in value.toFixed().
   const isNumericArray = !isStructType && isArrayType && NUMERIC_BASE_TYPES.includes(baseType)
   const isTextArray = !isStructType && isArrayType && !isNumericArray
   const isStructSingle = isStructType && !isArrayType

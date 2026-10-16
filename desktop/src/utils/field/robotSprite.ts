@@ -1,16 +1,16 @@
-// Vista cenital de un modelo 3D, convertida en una imagen que el canvas 2D de
-// la cancha puede pegar en la pose del robot.
+// A top-down view of a 3D model, turned into an image the field's 2D canvas can
+// stamp at the robot's pose.
 //
-// La alternativa era montar una escena three completa dentro del visualizador
-// 2D, pero un robot visto desde arriba es SIEMPRE la misma imagen: solo cambia
-// dónde se pega y cuánto se la gira. Así que se renderiza UNA vez con una
-// cámara ortográfica mirando hacia abajo, se guarda el bitmap y a partir de
-// ahí cada frame es un `drawImage` — que es lo que permite dibujar seis robots
-// a 30 fps sin despeinarse.
+// The alternative was mounting a whole three scene inside the 2D visualizer,
+// but a robot seen from above is ALWAYS the same image: only where it is stamped
+// and how much it is turned change. So it is rendered ONCE with an orthographic
+// camera looking down, the bitmap is kept, and from then on each frame is a
+// `drawImage` — which is what allows drawing six robots at 30 fps without
+// breaking a sweat.
 //
-// El marco es el mismo de todas las vistas 3D de la app (Z arriba, X adelante,
-// Y a la izquierda), así que en la imagen resultante +X va a la derecha y +Y
-// hacia arriba: pegarla con la rotación de la pose ya la deja apuntando bien.
+// The frame is the same as every 3D view in the app (Z up, X forward, Y to the
+// left), so in the resulting image +X goes right and +Y up: stamping it with
+// the pose's rotation already leaves it pointing the right way.
 
 import {
   AmbientLight, Box3, Color, DirectionalLight, Group, HemisphereLight, Mesh,
@@ -20,31 +20,31 @@ import { instantiateModel, loadModel, materialsOf } from "./robotModel"
 
 const DEG = Math.PI / 180
 
-/** Techo del lado mayor del bitmap. Más que esto no se nota en pantalla. */
+/** Cap on the bitmap's longer side. More than this is not noticeable on screen. */
 const MAX_SPRITE_PX = 1024
 const MIN_SPRITE_PX = 96
 
 export interface RobotSprite {
   canvas: HTMLCanvasElement
-  /** Huella que cubre la imagen, en UNIDADES DEL ARCHIVO (no metros). */
+  /** The footprint the image covers, in FILE UNITS (not meters). */
   spanX: number
   spanY: number
-  /** Triángulos del modelo, para avisar si es muy pesado. */
+  /** The model's triangles, to warn if it is too heavy. */
   triangles: number
 }
 
 export interface SpriteRequest {
   path: string
-  /** Lado mayor del bitmap en píxeles. Se cuantiza para no re-renderizar al hacer zoom. */
+  /** The bitmap's longer side in pixels. It is quantized so zooming does not re-render. */
   sizePx: number
-  /** Color plano, o null para respetar los materiales del archivo. */
+  /** A flat color, or null to respect the file's materials. */
   color: string | null
-  /** Giro en grados que lleva el frente del CAD a +X. */
+  /** Turn in degrees that takes the CAD's front to +X. */
   rotationDeg: number
 }
 
-// Un solo contexto WebGL para toda la app: los navegadores limitan cuántos
-// puede haber vivos, y este se usa a ráfagas cortas.
+// A single WebGL context for the whole app: browsers limit how many can be
+// alive, and this one is used in short bursts.
 let renderer: WebGLRenderer | null = null
 let rendererBroken = false
 
@@ -55,8 +55,8 @@ function keyOf(req: SpriteRequest): string {
 }
 
 /**
- * Cuantiza el tamaño pedido a potencias de dos. Sin esto, cada píxel de zoom
- * dispararía un render nuevo del modelo entero.
+ * Quantizes the requested size to powers of two. Without this, every pixel of
+ * zoom would trigger a new render of the whole model.
  */
 export function quantizeSpriteSize(pixels: number): number {
   const clamped = Math.min(MAX_SPRITE_PX, Math.max(MIN_SPRITE_PX, pixels))
@@ -76,7 +76,7 @@ export function getRobotSprite(req: SpriteRequest): Promise<RobotSprite> {
   return pending
 }
 
-/** Tira los bitmaps de un modelo (al cambiarlo o soltarlo). */
+/** Drops a model's bitmaps (when it is changed or released). */
 export function forgetSprites(path?: string): void {
   if (path === undefined) {
     cache.clear()
@@ -116,14 +116,14 @@ async function render(req: SpriteRequest): Promise<RobotSprite> {
       if (standard.color) standard.color.copy(flat)
     })
   }
-  // Sin esto, un GLB con caras de una sola cara se ve agujereado desde arriba.
+  // Without this, a GLB with single-sided faces looks holed from above.
   group.traverse(child => {
     const mesh = child as Mesh
     if (mesh.isMesh) mesh.frustumCulled = false
   })
 
-  // La caja se mide DESPUÉS del giro: es la huella real que va a ocupar el
-  // robot en la cancha, y es lo que el auto-fit tiene que igualar al chasis.
+  // The box is measured AFTER the turn: it is the real footprint the robot will
+  // take on the field, and it is what auto-fit has to match to the chassis.
   const box = new Box3().setFromObject(group)
   const size = box.getSize(new Vector3())
   const center = box.getCenter(new Vector3())
@@ -137,9 +137,9 @@ async function render(req: SpriteRequest): Promise<RobotSprite> {
   const width = Math.max(8, Math.round(aspect >= 1 ? req.sizePx : req.sizePx * aspect))
   const height = Math.max(8, Math.round(aspect >= 1 ? req.sizePx / aspect : req.sizePx))
 
-  // Ortográfica y no perspectiva: una cenital con perspectiva abre las
-  // paredes del robot hacia afuera y la imagen deja de coincidir con la
-  // huella que se está dibujando en la cancha.
+  // Orthographic and not perspective: a top-down view with perspective opens
+  // the robot's walls outward and the image stops matching the footprint being
+  // drawn on the field.
   const camera = new OrthographicCamera(-size.x / 2, size.x / 2, size.y / 2, -size.y / 2, 0.01, size.z * 4 + 10)
   camera.position.set(center.x, center.y, box.max.z + size.z + 1)
   camera.up.set(0, 1, 0)
@@ -150,8 +150,8 @@ async function render(req: SpriteRequest): Promise<RobotSprite> {
   gl.setSize(width, height, false)
   gl.render(scene, camera)
 
-  // El canvas del renderer se reutiliza para el próximo modelo, así que el
-  // bitmap se copia a uno propio antes de devolverlo.
+  // The renderer's canvas is reused for the next model, so the bitmap is
+  // copied to one of its own before returning it.
   const canvas = document.createElement("canvas")
   canvas.width = width
   canvas.height = height
@@ -164,8 +164,8 @@ async function render(req: SpriteRequest): Promise<RobotSprite> {
   return { canvas, spanX: size.x, spanY: size.y, triangles: model.triangles }
 }
 
-// Vista cenital: una luz solo desde arriba deja el techo del robot plano y sin
-// relieve, así que la key se corre hacia adelante y a un costado.
+// Top-down view: a light only from above leaves the robot's roof flat and
+// without relief, so the key light is moved forward and to one side.
 function addLights(scene: Scene, size: Vector3): void {
   const reach = Math.max(size.x, size.y, size.z) * 3 + 1
 

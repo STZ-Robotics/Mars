@@ -3,18 +3,18 @@ import { FIELDS, getField, toInternal, SCHEMATIC_FIELD_KEY } from "./fieldImages
 import { extractField2dObjects, field2dTopicNames, findField2dTables, isField2dTable } from "./field2d"
 import { TopicAnnounce } from "../../store/appStore"
 
-// El tamaño real de la cancha 2026, para que las cuentas se lean como en la
-// vida real y no como números inventados.
+// The real size of the 2026 field, so the calculations read like real life and
+// not like made-up numbers.
 const SIZE: [number, number] = [16.535, 8.069]
 const HALF_X = SIZE[0] / 2
 const HALF_Y = SIZE[1] / 2
 
-describe("registro de canchas", () => {
-  it("carga las canchas que hay en public/fields", () => {
+describe("field registry", () => {
+  it("loads the fields in public/fields", () => {
     expect(FIELDS.length).toBeGreaterThan(0)
   })
 
-  it("parsea el JSON de Elastic con claves de guion bajo", () => {
+  it("parses Elastic's JSON with underscore keys", () => {
     const field = FIELDS.find(f => f.game === "Rebuilt")
     expect(field).toBeDefined()
     expect(field!.sizeMeters).toEqual(SIZE)
@@ -23,53 +23,53 @@ describe("registro de canchas", () => {
     expect(field!.coordinateSystem).toBe("wall_blue")
   })
 
-  it("resuelve la imagen a una URL servible y no a la ruta interna de Elastic", () => {
-    // El JSON dice "assets/fields/frc/2026-field.png", que es la ruta DENTRO
-    // de Elastic; en esta app el archivo se sirve desde public/.
+  it("resolves the image to a servable URL and not to Elastic's internal path", () => {
+    // The JSON says "assets/fields/frc/2026-field.png", which is the path INSIDE
+    // Elastic; in this app the file is served from public/.
     const field = FIELDS.find(f => f.game === "Rebuilt")!
     expect(field.imageUrl).toBe("/fields/2026-field.png")
   })
 
-  it("devuelve null para una clave desconocida", () => {
+  it("returns null for an unknown key", () => {
     expect(getField(SCHEMATIC_FIELD_KEY)).toBeNull()
     expect(getField("no-existe")).toBeNull()
   })
 })
 
 describe("toInternal", () => {
-  // El marco interno tiene el origen en el centro del área de juego, +X hacia
-  // la derecha de la imagen y +Y hacia arriba.
+  // The internal frame has its origin at the center of the playing area, +X
+  // towards the image's right and +Y up.
 
   describe("wall_blue (WPILib ≤2026)", () => {
-    // En la imagen 2026 el AZUL está a la derecha, así que el origen de
-    // coordenadas del robot (esquina azul) tiene que caer en +X interno.
-    it("manda la esquina azul (0,0) al lado derecho", () => {
+    // In the 2026 image BLUE is on the right, so the robot's coordinate origin
+    // (the blue corner) has to land on internal +X.
+    it("sends the blue corner (0,0) to the right side", () => {
       const p = toInternal("wall_blue", 0, 0, 0, SIZE)
       expect(p.x).toBeCloseTo(HALF_X)
       expect(p.y).toBeCloseTo(HALF_Y)
     })
 
-    it("manda la esquina roja opuesta al lado izquierdo", () => {
+    it("sends the opposite red corner to the left side", () => {
       const p = toInternal("wall_blue", SIZE[0], SIZE[1], 0, SIZE)
       expect(p.x).toBeCloseTo(-HALF_X)
       expect(p.y).toBeCloseTo(-HALF_Y)
     })
 
-    it("deja el centro de la cancha en el origen", () => {
+    it("leaves the field's center at the origin", () => {
       const p = toInternal("wall_blue", HALF_X, HALF_Y, 0, SIZE)
       expect(p.x).toBeCloseTo(0)
       expect(p.y).toBeCloseTo(0)
     })
 
-    it("gira media vuelta el ángulo", () => {
-      // El robot apuntando a +X (hacia el rojo) tiene que dibujarse apuntando
-      // a la izquierda de la pantalla.
+    it("turns the angle half around", () => {
+      // The robot pointing at +X (towards red) has to be drawn pointing to the
+      // left of the screen.
       expect(toInternal("wall_blue", 0, 0, 0, SIZE).theta).toBeCloseTo(Math.PI)
     })
   })
 
   describe("center (WPILib 2027+)", () => {
-    it("es la identidad: ya está en el marco interno", () => {
+    it("is the identity: it is already in the internal frame", () => {
       const p = toInternal("center", 3, -2, 1.25, SIZE)
       expect(p.x).toBe(3)
       expect(p.y).toBe(-2)
@@ -78,7 +78,7 @@ describe("toInternal", () => {
   })
 
   describe("center_rotated (FTC)", () => {
-    it("intercambia los ejes y gira un cuarto de vuelta", () => {
+    it("swaps the axes and turns a quarter turn", () => {
       const p = toInternal("center_rotated", 1, 2, 0, SIZE)
       expect(p.x).toBe(2)
       expect(p.y).toBe(-1)
@@ -106,17 +106,17 @@ const FIELD_TOPICS = new Map<string, TopicAnnounce>([
 const PREFIX = "/SmartDashboard/Field"
 
 describe("Field2d", () => {
-  it("reconoce la tabla por su .type y no por su forma", () => {
+  it("recognizes the table by its .type and not by its shape", () => {
     const types = { [PREFIX]: "Field2d", "/SmartDashboard/Chooser": "String Chooser" }
     expect(isField2dTable(types, PREFIX)).toBe(true)
     expect(isField2dTable(types, "/SmartDashboard/Chooser")).toBe(false)
     expect(findField2dTables(types)).toEqual([PREFIX])
   })
 
-  it("solo toma los subtopics que pueden ser una pose", () => {
+  it("only takes the subtopics that can be a pose", () => {
     const names = field2dTopicNames(FIELD_TOPICS, PREFIX)
-    // Quedan fuera: ".type" (metadata), el string suelto y lo que no cuelga
-    // del prefijo.
+    // Left out: ".type" (metadata), the loose string and whatever does not hang
+    // from the prefix.
     expect(names.sort()).toEqual([
       "/SmartDashboard/Field/Note",
       "/SmartDashboard/Field/Robot",
@@ -124,7 +124,7 @@ describe("Field2d", () => {
     ])
   })
 
-  it("distingue robot, trayectoria y objetos sueltos", () => {
+  it("tells robot, trajectory and loose objects apart", () => {
     const manyPoses: number[] = []
     for (let i = 0; i < 12; i++) manyPoses.push(i, i, 0)
 
@@ -139,24 +139,24 @@ describe("Field2d", () => {
 
     expect(byName.Robot.isRobot).toBe(true)
     expect(byName.Robot.poses).toHaveLength(1)
-    // Field2d publica el ángulo en GRADOS; extractPoses lo pasa a radianes.
+    // Field2d publishes the angle in DEGREES; extractPoses converts it to radians.
     expect(byName.Robot.poses[0].theta).toBeCloseTo(Math.PI / 2)
 
     expect(byName.Trajectory.isTrajectory).toBe(true)
     expect(byName.Trajectory.poses).toHaveLength(12)
 
-    // Tres números = una sola pose: es un objeto suelto, no una trayectoria.
+    // Three numbers = a single pose: it is a loose object, not a trajectory.
     expect(byName.Note.isTrajectory).toBe(false)
     expect(byName.Note.isRobot).toBe(false)
   })
 
-  it("clasifica como trayectoria por el nombre aunque traiga pocas poses", () => {
+  it("classifies as a trajectory by the name even if it carries few poses", () => {
     const values = { "/SmartDashboard/Field/Trajectory": { NumberArray: [0, 0, 0, 1, 1, 0] } }
     const objects = extractField2dObjects(values, FIELD_TOPICS, PREFIX)
     expect(objects.find(o => o.name === "Trajectory")!.isTrajectory).toBe(true)
   })
 
-  it("dibuja el robot al final para que quede encima del resto", () => {
+  it("draws the robot last so it ends up on top of the rest", () => {
     const values = {
       "/SmartDashboard/Field/Robot": { NumberArray: [1, 2, 0] },
       "/SmartDashboard/Field/Note": { NumberArray: [5, 5, 0] },
@@ -165,7 +165,7 @@ describe("Field2d", () => {
     expect(objects[objects.length - 1].isRobot).toBe(true)
   })
 
-  it("ignora los topics sin valor todavía", () => {
+  it("ignores topics with no value yet", () => {
     const objects = extractField2dObjects({}, FIELD_TOPICS, PREFIX)
     expect(objects).toEqual([])
   })

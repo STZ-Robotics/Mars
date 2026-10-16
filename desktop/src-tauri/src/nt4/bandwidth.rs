@@ -1,24 +1,25 @@
-//! Cuánto ancho de banda consume cada topic de NetworkTables.
+//! How much bandwidth each NetworkTables topic uses.
 //!
-//! En competencia el FMS impone un tope duro de 4 Mbps por robot, y la forma
-//! típica de reventarlo es loguear de más sin darse cuenta: el equipo se
-//! entera cuando el dashboard se congela en una eliminatoria. Acá se mide
-//! sobre los datos que YA están en el buffer, sin instrumentar nada extra.
+//! At competition the FMS enforces a hard cap of 4 Mbps per robot, and the
+//! typical way to blow through it is logging too much without noticing: the team
+//! finds out when the dashboard freezes in an elimination match. This measures
+//! over the data that is ALREADY in the buffer, without instrumenting anything
+//! extra.
 
 use serde::Serialize;
 
 use super::client::{NTBuffer, NTValue};
 
-/// Límite de ancho de banda que impone el FMS a cada robot, en bits/s.
+/// Bandwidth limit the FMS enforces on each robot, in bits/s.
 pub const FMS_LIMIT_BITS_PER_SEC: f64 = 4_000_000.0;
 
-/// Bytes que gasta NT4 por muestra además del valor: cabecera del array
-/// MessagePack + id de topic + timestamp + índice de tipo. Es una
-/// aproximación, pero ignorarlo subestima mucho a los topics de valores
-/// chicos (un booleano son 1 byte de dato y ~9 de sobre).
+/// Bytes NT4 spends per sample besides the value: the MessagePack array header
+/// + topic id + timestamp + type index. It is an approximation, but ignoring it
+/// badly underestimates topics with small values (a boolean is 1 byte of data
+/// and ~9 of envelope).
 const FRAMING_OVERHEAD_BYTES: u64 = 9;
 
-/// Tamaño en bytes del VALOR de una muestra, tal como viaja por el socket.
+/// Size in bytes of a sample's VALUE, as it travels on the socket.
 fn value_size(value: &NTValue) -> u64 {
     match value {
         NTValue::Boolean(_) => 1,
@@ -26,7 +27,7 @@ fn value_size(value: &NTValue) -> u64 {
         NTValue::String(s) => s.len() as u64,
         NTValue::NumberArray(a) => (a.len() * 8) as u64,
         NTValue::BooleanArray(a) => a.len() as u64,
-        // Cada string del array va precedido por su largo (4 bytes).
+        // Each string in the array is preceded by its length (4 bytes).
         NTValue::StringArray(a) => a.iter().map(|s| s.len() as u64 + 4).sum::<u64>() + 4,
         NTValue::Raw(b) => b.len() as u64,
     }
@@ -40,26 +41,26 @@ pub struct TopicBandwidth {
     pub total_bytes: u64,
     pub bytes_per_second: f64,
     pub samples_per_second: f64,
-    /// Fracción del total medido, de 0 a 1.
+    /// Fraction of the measured total, from 0 to 1.
     pub share: f64,
 }
 
 #[derive(Serialize)]
 pub struct BandwidthReport {
-    /// Segundos de datos que realmente cubrió la medición (puede ser menos que
-    /// la ventana pedida si el buffer todavía no la llenó).
+    /// Seconds of data the measurement really covered (can be less than the
+    /// requested window if the buffer has not filled it yet).
     pub window_seconds: f64,
     pub total_bytes: u64,
     pub total_bytes_per_second: f64,
     pub total_bits_per_second: f64,
-    /// Porcentaje del tope del FMS que se está usando.
+    /// Percentage of the FMS cap being used.
     pub percent_of_fms_limit: f64,
     pub topic_count: usize,
     /// Ordenados de mayor a menor consumo.
     pub topics: Vec<TopicBandwidth>,
 }
 
-/// Mide sobre los últimos `window_seconds` de datos del buffer.
+/// Measures over the last `window_seconds` of data in the buffer.
 pub fn measure(buffer: &NTBuffer, window_seconds: u32) -> BandwidthReport {
     let empty = BandwidthReport {
         window_seconds: 0.0,
@@ -77,16 +78,16 @@ pub fn measure(buffer: &NTBuffer, window_seconds: u32) -> BandwidthReport {
 
     let mut rows: Vec<TopicBandwidth> = Vec::new();
     let mut total_bytes: u64 = 0;
-    // El span REAL medido: si el buffer solo tiene 3s de datos, dividir por una
-    // ventana de 10s daría un tercio del consumo verdadero.
+    // The REAL measured span: if the buffer only has 3s of data, dividing by a
+    // 10s window would give a third of the true usage.
     let mut earliest_in_window = end_us;
 
     for history in buffer.topics.values() {
         let mut bytes: u64 = 0;
         let mut count: usize = 0;
 
-        // Los datos están ordenados por timestamp, así que se recorre desde
-        // el final y se corta al salir de la ventana.
+        // The data is sorted by timestamp, so it is walked from the end and cut
+        // off on leaving the window.
         for (ts, value) in history.data.iter().rev() {
             if *ts < cutoff_us { break; }
             bytes += value_size(value) + FRAMING_OVERHEAD_BYTES;
@@ -101,7 +102,7 @@ pub fn measure(buffer: &NTBuffer, window_seconds: u32) -> BandwidthReport {
             topic_type: history.topic_type.clone(),
             sample_count: count,
             total_bytes: bytes,
-            bytes_per_second: 0.0,   // se completa abajo, con el span real
+            bytes_per_second: 0.0,   // filled in below, with the real span
             samples_per_second: 0.0,
             share: 0.0,
         });
@@ -109,7 +110,7 @@ pub fn measure(buffer: &NTBuffer, window_seconds: u32) -> BandwidthReport {
 
     if rows.is_empty() { return empty; }
 
-    // Con una sola muestra el span es 0; se usa un piso para no dividir por cero.
+    // With a single sample the span is 0; a floor is used to avoid dividing by zero.
     let span_seconds = ((end_us.saturating_sub(earliest_in_window)) as f64 / 1e6).max(0.001);
 
     for row in rows.iter_mut() {
@@ -162,7 +163,7 @@ mod tests {
 
     #[test]
     fn counts_value_size_plus_framing() {
-        // Un double son 8 bytes de dato + el sobre de NT4.
+        // A double is 8 bytes of data + NT4's envelope.
         let buffer = buffer_with(
             vec![("/a", "double", vec![(1_000_000, NTValue::Number(1.0))])],
             1_000_000,
@@ -181,14 +182,14 @@ mod tests {
             ])],
             10_000_000,
         );
-        // Ventana de 2s: solo entran las dos últimas.
+        // A 2s window: only the last two get in.
         let report = measure(&buffer, 2);
         assert_eq!(report.topics[0].sample_count, 2);
     }
 
     #[test]
     fn ranks_topics_by_consumption() {
-        // Un struct de 64 bytes a la misma tasa pesa mucho más que un booleano.
+        // A 64-byte struct at the same rate weighs much more than a boolean.
         let buffer = buffer_with(
             vec![
                 ("/small", "boolean", vec![(1_000_000, NTValue::Boolean(true)), (2_000_000, NTValue::Boolean(false))]),
@@ -199,15 +200,15 @@ mod tests {
         let report = measure(&buffer, 10);
         assert_eq!(report.topics[0].name, "/big");
         assert!(report.topics[0].share > report.topics[1].share);
-        // Las fracciones tienen que sumar 1.
+        // The fractions have to add up to 1.
         let sum: f64 = report.topics.iter().map(|t| t.share).sum();
         assert!((sum - 1.0).abs() < 1e-9);
     }
 
     #[test]
     fn rate_uses_the_real_span_not_the_requested_window() {
-        // Solo hay 1s de datos: pedir una ventana de 60s no puede hacer que el
-        // consumo parezca 60 veces menor.
+        // There is only 1s of data: asking for a 60s window cannot make the
+        // usage look 60 times smaller.
         let buffer = buffer_with(
             vec![("/a", "double", vec![
                 (1_000_000, NTValue::Number(1.0)),

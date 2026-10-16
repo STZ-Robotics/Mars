@@ -1,30 +1,30 @@
-// Estelas del Field 3D: por dónde pasó cada objeto en los últimos segundos.
+// Field 3D trails: where each object went in the last few seconds.
 //
-// Se guarda el punto YA CONVERTIDO al marco del modelo, al revés que el
-// historial del visualizador 2D (que guarda el dato crudo). Acá la conversión
-// depende de la alianza y del sistema de coordenadas, que en medio de un match
-// no cambian; y la estela se dibuja como una tira de vértices que se sube a la
-// GPU tal cual, así que tenerla ya en coordenadas de escena evita rehacer la
-// conversión de cientos de puntos en cada frame.
+// The point is stored ALREADY CONVERTED to the model's frame, the opposite of
+// the 2D visualizer's history (which stores the raw value). Here the conversion
+// depends on the alliance and the coordinate system, which do not change in the
+// middle of a match; and the trail is drawn as a strip of vertices uploaded to
+// the GPU as is, so having it in scene coordinates already avoids redoing the
+// conversion of hundreds of points on every frame.
 //
-// No hay logs de por medio: esto se llena con lo que va llegando por NT
-// mientras la pestaña está abierta, y se puede vaciar a mano.
+// There are no logs involved: this is filled with what arrives over NT while
+// the tab is open, and it can be cleared by hand.
 
 export interface TrailSample {
   x: number
   y: number
   z: number
-  /** Milisegundos de reloj de pared (Date.now()). */
+  /** Wall-clock milliseconds (Date.now()). */
   t: number
 }
 
-/** Techo duro de muestras por objeto: ~8 min a 60 Hz. */
+/** Hard cap on samples per object: ~8 min at 60 Hz. */
 const MAX_SAMPLES = 30000
-/** Cuántas se tiran de golpe al llegar al techo (un shift por muestra sería O(n²)). */
+/** How many are dropped at once when reaching the cap (a shift per sample would be O(n²)). */
 const DROP_CHUNK = 5000
-/** Período mínimo entre muestras. Por encima de esto el poll solo repite dato. */
+/** Minimum period between samples. Faster than this the poll only repeats data. */
 const MIN_PERIOD_MS = 30
-/** Movimiento mínimo para anotar un punto nuevo, en metros. */
+/** Minimum movement to record a new point, in meters. */
 const MIN_STEP_M = 0.005
 
 export class Trail {
@@ -36,8 +36,8 @@ export class Trail {
     const last = this.samples[this.samples.length - 1]
     if (last) {
       if (t - last.t < MIN_PERIOD_MS) return
-      // El robot quieto en la línea de salida llenaría el buffer de puntos
-      // idénticos y dejaría fuera el recorrido que sí interesa.
+      // The robot standing still on the starting line would fill the buffer with
+      // identical points and leave out the path that does matter.
       const moved = Math.hypot(x - last.x, y - last.y, z - last.z)
       if (moved < MIN_STEP_M) return
     }
@@ -46,13 +46,13 @@ export class Trail {
     if (this.samples.length > MAX_SAMPLES) this.samples.splice(0, DROP_CHUNK)
   }
 
-  /** Las muestras de los últimos `seconds`, en orden cronológico. */
+  /** The samples of the last `seconds`, in chronological order. */
   since(seconds: number, now: number): TrailSample[] {
     if (seconds <= 0) return []
     const cutoff = now - seconds * 1000
 
-    // Búsqueda binaria: con 30 000 muestras y 60 fps, recorrer de atrás para
-    // adelante en cada frame se nota.
+    // Binary search: with 30 000 samples and 60 fps, walking back to front on
+    // every frame is noticeable.
     let lo = 0
     let hi = this.samples.length
     while (lo < hi) {
@@ -67,7 +67,7 @@ export class Trail {
     return this.samples.length
   }
 
-  /** Se queda con una copia de otra estela (duplicar no debe empezar de cero). */
+  /** Keeps a copy of another trail (duplicating must not start from zero). */
   adopt(samples: readonly TrailSample[]): void {
     this.samples = samples.slice()
   }
@@ -81,7 +81,7 @@ export class Trail {
   }
 }
 
-/** Una estela por objeto, con limpieza de los que ya no están en la lista. */
+/** One trail per object, cleaning up the ones no longer in the list. */
 export class TrailStore {
   private byId = new Map<string, Trail>()
 
@@ -94,7 +94,7 @@ export class TrailStore {
     return hit
   }
 
-  /** Descarta la estela de los objetos que se quitaron del panel. */
+  /** Discards the trail of the objects removed from the panel. */
   prune(aliveIds: Iterable<string>): void {
     const alive = new Set(aliveIds)
     for (const id of Array.from(this.byId.keys())) {
@@ -102,7 +102,7 @@ export class TrailStore {
     }
   }
 
-  /** Copia lo acumulado al objeto que duplica a otro. */
+  /** Copies what was accumulated to the object that duplicates another. */
   copy(fromId: string, toId: string): void {
     const source = this.byId.get(fromId)
     if (source) this.get(toId).adopt(source.all())

@@ -1,20 +1,20 @@
 import { TimeSeriesPoint } from "./mathTransforms"
 import { interpolateAt } from "./seriesAlgebra"
 
-// Un punto del plano X-Y: dos señales enfrentadas entre sí en vez de contra el
-// tiempo. Es lo que permite mirar velocidad-vs-aceleración, corriente-vs-rpm o
-// setpoint-vs-medido, donde el tiempo solo importa como orden del recorrido.
+// A point of the X-Y plane: two signals against each other instead of against
+// time. It is what allows looking at velocity-vs-acceleration, current-vs-rpm or
+// setpoint-vs-measured, where time only matters as the order of the path.
 export interface PhasePoint {
   x: number
   y: number
-  /** Instante del que salió el par; se usa para colorear el recorrido. */
+  /** The instant the pair came from; used to color the path. */
   t: number
 }
 
 /**
- * Cruza dos series sobre la grilla temporal de la que va en Y, interpolando la
- * de X. Sin interpolar habría que exigir timestamps idénticos, y dos topics
- * distintos casi nunca los tienen.
+ * Crosses two series over the time grid of the one on Y, interpolating the X
+ * one. Without interpolating identical timestamps would have to be required,
+ * and two different topics almost never have them.
  */
 export function buildPhasePlot(xSeries: TimeSeriesPoint[], ySeries: TimeSeriesPoint[]): PhasePoint[] {
   const out: PhasePoint[] = []
@@ -28,7 +28,7 @@ export function buildPhasePlot(xSeries: TimeSeriesPoint[], ySeries: TimeSeriesPo
 
 export interface Bounds { min: number; max: number }
 
-/** Rango de una lista de números, con margen y un ancho mínimo utilizable. */
+/** The range of a list of numbers, with margin and a minimum usable width. */
 export function boundsOf(values: number[], marginRatio = 0.05): Bounds {
   let min = Infinity
   let max = -Infinity
@@ -39,7 +39,7 @@ export function boundsOf(values: number[], marginRatio = 0.05): Bounds {
   }
   if (!isFinite(min) || !isFinite(max)) return { min: -1, max: 1 }
 
-  // Una serie constante da min === max y colapsaría el eje a cero de alto.
+  // A constant series gives min === max and would collapse the axis to zero height.
   if (min === max) {
     const pad = Math.abs(min) > 1e-9 ? Math.abs(min) * 0.1 : 1
     return { min: min - pad, max: max + pad }

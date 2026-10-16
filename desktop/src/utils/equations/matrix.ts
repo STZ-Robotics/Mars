@@ -1,5 +1,5 @@
-// Álgebra matricial mínima pero completa para lo que se necesita acá:
-// cinemática de swerve, matrices de rotación, covarianzas y espacio de estados.
+// Minimal but complete matrix algebra for what is needed here: swerve
+// kinematics, rotation matrices, covariances and state space.
 
 export interface Matrix {
   rows: number
@@ -42,7 +42,7 @@ export function filled(rows: number, cols: number, value: number): Matrix {
   return makeMatrix(Array.from({ length: rows }, () => Array(cols).fill(value)))
 }
 
-// Matriz de rotación 2D: la que lleva un vector del marco del robot al del campo.
+// 2D rotation matrix: the one that takes a vector from the robot's frame to the field's.
 export function rotation2d(theta: number): Matrix {
   const c = Math.cos(theta)
   const s = Math.sin(theta)
@@ -88,8 +88,8 @@ export function transpose(m: Matrix): Matrix {
   ))
 }
 
-// Determinante por eliminación gaussiana con pivoteo parcial: estable y O(n³),
-// a diferencia de la expansión por cofactores que es O(n!).
+// Determinant by Gaussian elimination with partial pivoting: stable and O(n³),
+// unlike cofactor expansion, which is O(n!).
 export function determinant(m: Matrix): number {
   if (m.rows !== m.cols) throw new MatrixError("Determinant needs a square matrix")
 
@@ -119,7 +119,7 @@ export function determinant(m: Matrix): number {
   return det
 }
 
-// Inversa por Gauss-Jordan sobre la matriz aumentada [A | I].
+// Inverse by Gauss-Jordan over the augmented matrix [A | I].
 export function inverse(m: Matrix): Matrix {
   if (m.rows !== m.cols) throw new MatrixError("Inverse needs a square matrix")
 
@@ -151,26 +151,26 @@ export function inverse(m: Matrix): Matrix {
   return makeMatrix(a.map(row => row.slice(n)))
 }
 
-// Traza: suma de la diagonal. Aparece seguido al mirar covarianzas
-// (traza pequeña = filtro confiado).
+// Trace: the sum of the diagonal. It comes up often when looking at
+// covariances (a small trace = a confident filter).
 export function trace(m: Matrix): number {
   if (m.rows !== m.cols) throw new MatrixError("Trace needs a square matrix")
   return m.data.reduce((sum, row, i) => sum + row[i], 0)
 }
 
-// Norma de Frobenius: la magnitud "total" de la matriz. Para un vector
-// coincide con la norma euclídea de siempre.
+// Frobenius norm: the matrix's "total" magnitude. For a vector it matches the
+// usual Euclidean norm.
 export function norm(m: Matrix): number {
   return Math.sqrt(m.data.reduce((sum, row) => sum + row.reduce((s, v) => s + v * v, 0), 0))
 }
 
-// Un 1×1 se degrada a escalar: así (Aᵀ·B) de dos vectores da un número y no
-// una matriz de un solo elemento, que es lo que uno espera al escribirlo.
+// A 1×1 degrades to a scalar: that way (Aᵀ·B) of two vectors gives a number and
+// not a single-element matrix, which is what you expect when writing it.
 export function collapseScalar(m: Matrix): Matrix | number {
   return m.rows === 1 && m.cols === 1 ? m.data[0][0] : m
 }
 
-// --- Operaciones elemento a elemento (las "element*" de WPILib) -------------
+// --- Element-wise operations (WPILib's "element*" ones) -------------
 
 export function elementTimes(a: Matrix, b: Matrix): Matrix {
   return elementwise(a, b, (x, y) => x * y, "element-multiply")
@@ -184,9 +184,9 @@ export function elementPower(m: Matrix, exponent: number): Matrix {
   return makeMatrix(m.data.map(row => row.map(value => Math.pow(value, exponent))))
 }
 
-// WPILib permite sumar/restar un escalar a todos los elementos. Se expone como
-// función y no en el operador "+", para que M + 1 siga siendo un error de
-// dimensiones en vez de significar dos cosas distintas según el tipo.
+// WPILib allows adding/subtracting a scalar to every element. It is exposed as a
+// function and not in the "+" operator, so M + 1 stays a dimension error instead
+// of meaning two different things depending on the type.
 export function elementPlus(m: Matrix, k: number): Matrix {
   return makeMatrix(m.data.map(row => row.map(value => value + k)))
 }
@@ -222,7 +222,7 @@ export function elementMaxAbs(m: Matrix): number {
   return Math.max(...flat(m).map(Math.abs))
 }
 
-// Norma inducida 1: la mayor suma de valores absolutos por columna.
+// Induced 1-norm: the largest sum of absolute values per column.
 export function normP1(m: Matrix): number {
   let best = 0
   for (let col = 0; col < m.cols; col++) {
@@ -235,8 +235,8 @@ export function normP1(m: Matrix): number {
 
 // --- Estructura -------------------------------------------------------------
 
-// Igual que WPILib: de un vector arma la matriz diagonal, de una matriz
-// extrae la diagonal como vector columna.
+// Same as WPILib: from a vector it builds the diagonal matrix, from a matrix it
+// extracts the diagonal as a column vector.
 export function diagonal(m: Matrix): Matrix {
   const isVector = m.rows === 1 || m.cols === 1
   if (isVector) {
@@ -283,8 +283,8 @@ export function isEqual(a: Matrix, b: Matrix, tolerance: number): boolean {
 
 // --- Solvers ----------------------------------------------------------------
 
-// Resuelve A·x = b. Si A no es cuadrada se usa la pseudo-inversa por mínimos
-// cuadrados —(AᵀA)⁻¹Aᵀb—, igual que el solve() de WPILib.
+// Solves A·x = b. If A is not square the least-squares pseudo-inverse
+// —(AᵀA)⁻¹Aᵀb— is used, just like WPILib's solve().
 export function solveLinear(a: Matrix, b: Matrix): Matrix {
   if (a.rows !== b.rows) {
     throw new MatrixError(`Cannot solve: A has ${a.rows} rows but b has ${b.rows}`)
@@ -296,9 +296,9 @@ export function solveLinear(a: Matrix, b: Matrix): Matrix {
   return multiply(multiply(inverse(multiply(at, a)), at), b)
 }
 
-// Descomposición de Cholesky: A = L·Lᵀ con L triangular inferior. Solo existe
-// si A es simétrica y definida positiva — que es justo el caso de las
-// matrices de covarianza. Como WPILib, una matriz de ceros devuelve ceros.
+// Cholesky decomposition: A = L·Lᵀ with L lower triangular. It only exists if A
+// is symmetric and positive definite — which is exactly the case of covariance
+// matrices. Like WPILib, a zero matrix returns zeros.
 export function cholesky(m: Matrix): Matrix {
   if (m.rows !== m.cols) throw new MatrixError("Cholesky needs a square matrix")
 
@@ -327,9 +327,9 @@ export function cholesky(m: Matrix): Matrix {
   return makeMatrix(l)
 }
 
-// Exponencial matricial por escalado y cuadrado: exp(A) = exp(A/2^s)^(2^s).
-// Se escala hasta que la norma sea chica, se usa la serie de Taylor —que ahí
-// converge rápido— y se eleva al cuadrado s veces.
+// Matrix exponential by scaling and squaring: exp(A) = exp(A/2^s)^(2^s).
+// It scales until the norm is small, uses the Taylor series —which converges
+// fast there— and squares it s times.
 export function matrixExp(m: Matrix): Matrix {
   if (m.rows !== m.cols) throw new MatrixError("Matrix exponential needs a square matrix")
 

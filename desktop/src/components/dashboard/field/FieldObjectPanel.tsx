@@ -10,7 +10,7 @@ import {
 interface Props {
   objects: FieldObjectConfig[]
   settings: FieldSettings
-  /** Muestras acumuladas por objeto, para las estelas y el mapa de calor. */
+  /** Samples accumulated per object, for the trails and the heat map. */
   sampleCounts: Record<string, number>
   onUpdate: (id: string, updates: Partial<FieldObjectConfig>) => void
   onDuplicate: (id: string) => void
@@ -35,9 +35,9 @@ export default function FieldObjectPanel({
     )
   }
 
-  // Los tipos anclados al robot no tienen pose propia. Si no hay ningún robot
-  // en la lista no se dibujan, y decirlo acá evita el rato de creer que el
-  // topic está mal.
+  // The robot-anchored types have no pose of their own. If there is no robot in
+  // the list they are not drawn, and saying it here saves the time spent
+  // believing the topic is wrong.
   const hasRobot = objects.some(o => o.type === "robot" && o.hidden !== true)
 
   return (

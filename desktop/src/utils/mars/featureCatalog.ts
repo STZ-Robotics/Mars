@@ -1,15 +1,15 @@
-// Catálogo de dependencias para el wizard de features.
+// Dependency catalog for the feature wizard.
 //
-// Dos fuentes, en orden de confianza:
+// Two sources, in order of trust:
 //
-// 1. Los vendordeps del proyecto abierto (`vendordeps/*.json`). Traen la
-//    versión EXACTA que el robot ya usa, así que la feature compila contra lo
-//    mismo que el proyecto que la va a instalar. Es la opción buena.
-// 2. El catálogo estático de abajo, para cuando no hay proyecto abierto. Las
-//    versiones son un punto de partida de la temporada 2026 y hay que
-//    confirmarlas contra el vendordep real — por eso son editables en la UI.
+// 1. The open project's vendordeps (`vendordeps/*.json`). They carry the EXACT
+//    version the robot already uses, so the feature compiles against the same
+//    thing as the project that will install it. It is the good option.
+// 2. The static catalog below, for when there is no open project. The versions
+//    are a starting point for the 2026 season and have to be confirmed against
+//    the real vendordep — that is why they are editable in the UI.
 
-/** Lo que viaja al backend y termina en build.gradle. */
+/** What travels to the backend and ends up in build.gradle. */
 export interface FeatureDependency {
   id: string
   label: string
@@ -23,7 +23,7 @@ export interface CatalogEntry {
   label: string
   hint: string
   mavenUrls: string[]
-  /** Coordenadas con `{version}` como marcador. */
+  /** Coordinates with `{version}` as a placeholder. */
   artifacts: string[]
   defaultVersion: string
 }
@@ -40,7 +40,7 @@ export const VENDOR_CATALOG: CatalogEntry[] = [
   {
     id: "pathplanner",
     label: "PathPlannerLib",
-    hint: "Trayectorias y autos de PathPlanner",
+    hint: "PathPlanner trajectories and autos",
     mavenUrls: ["https://3015rangerrobotics.github.io/pathplannerlib/repo"],
     artifacts: ["com.pathplanner.lib:PathplannerLib-java:{version}"],
     defaultVersion: "2026.1.2",
@@ -64,7 +64,7 @@ export const VENDOR_CATALOG: CatalogEntry[] = [
   {
     id: "photonvision",
     label: "PhotonLib",
-    hint: "Visión de PhotonVision",
+    hint: "PhotonVision vision",
     mavenUrls: ["https://maven.photonvision.org/repository/internal"],
     artifacts: [
       "org.photonvision:photonlib-java:{version}",
@@ -75,7 +75,7 @@ export const VENDOR_CATALOG: CatalogEntry[] = [
   {
     id: "choreo",
     label: "ChoreoLib",
-    hint: "Trayectorias optimizadas de Choreo",
+    hint: "Choreo optimized trajectories",
     mavenUrls: ["https://SleipnirGroup.github.io/ChoreoLib/dep"],
     artifacts: ["choreo:ChoreoLib-java:{version}"],
     defaultVersion: "2026.0.0",
@@ -83,7 +83,7 @@ export const VENDOR_CATALOG: CatalogEntry[] = [
   {
     id: "advantagekit",
     label: "AdvantageKit",
-    hint: "Logging y replay de Littleton",
+    hint: "Littleton logging and replay",
     mavenUrls: ["https://frcmaven.wpi.edu/artifactory/littletonrobotics-mvn-release"],
     artifacts: ["org.littletonrobotics.akit:akit-java:{version}"],
     defaultVersion: "2026.1.0",
@@ -109,7 +109,7 @@ export function catalogToDependency(entry: CatalogEntry, version: string): Featu
 
 // --- Vendordeps del proyecto ------------------------------------------------
 
-/** Forma del JSON de vendordep de WPILib. */
+/** The shape of WPILib's vendordep JSON. */
 export interface Vendordep {
   name?: string
   fileName?: string
@@ -119,10 +119,11 @@ export interface Vendordep {
   javaDependencies?: { groupId: string; artifactId: string; version: string }[]
 }
 
-// Lo que la plantilla ya declara sola: WPILib entero vía `wpi.java.deps.wpilib()`
-// + wpilibNewCommands, y Mars/ForgeMini vía marsCoreRequired/forgeMiniRequired.
-// Volver a agregarlos desde un vendordep solo duplicaría líneas — y en el caso
-// de Mars pisaría el rango de versión con una fija.
+// What the template already declares on its own: all of WPILib via
+// `wpi.java.deps.wpilib()` + wpilibNewCommands, and Mars/ForgeMini via
+// marsCoreRequired/forgeMiniRequired. Adding them again from a vendordep would
+// only duplicate lines — and in Mars' case it would overwrite the version range
+// with a fixed one.
 const TEMPLATE_PROVIDED_PREFIXES = ["edu.wpi.first.", "com.stzteam.mars", "com.stzteam.forgemini"]
 
 export function isProvidedByTemplate(dep: Vendordep): boolean {
@@ -136,8 +137,8 @@ export function vendordepToDependency(dep: Vendordep): FeatureDependency {
     id: `vendordep:${dep.fileName || label}`,
     label,
     mavenUrls: (dep.mavenUrls ?? []).filter(u => u.trim() !== ""),
-    // La versión literal "wpilib" es la convención de WPILib para "la del
-    // GradleRIO activo"; el backend la traduce a la interpolación de gradle.
+    // The literal version "wpilib" is WPILib's convention for "the active
+    // GradleRIO's"; the backend translates it into gradle interpolation.
     artifacts: (dep.javaDependencies ?? []).map(d => `${d.groupId}:${d.artifactId}:${d.version}`),
   }
 }
@@ -157,7 +158,7 @@ export interface FeatureUrls {
   maven: string
 }
 
-/** GitHub Pages baja el usuario a minúsculas pero respeta el nombre del repo. */
+/** GitHub Pages lowercases the user but respects the repo's name. */
 export function deriveUrls(githubUser: string, githubRepo: string): FeatureUrls | null {
   const user = githubUser.trim()
   const repo = githubRepo.trim()

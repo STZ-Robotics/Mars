@@ -37,10 +37,10 @@ interface CustomDependency {
   coordinate: string
 }
 
-// Los campos que se autocompletan a partir de otros mientras el usuario no los
-// toque. Igual que en un instalador: escribir el nombre del feature ya deja
-// listos el paquete java, el repo y la carpeta, y quien quiera otra cosa
-// simplemente escribe encima.
+// The fields that autocomplete from others while the user does not touch them.
+// Just like an installer: typing the feature's name already sets the java
+// package, the repo and the folder, and whoever wants something else simply
+// types over it.
 type DerivedField = "name" | "groupId" | "githubRepo" | "folderName"
 
 const STEPS = ["Identity", "Dependencies", "Publishing", "Review"]
@@ -79,8 +79,8 @@ export default function FeatureWizardPage({ projectPath }: Props) {
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [copied, setCopied] = useState<string | null>(null)
 
-  // La identidad se guarda en la config de MARS: el segundo feature del equipo
-  // sale prellenado sin volver a escribir autor ni usuario de GitHub.
+  // The identity is saved in MARS's config: the team's second feature comes out
+  // prefilled without typing the author or the GitHub user again.
   useEffect(() => {
     if (loading) return
     setAuthor(a => a || settings.feature_author || "")
@@ -134,7 +134,7 @@ export default function FeatureWizardPage({ projectPath }: Props) {
 
     for (const entry of VENDOR_CATALOG) {
       if (!selectedCatalog.has(entry.id)) continue
-      // Si el mismo vendor ya entró desde el proyecto, gana la versión real.
+      // If the same vendor already came in from the project, the real version wins.
       const alreadyFromProject = out.some(d =>
         d.artifacts.some(a =>
           entry.artifacts.some(c => a.startsWith(c.replace(":{version}", "")))
@@ -156,7 +156,7 @@ export default function FeatureWizardPage({ projectPath }: Props) {
     return out
   }, [installableVendordeps, selectedVendordeps, selectedCatalog, catalogVersions, customDeps])
 
-  // --- Validación ---------------------------------------------------------
+  // --- Validation ---------------------------------------------------------
   const featureIdError =
     featureId.trim() === ""
       ? "Required."
@@ -584,8 +584,8 @@ export default function FeatureWizardPage({ projectPath }: Props) {
 }
 
 // ---------------------------------------------------------------------------
-// Guía de publicación — la misma que queda escrita en el README generado, para
-// que el usuario no tenga que abrir el repo para saber qué sigue.
+// Publishing guide — the same one written into the generated README, so the
+// user does not have to open the repo to know what comes next.
 // ---------------------------------------------------------------------------
 
 function PublishGuide({ user, repo, committed }: { user: string; repo: string; committed?: boolean }) {

@@ -3,7 +3,7 @@ import { MechanismSourceConfig } from "../../../store/appStore"
 
 interface Props {
   sources: MechanismSourceConfig[]
-  /** Ligamentos encontrados en vivo por cada fuente, para avisar si no llega nada. */
+  /** Ligaments found live for each source, to warn when nothing arrives. */
   ligamentCounts: Record<string, number>
   onUpdate: (id: string, updates: Partial<MechanismSourceConfig>) => void
   onRemove: (id: string) => void
@@ -73,9 +73,9 @@ export default function MechanismSourcePanel({ sources, ligamentCounts, onUpdate
               />
             </div>
 
-            {/* El color de cada ligamento lo decide el código del robot; el
-                override solo sirve para distinguir dos mecanismos superpuestos
-                cuando ambos se publicaron con el mismo color. */}
+            {/* Each ligament's color is decided by the robot code; the
+                override only serves to tell apart two overlapping mechanisms
+                when both were published with the same color. */}
             <div>
               <div style={fieldLabelStyle}>Color</div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

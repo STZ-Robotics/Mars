@@ -1,6 +1,6 @@
-// Controles densos para los paneles de configuración 3D (Swerve 3D,
-// Mechanism 3D). Son los mismos widgets que ya usaba el panel del swerve,
-// puestos en común para que las dos vistas se vean y se comporten igual.
+// Dense controls for the 3D configuration panels (Swerve 3D, Mechanism 3D).
+// They are the same widgets the swerve's panel already used, shared so the two
+// views look and behave the same.
 
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
@@ -40,13 +40,13 @@ const HELP_WIDTH = 268
 const HELP_MARGIN = 8
 
 /**
- * Boton "?" con la explicacion real de un control.
+ * A "?" button with a control's real explanation.
  *
- * El globo se dibuja con un PORTAL a <body> y position: fixed, no dentro del
- * panel: el panel tiene overflow para su scroll, y cualquier cosa posicionada
- * adentro se recorta contra su borde. Con el portal, el globo se mide contra la
- * VENTANA y se acomoda solo — se corre para no salirse por los costados y se
- * pasa arriba del boton si abajo no entra.
+ * The bubble is drawn with a PORTAL to <body> and position: fixed, not inside
+ * the panel: the panel has overflow for its scroll, and anything positioned
+ * inside is clipped against its edge. With the portal, the bubble is measured
+ * against the WINDOW and adjusts on its own — it shifts so it does not go off
+ * the sides and moves above the button if it does not fit below.
  */
 export function Help({ text }: { text: React.ReactNode }) {
   const [open, setOpen] = useState(false)
@@ -54,9 +54,9 @@ export function Help({ text }: { text: React.ReactNode }) {
   const bubbleRef = useRef<HTMLDivElement>(null)
   const [placement, setPlacement] = useState({ top: 0, left: 0 })
 
-  // useLayoutEffect y no useEffect: el globo ya esta en el DOM (hace falta para
-  // poder medirlo) pero todavia no se pinto, asi que corregir la posicion aca
-  // no produce un salto visible.
+  // useLayoutEffect and not useEffect: the bubble is already in the DOM (needed
+  // to be able to measure it) but not painted yet, so correcting the position
+  // here produces no visible jump.
   useLayoutEffect(() => {
     if (!open) return
 
@@ -66,7 +66,7 @@ export function Help({ text }: { text: React.ReactNode }) {
       const anchor = button.getBoundingClientRect()
       const height = bubbleRef.current?.offsetHeight ?? 120
 
-      // Alineado al borde derecho del boton, pero sin salirse de la ventana.
+      // Aligned to the button's right edge, but without leaving the window.
       const left = Math.min(
         Math.max(anchor.right - HELP_WIDTH, HELP_MARGIN),
         window.innerWidth - HELP_WIDTH - HELP_MARGIN,
@@ -79,7 +79,7 @@ export function Help({ text }: { text: React.ReactNode }) {
     }
 
     place()
-    // `true` para capturar tambien el scroll del panel, que no burbujea.
+    // `true` to also capture the panel's scroll, which does not bubble.
     window.addEventListener("scroll", place, true)
     window.addEventListener("resize", place)
     return () => {
@@ -88,7 +88,7 @@ export function Help({ text }: { text: React.ReactNode }) {
     }
   }, [open, text])
 
-  // Cerrar con un click afuera o con Escape, como cualquier popover.
+  // Close with a click outside or with Escape, like any popover.
   useEffect(() => {
     if (!open) return
     const onPointerDown = (event: PointerEvent) => {
@@ -113,9 +113,9 @@ export function Help({ text }: { text: React.ReactNode }) {
         type="button"
         aria-label="What does this do?"
         aria-expanded={open}
-        // Varios de estos botones viven dentro de un <label>: sin frenar el
-        // evento, abrir la ayuda tambien enfocaria el input o marcaria el
-        // checkbox que la etiqueta envuelve.
+        // Several of these buttons live inside a <label>: without stopping the
+        // event, opening the help would also focus the input or tick the
+        // checkbox the label wraps.
         onClick={e => { e.preventDefault(); e.stopPropagation(); setOpen(o => !o) }}
         style={{
           border: "none", background: "transparent", cursor: "pointer",
@@ -149,7 +149,7 @@ export function Help({ text }: { text: React.ReactNode }) {
   )
 }
 
-/** Etiqueta de un campo, con su boton de ayuda si lo tiene. */
+/** A field's label, with its help button if it has one. */
 export function FieldLabel({ label, help }: { label: React.ReactNode; help?: React.ReactNode }) {
   return (
     <div style={{ ...fieldLabelStyle, display: "flex", alignItems: "center", gap: 4 }}>
@@ -167,9 +167,9 @@ export function Section({
   defaultOpen?: boolean
   badge?: React.ReactNode
   help?: React.ReactNode
-  /** Archivo en public/icons; si falta se prueba `svgFallback` y luego `icon`. */
+  /** File in public/icons; if it is missing `svgFallback` is tried and then `icon`. */
   svg?: string
-  /** SVG hermano con el que estrenar la sección hasta que tenga el propio. */
+  /** A sibling SVG to debut the section with until it has its own. */
   svgFallback?: string
   icon?: string
 }) {
@@ -196,7 +196,7 @@ export function Section({
           {title}
         </span>
         {help !== undefined && (
-          // El span frena el click para que abrir la ayuda no pliegue la seccion.
+          // The span stops the click so opening the help does not collapse the section.
           <span onClick={e => e.stopPropagation()} style={{ display: "flex" }}><Help text={help} /></span>
         )}
         {badge !== undefined && <span style={{ marginLeft: "auto", fontSize: 9.5, color: "var(--text-muted)" }}>{badge}</span>}
@@ -236,9 +236,9 @@ export function Num({
         step={step}
         min={min}
         max={max}
-        // Un campo vacío o a medio escribir ("-", "0.") da NaN: se ignora el
-        // cambio en vez de mandar NaN a la escena, que dejaría la malla en una
-        // matriz inválida y toda la pieza invisible.
+        // An empty or half-typed field ("-", "0.") gives NaN: the change is
+        // ignored instead of sending NaN to the scene, which would leave the mesh
+        // with an invalid matrix and the whole part invisible.
         onChange={e => {
           const next = Number(e.target.value)
           if (isFinite(next)) onChange(next)
@@ -351,7 +351,7 @@ export function Slider({
   )
 }
 
-/** Terna X/Y/Z con una etiqueta común; es el control que más se repite. */
+/** An X/Y/Z triple with a shared label; it is the most repeated control. */
 export function Vector3Field({
   label, value, onChange, step = 0.01, suffix, help, axisLabels = ["X", "Y", "Z"],
 }: {
@@ -361,7 +361,7 @@ export function Vector3Field({
   step?: number
   suffix?: string
   help?: React.ReactNode
-  /** Para cuando las tres casillas no son X/Y/Z (radio, alto...). */
+  /** For when the three boxes are not X/Y/Z (radius, height...). */
   axisLabels?: [string, string, string]
 }) {
   return (
@@ -399,9 +399,9 @@ export function PanelButton({
   disabled?: boolean
   /** Clase tabler de respaldo. */
   icon?: string
-  /** Archivo en public/icons; gana sobre `icon` si existe. */
+  /** File in public/icons; wins over `icon` if it exists. */
   svg?: string
-  /** SVG hermano a probar antes de caer al tabler. */
+  /** A sibling SVG to try before falling back to tabler. */
   svgFallback?: string
   title?: string
   danger?: boolean
@@ -449,7 +449,7 @@ export function ErrorNote({ children }: { children: React.ReactNode }) {
   )
 }
 
-/** Icono chico para las filas y botones de los paneles densos. */
+/** A small icon for the dense panels' rows and buttons. */
 export function PanelIcon({
   svg, svgFallback, fallback, size = 13, color,
 }: { svg?: string; svgFallback?: string; fallback: string; size?: number; color?: string }) {
@@ -457,10 +457,10 @@ export function PanelIcon({
 }
 
 /**
- * Botón de un solo icono para las filas de una lista (ojo, candado, borrar).
+ * A single-icon button for a list's rows (eye, lock, delete).
  *
- * Vive acá y no en el panel del Mechanism 3D porque el 2D Visualizer tiene la
- * misma clase de lista: una fila por objeto con sus interruptores al final.
+ * It lives here and not in the Mechanism 3D panel because the 2D Visualizer
+ * has the same kind of list: one row per object with its switches at the end.
  */
 export function IconToggle({
   svg, svgFallback, icon, active, title, onClick, activeColor = "var(--mars-red)",
@@ -476,8 +476,8 @@ export function IconToggle({
   return (
     <button
       title={title}
-      // stopPropagation porque estas filas suelen ser clickeables enteras para
-      // seleccionar: sin esto, tocar el ojo también cambiaría la selección.
+      // stopPropagation because these rows are usually clickable as a whole to
+      // select: without it, touching the eye would also change the selection.
       onClick={e => { e.stopPropagation(); onClick() }}
       style={{
         border: "none", background: "transparent", cursor: "pointer", padding: 0, lineHeight: 1,

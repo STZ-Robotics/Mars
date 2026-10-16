@@ -3,10 +3,10 @@ import { invoke } from "@tauri-apps/api/core"
 import { TopicAnnounce } from "../store/appStore"
 import { useStructSchemaStore } from "../store/structSchemaStore"
 
-// WPILib publica el descriptor de cada struct en un topic hermano bajo
-// ".schema". La ruta puede estar anidada (AdvantageKit loguea bajo
-// "/AdvantageKit/.schema/..."), así que se busca el fragmento en cualquier
-// posición en vez de exigir que arranque el nombre.
+// WPILib publishes each struct's descriptor in a sibling topic under
+// ".schema". The path can be nested (AdvantageKit logs under
+// "/AdvantageKit/.schema/..."), so the fragment is looked for in any position
+// instead of requiring it to start the name.
 const SCHEMA_MARKER = "/.schema/struct:"
 
 export function structNameFromSchemaKey(topicName: string): string | null {
@@ -20,20 +20,20 @@ export function structNameFromSchemaKey(topicName: string): string | null {
 const RETRY_MS = 1000
 
 /**
- * Descubre los topics de schema y registra su contenido en el store, para que
- * la app entienda structs que no están en la tabla escrita a mano.
+ * Discovers the schema topics and registers their contents in the store, so
+ * the app understands structs that are not in the hand-written table.
  *
- * Reintenta porque un topic se anuncia ANTES de tener valor: en vivo, el
- * announce y el primer sample llegan en mensajes distintos, así que la primera
- * lectura de un schema recién aparecido suele venir vacía.
+ * It retries because a topic is announced BEFORE it has a value: live, the
+ * announce and the first sample arrive in different messages, so the first
+ * read of a freshly appeared schema usually comes back empty.
  */
 export function useStructSchemas(topics: Map<string, TopicAnnounce>) {
   const registerSchemas = useStructSchemaStore(s => s.registerSchemas)
   const clear = useStructSchemaStore(s => s.clear)
 
   useEffect(() => {
-    // Sin topics no hay fuente de datos (se desconectó o se cerró el log): los
-    // schemas del robot anterior no aplican al siguiente.
+    // No topics, no data source (it disconnected or the log was closed): the
+    // previous robot's schemas do not apply to the next one.
     if (topics.size === 0) {
       clear()
       return
@@ -54,7 +54,7 @@ export function useStructSchemas(topics: Map<string, TopicAnnounce>) {
 
       const known = useStructSchemaStore.getState().texts
       const pending = schemaTopics.filter(s => !(s.name in known))
-      if (pending.length === 0) return // todos resueltos, no hace falta reintentar
+      if (pending.length === 0) return // all resolved, no need to retry
 
       try {
         const data = await invoke<Record<string, any>>("get_live_values", {
@@ -70,7 +70,7 @@ export function useStructSchemas(topics: Map<string, TopicAnnounce>) {
         }
         if (Object.keys(entries).length > 0) registerSchemas(entries)
       } catch {
-        // El backend puede estar reconectando; se reintenta en el próximo tick.
+        // The backend may be reconnecting; it retries on the next tick.
       }
 
       if (!cancelled) timer = window.setTimeout(poll, RETRY_MS)

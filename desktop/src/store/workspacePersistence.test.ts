@@ -2,9 +2,9 @@ import { describe, it, expect } from "vitest"
 import { normalizeLayout } from "./workspacePersistence"
 import { defaultMechanismSettings, defaultSwerveSettings, defaultFieldSettings } from "./appStore"
 
-// Estas pruebas cubren la migración de layouts guardados por versiones
-// anteriores. Es el punto donde agregar una herramienta nueva podría invalidar
-// silenciosamente los layouts que la gente ya tenía en disco.
+// These tests cover migrating layouts saved by earlier versions. It is the
+// point where adding a new tool could silently invalidate the layouts people
+// already had on disk.
 
 const tab = (overrides: Record<string, unknown> = {}) => ({
   id: "1",
@@ -14,22 +14,22 @@ const tab = (overrides: Record<string, unknown> = {}) => ({
 })
 
 describe("normalizeLayout", () => {
-  it("rechaza cualquier cosa que no sea un objeto", () => {
+  it("rejects anything that is not an object", () => {
     expect(normalizeLayout(null)).toBeNull()
     expect(normalizeLayout("nope")).toBeNull()
     expect(normalizeLayout(42)).toBeNull()
   })
 
-  it("acepta un layout sin pestañas", () => {
+  it("accepts a layout without tabs", () => {
     const layout = normalizeLayout({ openTabs: [], activeTabId: null })
     expect(layout).not.toBeNull()
     expect(layout!.openTabs).toEqual([])
     expect(layout!.activeTabId).toBeNull()
   })
 
-  it("rellena con defaults los campos que una versión vieja no guardó", () => {
-    // Un layout escrito antes de que existiera la pestaña Mechanism no tiene
-    // mechanismSources ni mechanismSettings.
+  it("fills with defaults the fields an old version did not save", () => {
+    // A layout written before the Mechanism tab existed has neither
+    // mechanismSources nor mechanismSettings.
     const layout = normalizeLayout({ openTabs: [tab({ kind: "swerve" })], activeTabId: "1" })
     const restored = layout!.openTabs[0]
 
@@ -41,7 +41,7 @@ describe("normalizeLayout", () => {
     expect(restored.equations).toEqual([])
   })
 
-  it("conserva los settings guardados y completa solo lo que falta", () => {
+  it("keeps the saved settings and completes only what is missing", () => {
     const layout = normalizeLayout({
       openTabs: [tab({ kind: "mechanism", mechanismSettings: { showGrid: false } })],
       activeTabId: "1",
@@ -49,12 +49,12 @@ describe("normalizeLayout", () => {
     const settings = layout!.openTabs[0].mechanismSettings
 
     expect(settings.showGrid).toBe(false)
-    // El resto sigue viniendo del default, no se pierde.
+    // The rest still comes from the default, it is not lost.
     expect(settings.weightScale).toBe(defaultMechanismSettings.weightScale)
     expect(settings.showOrigin).toBe(defaultMechanismSettings.showOrigin)
   })
 
-  it("descarta pestañas de un tipo que ya no existe", () => {
+  it("drops tabs of a type that no longer exists", () => {
     const layout = normalizeLayout({
       openTabs: [tab(), tab({ id: "2", kind: "herramienta-borrada" })],
       activeTabId: "1",
@@ -62,7 +62,7 @@ describe("normalizeLayout", () => {
     expect(layout!.openTabs.map(t => t.id)).toEqual(["1"])
   })
 
-  it("descarta pestañas sin id utilizable", () => {
+  it("drops tabs without a usable id", () => {
     const layout = normalizeLayout({
       openTabs: [tab({ id: "" }), tab({ id: 7 }), null, tab({ id: "ok" })],
       activeTabId: null,
@@ -70,8 +70,8 @@ describe("normalizeLayout", () => {
     expect(layout!.openTabs.map(t => t.id)).toEqual(["ok"])
   })
 
-  it("olvida el activeTabId si su pestaña ya no está", () => {
-    // Si no, la app arranca mostrando una pantalla vacía sin forma de volver.
+  it("forgets the activeTabId if its tab is gone", () => {
+    // Otherwise the app starts showing an empty screen with no way back.
     const layout = normalizeLayout({
       openTabs: [tab()],
       activeTabId: "borrada",
@@ -79,7 +79,7 @@ describe("normalizeLayout", () => {
     expect(layout!.activeTabId).toBeNull()
   })
 
-  it("respeta el activeTabId cuando sí existe", () => {
+  it("respects the activeTabId when it does exist", () => {
     const layout = normalizeLayout({
       openTabs: [tab(), tab({ id: "2" })],
       activeTabId: "2",
@@ -88,23 +88,23 @@ describe("normalizeLayout", () => {
   })
 
   it("tolera openTabs corrupto", () => {
-    const layout = normalizeLayout({ openTabs: "no es un array", activeTabId: null })
+    const layout = normalizeLayout({ openTabs: "not an array", activeTabId: null })
     expect(layout!.openTabs).toEqual([])
   })
 
-  it("guarda el estado colapsado del sidebar", () => {
+  it("saves the sidebar's collapsed state", () => {
     expect(normalizeLayout({ openTabs: [], activeTabId: null, sidebarCollapsed: true })!.sidebarCollapsed).toBe(true)
   })
 
-  it("asume el sidebar expandido si el layout es de antes de que existiera", () => {
+  it("assumes an expanded sidebar if the layout predates it", () => {
     expect(normalizeLayout({ openTabs: [], activeTabId: null })!.sidebarCollapsed).toBe(false)
-    // Cualquier cosa que no sea true cuenta como expandido, no como truthy.
+    // Anything that is not true counts as expanded, not as truthy.
     expect(normalizeLayout({ openTabs: [], activeTabId: null, sidebarCollapsed: "si" })!.sidebarCollapsed).toBe(false)
   })
 
-  it("descarta marcas con un tiempo inválido", () => {
-    // Una marca en NaN dibujaría la bandera en un píxel imposible y rompería
-    // el salto entre marcas.
+  it("drops marks with an invalid time", () => {
+    // A mark at NaN would draw the flag at an impossible pixel and break jumping
+    // between marks.
     const layout = normalizeLayout({
       openTabs: [], activeTabId: null,
       markers: [
@@ -118,7 +118,7 @@ describe("normalizeLayout", () => {
     expect(layout!.markers.map(m => m.id)).toEqual(["ok"])
   })
 
-  it("ordena y completa las marcas al restaurarlas", () => {
+  it("sorts and completes the marks when restoring them", () => {
     const layout = normalizeLayout({
       openTabs: [], activeTabId: null,
       markers: [
@@ -131,16 +131,16 @@ describe("normalizeLayout", () => {
     expect(layout!.markers[1].timeUs).toBe(201)
   })
 
-  it("rellena la config de SysId de un layout viejo", () => {
+  it("fills in the SysId config of an old layout", () => {
     const sysid = normalizeLayout({ openTabs: [], activeTabId: null })!.sysid
     expect(sysid.mechanism).toBe("simple")
     expect(sysid.voltageTopic).toBeNull()
-    // Los cuatro rangos tienen que existir aunque estén vacíos: la página los
-    // recorre por nombre y un undefined reventaría al leer .startUs.
+    // The four ranges have to exist even if empty: the page walks them by name
+    // and an undefined would blow up reading .startUs.
     expect(Object.keys(sysid.ranges)).toHaveLength(4)
   })
 
-  it("descarta rangos de SysId con tiempos inválidos", () => {
+  it("drops SysId ranges with invalid times", () => {
     const sysid = normalizeLayout({
       openTabs: [], activeTabId: null,
       sysid: {
@@ -159,16 +159,16 @@ describe("normalizeLayout", () => {
     expect(sysid.ranges["quasistatic-forward"]).toEqual({ startUs: 5, endUs: 10 })
   })
 
-  it("cae a 'simple' si el mecanismo guardado no existe", () => {
+  it("falls back to 'simple' if the saved mechanism does not exist", () => {
     const sysid = normalizeLayout({ openTabs: [], activeTabId: null, sysid: { mechanism: "cohete" } })!.sysid
     expect(sysid.mechanism).toBe("simple")
   })
 
-  it("acepta un layout sin marcas", () => {
+  it("accepts a layout without marks", () => {
     expect(normalizeLayout({ openTabs: [], activeTabId: null })!.markers).toEqual([])
   })
 
-  it("usa el kind como título si el guardado no era texto", () => {
+  it("uses the kind as the title if the saved one was not text", () => {
     const layout = normalizeLayout({ openTabs: [tab({ title: 123 })], activeTabId: null })
     expect(layout!.openTabs[0].title).toBe("display")
   })

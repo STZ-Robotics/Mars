@@ -18,8 +18,8 @@ import { normalizeEntries as normalizeNTSessionEntries } from "../utils/nt/ntSes
 import { TimelineMarker } from "./markerStore"
 import { SysIdConfig, normalizeSysIdConfig } from "./sysidStore"
 
-// Sube SOLO si un layout viejo deja de poder migrarse con normalizeTab.
-// Mientras los campos nuevos tengan default, no hace falta tocarlo.
+// Bump it ONLY if an old layout can no longer be migrated with normalizeTab.
+// As long as the new fields have a default, there is no need to touch it.
 const LAYOUT_VERSION = 1
 
 const KNOWN_KINDS: ToolKind[] = [
@@ -30,7 +30,7 @@ export interface WorkspaceLayout {
   version: number
   openTabs: WorkspaceTab[]
   activeTabId: string | null
-  /** Riel de solo iconos en vez del árbol completo. */
+  /** An icon-only rail instead of the full tree. */
   sidebarCollapsed: boolean
   markers: TimelineMarker[]
   sysid: SysIdConfig
@@ -40,10 +40,10 @@ function asArray<T>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : []
 }
 
-// Un layout guardado por una versión anterior no tiene los campos que se
-// agregaron después (mechanismSources es el caso más reciente). Rellenar acá
-// es lo que evita que agregar una herramienta nueva invalide los layouts que
-// la gente ya tenía guardados.
+// A layout saved by an earlier version does not have the fields added later
+// (mechanismSources is the most recent case). Filling them in here is what
+// keeps adding a new tool from invalidating the layouts people already had
+// saved.
 function normalizeTab(raw: any): WorkspaceTab | null {
   if (!raw || typeof raw !== "object") return null
   if (!KNOWN_KINDS.includes(raw.kind)) return null
@@ -56,9 +56,9 @@ function normalizeTab(raw: any): WorkspaceTab | null {
     widgets: asArray<DashboardWidget>(raw.widgets),
     functionSeries: asArray<FunctionSeriesConfig>(raw.functionSeries),
     functionSettings: { ...defaultFunctionSettings, ...(raw.functionSettings as FunctionSettings) },
-    // Los objetos y los ajustes de la cancha se dibujan directo como
-    // geometría: un largo de chasis en NaN o un tipo de objeto inventado dejan
-    // el visualizador en blanco sin ningun error visible.
+    // The field's objects and settings are drawn straight as geometry: a chassis
+    // length of NaN or a made-up object type leave the visualizer blank without
+    // any visible error.
     fieldObjects: normalizeFieldObjects(raw.fieldObjects),
     fieldSettings: normalizeFieldSettings(raw.fieldSettings),
     field3dObjects: normalizeField3dObjects(raw.field3dObjects),
@@ -68,9 +68,9 @@ function normalizeTab(raw: any): WorkspaceTab | null {
     swerve3dSettings: normalizeSwerve3d(raw.swerve3dSettings),
     mechanismSources: asArray<MechanismSourceConfig>(raw.mechanismSources),
     mechanismSettings: { ...defaultMechanismSettings, ...(raw.mechanismSettings as MechanismSettings) },
-    // El árbol de piezas del Mechanism 3D se dibuja directo como geometría: un
-    // NaN o un enum inventado ahí deja la escena vacía sin ningún error
-    // visible, así que se sanea con el mismo normalizador que usa el import.
+    // The Mechanism 3D's part tree is drawn straight as geometry: a NaN or a
+    // made-up enum there leaves the scene empty without any visible error, so it
+    // is sanitized with the same normalizer the import uses.
     mechanism3dParts: normalizeMechanism3dParts(raw.mechanism3dParts),
     mechanism3dSettings: normalizeMechanism3dSettings(raw.mechanism3dSettings),
     ntSessionEntries: normalizeNTSessionEntries(raw.ntSessionEntries),
@@ -83,10 +83,10 @@ function normalizeTab(raw: any): WorkspaceTab | null {
   }
 }
 
-// Las cuatro posiciones de modulo son lo unico del layout que se dibuja
-// directo como geometria: un NaN colado ahi (por editar el campo a mano y
-// dejarlo vacio) deja las mallas en una matriz invalida y la escena entera
-// desaparece sin error visible.
+// The four module positions are the only thing in the layout drawn straight as
+// geometry: a NaN slipping in there (from editing the field by hand and leaving
+// it empty) leaves the meshes with an invalid matrix and the whole scene
+// disappears without a visible error.
 function normalizeSwerve3d(raw: any): Swerve3dSettings {
   const merged = { ...defaultSwerve3dSettings, ...(raw as Swerve3dSettings) }
   const modules = asArray<any>(raw?.modules)
@@ -113,8 +113,8 @@ export function normalizeLayout(raw: any): WorkspaceLayout | null {
     .map(normalizeTab)
     .filter((t): t is WorkspaceTab => t !== null)
 
-  // Un activeTabId que apunta a una pestaña que ya no existe dejaría la app
-  // mostrando una pantalla vacía sin forma de volver.
+  // An activeTabId pointing at a tab that no longer exists would leave the app
+  // showing an empty screen with no way back.
   const activeTabId = openTabs.some(t => t.id === raw.activeTabId) ? raw.activeTabId : null
 
   return {
@@ -127,8 +127,8 @@ export function normalizeLayout(raw: any): WorkspaceLayout | null {
   }
 }
 
-// Una marca con un tiempo inválido dibujaría una bandera en NaN píxeles y
-// rompería el salto entre marcas.
+// A mark with an invalid time would draw a flag at NaN pixels and break jumping
+// between marks.
 function normalizeMarkers(raw: unknown): TimelineMarker[] {
   return asArray<any>(raw)
     .filter(m => m && typeof m.id === "string" && typeof m.timeUs === "number" && isFinite(m.timeUs))
@@ -141,7 +141,7 @@ function normalizeMarkers(raw: unknown): TimelineMarker[] {
     .sort((a, b) => a.timeUs - b.timeUs)
 }
 
-/** `path` vacío = slot de autoguardado en la carpeta de config de MARS. */
+/** Empty `path` = the autosave slot in MARS's config folder. */
 export async function saveLayout(layout: Omit<WorkspaceLayout, "version">, path?: string): Promise<string> {
   return invoke<string>("save_workspace", {
     layout: { version: LAYOUT_VERSION, ...layout },

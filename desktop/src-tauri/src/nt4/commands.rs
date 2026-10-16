@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use serde::Serialize;
 
-/// 3472 -> 10.34.72.2. Si no es un número, se toma tal cual como host
-/// (permite pasar un hostname o una IP directamente).
+/// 3472 -> 10.34.72.2. If it is not a number, it is taken as the host as is
+/// (so a hostname or an IP can be passed directly).
 fn team_to_address(team: &str) -> String {
     match team.trim().parse::<u32>() {
         Ok(team) => format!("10.{}.{:02}.2", team / 100, team % 100),
@@ -17,9 +17,9 @@ fn team_to_address(team: &str) -> String {
 
 #[tauri::command]
 pub async fn connect_sim(app: AppHandle, state: State<'_, NT4State>) -> Result<String, String> {
-    // El simulador siempre corre en la máquina local, pero el puerto sí
-    // depende del destino: la Driver Station reexpone los mismos datos en
-    // 6767 sobre localhost.
+    // The simulator always runs on the local machine, but the port does depend
+    // on the target: the Driver Station re-exposes the same data on 6767 over
+    // localhost.
     let port = crate::load_mars_settings().nt_port();
     let mut client = state.0.lock().await;
     match client.connect("127.0.0.1", port, app).await {
@@ -36,8 +36,8 @@ pub async fn connect_real(team_number: Option<String>, app: AppHandle, state: St
     let settings = crate::load_mars_settings();
     let port = settings.nt_port();
 
-    // Una dirección custom gana sobre el número de equipo: es la única forma
-    // de llegar al robot por USB (172.22.11.2) o por hostname.
+    // A custom address wins over the team number: it is the only way to reach
+    // the robot over USB (172.22.11.2) or by hostname.
     let ip = if !settings.nt_custom_address.trim().is_empty() {
         settings.nt_custom_address.trim().to_string()
     } else {
@@ -59,14 +59,14 @@ pub async fn connect_real(team_number: Option<String>, app: AppHandle, state: St
 
 // --- Logs (.wpilog) ---------------------------------------------------------
 
-/// Vuelca el buffer actual a un archivo WPILOG. Sirve tanto para una sesión en
-/// vivo como para reexportar un log ya abierto.
+/// Dumps the current buffer to a WPILOG file. It works both for a live session
+/// and for re-exporting a log that is already open.
 #[tauri::command]
 pub async fn export_wpilog(path: String, state: State<'_, NT4State>) -> Result<ExportSummary, String> {
     let client = state.0.lock().await;
     let buffer = client.buffer.lock().await;
     if buffer.topics.is_empty() {
-        return Err("No hay datos en el buffer para exportar.".to_string());
+        return Err("No data in the buffer to export.".to_string());
     }
     wpilog::write_wpilog(&buffer, &PathBuf::from(&path))
 }
@@ -74,21 +74,21 @@ pub async fn export_wpilog(path: String, state: State<'_, NT4State>) -> Result<E
 #[derive(Serialize)]
 pub struct OpenLogResult {
     pub summary: LogSummary,
-    /// Los topics del log, para que el front reemplace el árbol de una sola vez
-    /// en vez de recibir cientos de eventos `nt-topic-announced` sueltos.
+    /// The log's topics, so the frontend replaces the tree in one go instead of
+    /// receiving hundreds of loose `nt-topic-announced` events.
     pub topics: Vec<TopicAnnounce>,
 }
 
-/// Carga un WPILOG en el mismo buffer que usa NT4. Como el buffer es la única
-/// fuente de datos de toda la app, con esto Field, Swerve, Mechanism, Display y
-/// Functions pasan a leer del log sin cambiar una línea.
+/// Loads a WPILOG into the same buffer NT4 uses. Since the buffer is the whole
+/// app's only data source, with this Field, Swerve, Mechanism, Display and
+/// Functions read from the log without changing a line.
 #[tauri::command]
 pub async fn open_wpilog(path: String, state: State<'_, NT4State>) -> Result<OpenLogResult, String> {
     let (topics, summary) = wpilog::read_wpilog(&PathBuf::from(&path))?;
 
     let mut client = state.0.lock().await;
-    // El log y la conexión comparten buffer: dejar NT4 vivo haría que los datos
-    // en vivo se mezclen con los del archivo en la misma timeline.
+    // The log and the connection share a buffer: leaving NT4 alive would mix the
+    // live data with the file's on the same timeline.
     client.disconnect().await;
 
     let announces: Vec<TopicAnnounce> = topics
@@ -102,7 +102,7 @@ pub async fn open_wpilog(path: String, state: State<'_, NT4State>) -> Result<Ope
     Ok(OpenLogResult { summary, topics: announces })
 }
 
-/// Descarta el log cargado y deja el buffer limpio para volver a conectarse.
+/// Discards the loaded log and leaves the buffer clean to connect again.
 #[tauri::command]
 pub async fn close_log(state: State<'_, NT4State>) -> Result<(), String> {
     let client = state.0.lock().await;
@@ -112,9 +112,9 @@ pub async fn close_log(state: State<'_, NT4State>) -> Result<(), String> {
     Ok(())
 }
 
-/// Consumo de ancho de banda por topic, sobre los últimos `window_seconds`
-/// de datos del buffer. En competencia el FMS corta en 4 Mbps y la causa
-/// típica de pasarse es loguear de más sin saberlo.
+/// Bandwidth usage per topic, over the last `window_seconds` of data in the
+/// buffer. At competition the FMS cuts off at 4 Mbps and the typical cause of
+/// going over is logging too much without knowing it.
 #[tauri::command]
 pub async fn get_bandwidth_report(window_seconds: u32, state: State<'_, NT4State>) -> Result<BandwidthReport, String> {
     let client = state.0.lock().await;
@@ -127,15 +127,15 @@ pub struct NTLinkStatus {
     pub address: String,
     pub port: u16,
     pub connected: bool,
-    /// Mitad del round trip medido con el ping RTT, en µs.
+    /// Half the round trip measured with the RTT ping, in µs.
     pub latency_us: i64,
-    /// Hora del servidor NT en µs, o None si todavía no sincronizamos relojes.
+    /// The NT server's time in µs, or None if the clocks are not synced yet.
     pub server_time_us: Option<u64>,
 }
 
-/// Estado del enlace NT4 tal como lo mide el ping RTT. Sirve para mostrar a
-/// qué host:puerto se está hablando de verdad (antes la barra de estado
-/// asumía siempre localhost:5810) y si los relojes ya están sincronizados.
+/// State of the NT4 link as the RTT ping measures it. It shows which host:port
+/// we are really talking to (the status bar used to always assume
+/// localhost:5810) and whether the clocks are already synced.
 #[tauri::command]
 pub async fn get_nt_link_status(state: State<'_, NT4State>) -> Result<NTLinkStatus, String> {
     let client = state.0.lock().await;
@@ -155,10 +155,10 @@ pub async fn disconnect_nt(state: State<'_, NT4State>) -> Result<String, String>
     Ok("Disconnected successfully".to_string())
 }
 
-/// Ajusta cuánto historial por topic se conserva en RAM antes de podarse.
-/// `minutes == 0` desactiva la poda (sesión completa en memoria, a costa de
-/// crecimiento sin límite -- pensado para quien quiera grabar una prueba
-/// larga entera y sabe que va a cerrar la app después).
+/// Sets how much history per topic is kept in RAM before pruning.
+/// `minutes == 0` turns pruning off (the whole session in memory, at the cost of
+/// unbounded growth -- meant for whoever wants to record a long test whole and
+/// knows they will close the app afterwards).
 #[tauri::command]
 pub async fn set_buffer_retention_minutes(minutes: u32, state: State<'_, NT4State>) -> Result<(), String> {
     let client = state.0.lock().await;
@@ -198,9 +198,9 @@ pub async fn get_live_values(topic_names: Vec<String>, state: State<'_, NT4State
     Ok(result)
 }
 
-/// Igual que get_live_values pero para un instante específico del pasado:
-/// devuelve el último valor conocido de cada topic con timestamp <= `timestamp`.
-/// Es lo que usa el frontend cuando la timeline está en pausa/scrub.
+/// Same as get_live_values but for a specific instant in the past: returns
+/// each topic's last known value with timestamp <= `timestamp`. It is what the
+/// frontend uses when the timeline is paused/scrubbing.
 #[tauri::command]
 pub async fn get_values_at(
     topic_names: Vec<String>,
@@ -214,19 +214,19 @@ pub async fn get_values_at(
     for history in buffer.topics.values() {
         if !topic_names.contains(&history.name) { continue; }
 
-        // Requiere que history.data esté ordenado por timestamp (lo está,
-        // ya que insert_value hace push en orden de llegada del websocket).
+        // Requires history.data to be sorted by timestamp (it is, since
+        // insert_value pushes in the websocket's arrival order).
         let idx = partition_point_deque(&history.data, |(ts, _)| *ts <= timestamp);
-        if idx == 0 { continue; } // no había ningún valor todavía en ese instante
+        if idx == 0 { continue; } // there was no value yet at that instant
         result.insert(history.name.clone(), history.data[idx - 1].1.clone());
     }
 
     Ok(result)
 }
 
-/// Devuelve TODOS los puntos de cada topic dentro de [start, end]. Lo usa
-/// FunctionPage/useLiveSeriesBuffers cuando está pausado, para reconstruir
-/// la ventana de la gráfica desde el buffer real en vez de acumulación local.
+/// Returns ALL the points of each topic within [start, end]. It is used by
+/// FunctionPage/useLiveSeriesBuffers when paused, to rebuild the plot's window
+/// from the real buffer instead of local accumulation.
 #[tauri::command]
 pub async fn get_values_range(
     topic_names: Vec<String>,
@@ -256,67 +256,67 @@ fn type_idx_from_type_str(topic_type: &str) -> Result<i32, String> {
         "int" => Ok(2),
         "float" => Ok(3),
         "string" => Ok(4),
-        // Los arreglos hacen falta para la NT Session: un Pose2d publicado a
-        // mano viaja como double[] {x, y, theta}. Los indices son los que fija
-        // la spec de NT4 y los mismos que decodifica `insert_value`.
+        // The arrays are needed for the NT Session: a Pose2d published by hand
+        // travels as a double[] {x, y, theta}. The indices are the ones NT4's spec
+        // fixes and the same `insert_value` decodes.
         "boolean[]" => Ok(16),
         "double[]" => Ok(17),
         "int[]" => Ok(18),
         "float[]" => Ok(19),
         "string[]" => Ok(20),
-        // Todo lo binario comparte el indice 5: structs de WPILib, sus schemas
-        // y el raw suelto. El frontend arma los bytes (ya tiene la tabla de
-        // layouts para decodificarlos) y los manda como arreglo de numeros.
+        // Everything binary shares index 5: WPILib structs, their schemas and
+        // loose raw. The frontend builds the bytes (it already has the layout table
+        // to decode them) and sends them as an array of numbers.
         "structschema" | "raw" | "rpc" | "msgpack" | "protobuf" => Ok(5),
         other if other.starts_with("struct:") => Ok(5),
-        other => Err(format!("Tipo no soportado para escritura todavía: {}", other)),
+        other => Err(format!("Type not supported for writing yet: {}", other)),
     }
 }
 
-/// Convierte un array JSON aplicando `item` a cada elemento. Un solo elemento
-/// invalido invalida el arreglo entero: publicar la mitad de un Pose2d seria
-/// peor que fallar.
+/// Converts a JSON array applying `item` to each element. A single invalid
+/// element invalidates the whole array: publishing half a Pose2d would be
+/// worse than failing.
 fn json_array_to_rmpv(
     value: &serde_json::Value,
     what: &str,
     item: impl Fn(&serde_json::Value) -> Option<rmpv::Value>,
 ) -> Result<rmpv::Value, String> {
-    let array = value.as_array().ok_or_else(|| format!("Se esperaba un arreglo de {}", what))?;
+    let array = value.as_array().ok_or_else(|| format!("Expected a {} array", what))?;
     let mut out = Vec::with_capacity(array.len());
     for entry in array {
-        out.push(item(entry).ok_or_else(|| format!("Elemento inválido en el arreglo de {}", what))?);
+        out.push(item(entry).ok_or_else(|| format!("Invalid element in the {} array", what))?);
     }
     Ok(rmpv::Value::Array(out))
 }
 
 fn json_to_rmpv(value: &serde_json::Value, type_idx: i32) -> Result<rmpv::Value, String> {
     match type_idx {
-        0 => value.as_bool().map(rmpv::Value::from).ok_or_else(|| "Valor booleano inválido".to_string()),
-        1 | 3 => value.as_f64().map(rmpv::Value::from).ok_or_else(|| "Valor numérico inválido".to_string()),
-        2 => value.as_i64().map(rmpv::Value::from).ok_or_else(|| "Valor entero inválido".to_string()),
-        4 => value.as_str().map(|s| rmpv::Value::from(s)).ok_or_else(|| "Valor de texto inválido".to_string()),
-        16 => json_array_to_rmpv(value, "booleanos", |v| v.as_bool().map(rmpv::Value::from)),
-        17 | 19 => json_array_to_rmpv(value, "números", |v| v.as_f64().map(rmpv::Value::from)),
-        18 => json_array_to_rmpv(value, "enteros", |v| v.as_i64().map(rmpv::Value::from)),
-        20 => json_array_to_rmpv(value, "textos", |v| v.as_str().map(rmpv::Value::from)),
-        // Binario: llega como arreglo de bytes 0..255.
+        0 => value.as_bool().map(rmpv::Value::from).ok_or_else(|| "Invalid boolean value".to_string()),
+        1 | 3 => value.as_f64().map(rmpv::Value::from).ok_or_else(|| "Invalid numeric value".to_string()),
+        2 => value.as_i64().map(rmpv::Value::from).ok_or_else(|| "Invalid integer value".to_string()),
+        4 => value.as_str().map(|s| rmpv::Value::from(s)).ok_or_else(|| "Invalid text value".to_string()),
+        16 => json_array_to_rmpv(value, "boolean", |v| v.as_bool().map(rmpv::Value::from)),
+        17 | 19 => json_array_to_rmpv(value, "number", |v| v.as_f64().map(rmpv::Value::from)),
+        18 => json_array_to_rmpv(value, "integer", |v| v.as_i64().map(rmpv::Value::from)),
+        20 => json_array_to_rmpv(value, "string", |v| v.as_str().map(rmpv::Value::from)),
+        // Binary: arrives as an array of bytes 0..255.
         5 => {
-            let array = value.as_array().ok_or("Se esperaba un arreglo de bytes")?;
+            let array = value.as_array().ok_or("Expected a byte array")?;
             let mut bytes = Vec::with_capacity(array.len());
             for entry in array {
                 let byte = entry.as_u64().filter(|n| *n <= 255)
-                    .ok_or("Byte fuera de rango (se esperaba 0..255)")?;
+                    .ok_or("Byte out of range (expected 0..255)")?;
                 bytes.push(byte as u8);
             }
             Ok(rmpv::Value::Binary(bytes))
         }
-        _ => Err("Tipo no soportado para escritura todavía".to_string()),
+        _ => Err("Type not supported for writing yet".to_string()),
     }
 }
 
-/// Escribe un valor en un topic de NetworkTables (Command Console).
-/// `value` llega como JSON crudo desde el frontend; se convierte al tipo
-/// correcto según `topic_type` antes de mandarlo por el socket.
+/// Writes a value to a NetworkTables topic (Command Console).
+/// `value` arrives as raw JSON from the frontend; it is converted to the right
+/// type according to `topic_type` before sending it over the socket.
 #[tauri::command]
 pub async fn set_value(
     topic_name: String,
@@ -330,7 +330,7 @@ pub async fn set_value(
     client.set_value(&topic_name, &topic_type, type_idx, rmpv_value).await
 }
 
-/// Retira un topic publicado por MARS (ver `NT4Client::unpublish`).
+/// Withdraws a topic published by MARS (see `NT4Client::unpublish`).
 #[tauri::command]
 pub async fn unpublish_value(topic_name: String, state: State<'_, NT4State>) -> Result<(), String> {
     let mut client = state.0.lock().await;
@@ -347,11 +347,11 @@ pub struct JitterStats {
     pub expected_hz: f64,
 }
 
-/// Analiza el timing de llegada de cada topic dentro de una ventana reciente
-/// (no toda la sesión, para que refleje el comportamiento ACTUAL del robot,
-/// no un promedio diluido de horas de conexión). Calcula el delta entre
-/// timestamps consecutivos -- eso es directamente el período real de
-/// publicación de ese topic, con sus drops y overruns incluidos.
+/// Analyzes each topic's arrival timing within a recent window (not the whole
+/// session, so it reflects the robot's CURRENT behavior, not an average diluted
+/// over hours of connection). It computes the delta between consecutive
+/// timestamps -- that is directly the topic's real publishing period, with its
+/// drops and overruns included.
 #[tauri::command]
 pub async fn get_jitter_stats(
     topic_names: Vec<String>,
@@ -373,7 +373,7 @@ pub async fn get_jitter_stats(
             .filter(|&ts| ts >= cutoff)
             .collect();
 
-        if timestamps.len() < 2 { continue; } // no hay suficientes samples en la ventana
+        if timestamps.len() < 2 { continue; } // not enough samples in the window
 
         let deltas: Vec<f64> = timestamps.windows(2)
             .map(|w| (w[1] - w[0]) as f64 / 1000.0) // us -> ms

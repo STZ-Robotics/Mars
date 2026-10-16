@@ -1,6 +1,6 @@
-// Ajustes del 2D Visualizer que valen para TODA la cancha, separados del panel
-// de objetos: qué modelo se dibuja, de qué tamaño es el chasis y qué capas de
-// ayuda están encendidas.
+// 2D Visualizer settings that apply to the WHOLE field, separate from the
+// objects panel: which model is drawn, how big the chassis is and which help
+// layers are on.
 
 import { FieldSettings, RobotRenderMode } from "../../../store/appStore"
 import { fileNameOf } from "../../../utils/field/robotModel"
@@ -19,7 +19,7 @@ interface Props {
   error: string | null
   onPickModel: () => void
   onClearModel: () => void
-  /** Muestras acumuladas entre todos los objetos. */
+  /** Samples accumulated across all objects. */
   totalSamples: number
   onClearHistory: () => void
 }

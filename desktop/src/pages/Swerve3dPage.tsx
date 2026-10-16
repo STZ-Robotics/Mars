@@ -1,10 +1,10 @@
-// Vista 3D del swerve. Consume EXACTAMENTE las mismas fuentes que la pestaña
-// Swerve 2D (SwerveModuleState[], ChassisSpeeds, Rotation2d) y las dibuja
-// sobre el modelo real del robot.
+// The swerve's 3D view. It consumes EXACTLY the same sources as the Swerve 2D
+// tab (SwerveModuleState[], ChassisSpeeds, Rotation2d) and draws them over the
+// robot's real model.
 //
-// El robot no se traslada: la idea es ver el estado del drivetrain, no seguir
-// la pose en la cancha (para eso está el 2D Visualizer). Lo que se mueve es el
-// piso, al revés que el chasis.
+// The robot does not translate: the idea is to see the drivetrain's state, not
+// to follow the pose on the field (that is what the 2D Visualizer is for). What
+// moves is the floor, opposite to the chassis.
 
 import React, { useEffect, useMemo, useState } from "react"
 import {
@@ -39,7 +39,7 @@ interface Props {
 
 const CORNER_LABELS = ["FL", "FR", "BL", "BR"]
 
-/** Las cuatro esquinas de un chasis rectangular, en el orden de dibujo. */
+/** A rectangular chassis' four corners, in drawing order. */
 function autoPlacements(length: number, width: number, height: number): Swerve3dModulePlacement[] {
   return moduleLocations(length, width).map(location => ({ x: location.x, y: location.y, z: height }))
 }
@@ -98,10 +98,10 @@ export default function Swerve3dPage({
     }
   }
 
-  // --- Cinemática ------------------------------------------------------------
-  // La velocidad que mueve el piso sale de la fuente medida si el robot publica
-  // ChassisSpeeds; si no, se reconstruye de los módulos, que es lo que hace la
-  // pestaña 2D para el ICR.
+  // --- Kinematics ------------------------------------------------------------
+  // The velocity that moves the floor comes from the measured source if the
+  // robot publishes ChassisSpeeds; if not, it is rebuilt from the modules, which
+  // is what the 2D tab does for the ICR.
   const measuredSet = moduleSets.find(s => s.role === "measured") ?? moduleSets[0] ?? null
 
   const solution: KinematicsSolution | null = useMemo(() => {
@@ -246,10 +246,10 @@ export default function Swerve3dPage({
   )
 }
 
-// --- Lectura numérica sobre el 3D -------------------------------------------
+// --- Numeric readout over the 3D -------------------------------------------
 
-// Los números van encima del lienzo y no en una franja aparte: la vista 3D
-// necesita todo el alto que pueda, y de todos modos son cuatro filas.
+// The numbers go over the canvas and not in a separate strip: the 3D view
+// needs all the height it can get, and they are four rows anyway.
 function Hud({
   moduleSets, rotation, velocity, velocitySource, maxSpeed, peakModuleSpeed, rmsResidual,
 }: {

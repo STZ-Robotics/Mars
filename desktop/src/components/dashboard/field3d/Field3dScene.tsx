@@ -1,17 +1,17 @@
-// La escena del Field 3D: la cancha, la cámara y todo lo que se dibuja encima.
+// The Field 3D's scene: the field, the camera and everything drawn on top.
 //
-// El mundo es Z ARRIBA, X hacia la alianza roja e Y hacia la izquierda vista
-// desde el azul, con el origen en el CENTRO del área de juego. Es el marco del
-// modelo de la cancha y el mismo que usa AdvantageScope, así que las
-// posiciones de los AprilTags y de las driver stations que trae el config.json
-// de cada asset entran tal cual, sin recalcular nada.
+// The world is Z UP, X towards the red alliance and Y to the left seen from
+// blue, with the origin at the CENTER of the playing area. It is the field
+// model's frame and the same one AdvantageScope uses, so the AprilTag and driver
+// station positions each asset's config.json carries go in as is, without
+// recomputing anything.
 //
-// La conversión desde el marco en que publica el robot ya la hizo la página
-// (`utils/field3d/frames.ts`): acá todas las poses llegan listas para dibujar.
+// The conversion from the frame the robot publishes in was already done by the
+// page (`utils/field3d/frames.ts`): here all poses arrive ready to draw.
 //
-// El bucle de dibujo lee de REFS y no de props: los datos llegan a ~30 Hz pero
-// la escena se redibuja a 60 (la cámara se mueve sola, con amortiguación), y
-// recrear el loop en cada muestra tiraría a la basura ese trabajo.
+// The draw loop reads from REFS and not props: the data arrives at ~30 Hz but
+// the scene redraws at 60 (the camera moves on its own, with damping), and
+// recreating the loop on every sample would throw that work away.
 
 import { useEffect, useRef } from "react"
 import {
@@ -38,34 +38,35 @@ interface Props {
   objects: RenderedField3dObject[]
   settings: Field3dSettings
   size: FieldSize
-  /** Config de la cancha activa; null = la esquemática. */
+  /** The active field's config; null = the schematic one. */
   fieldConfig: FieldAssetConfig | null
   fieldAsset: LoadedAsset | null
   robotAssets: Map<string, RobotAssetEntry>
   gamePieces: GamePieceEntry[]
-  /** Piezas con topic activo: sus copias "de fábrica" del modelo se ocultan. */
+  /** Pieces with an active topic: their "factory" copies in the model are hidden. */
   activeGamePieces: Set<number>
   trails: TrailStore
-  /** Cambia de valor cuando la página pide volver a la vista por defecto. */
+  /** Changes value when the page asks to go back to the default view. */
   resetCameraToken: number
 }
 
 /**
- * Lleva de la convención de cámara de WPILib (+X hacia adelante, +Z arriba) a
- * la de three (-Z hacia adelante, +Y arriba).
+ * Goes from WPILib's camera convention (+X forward, +Z up) to three's
+ * (-Z forward, +Y up).
  *
- * Sin esto, una cámara declarada en el asset del robot apuntaría al piso y
- * girada 90°, que es el error clásico al portar poses de visión.
+ * Without this, a camera declared in the robot's asset would point at the
+ * floor and be rotated 90°, which is the classic mistake when porting vision
+ * poses.
  */
 const CAMERA_FIX = new Quaternion().setFromRotationMatrix(
   new Matrix4().makeBasis(
-    new Vector3(0, -1, 0),   // +X de la cámara (derecha) = -Y del robot
-    new Vector3(0, 0, 1),    // +Y de la cámara (arriba)  = +Z del robot
-    new Vector3(-1, 0, 0),   // +Z de la cámara (atrás)   = -X del robot
+    new Vector3(0, -1, 0),   // the camera's +X (right) = the robot's -Y
+    new Vector3(0, 0, 1),    // the camera's +Y (up)    = the robot's +Z
+    new Vector3(-1, 0, 0),   // the camera's +Z (back)  = the robot's -X
   ),
 )
 
-/** Metros por pulgada, para leer el tamaño del tag de su variante. */
+/** Meters per inch, to read the tag's size from its variant. */
 const INCH = 0.0254
 
 interface SceneCore {
@@ -73,12 +74,12 @@ interface SceneCore {
   scene: Scene
   camera: PerspectiveCamera
   controls: OrbitControls
-  /** Cancha + decoraciones; se reconstruye al cambiar de asset. */
+  /** Field + decorations; rebuilt when the asset changes. */
   fieldGroup: Group
-  /** Objetos de la lista. */
+  /** The list's objects. */
   objectGroup: Group
   visuals: Map<string, ObjectVisual>
-  /** Nodos del modelo que representan piezas ya colocadas, por índice de pieza. */
+  /** Model nodes that represent pieces already in place, by piece index. */
   staged: Map<number, { visible: boolean; nodes: Object3D[] }>
   lastFrame: number
 }
@@ -90,7 +91,7 @@ export default function Field3dScene(props: Props) {
   const propsRef = useRef(props)
   propsRef.current = props
 
-  // --- Montaje: renderer, cámara, luces, loop --------------------------------
+  // --- Setup: renderer, camera, lights, loop --------------------------------
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
@@ -101,9 +102,9 @@ export default function Field3dScene(props: Props) {
     renderer.domElement.style.height = "100%"
     container.appendChild(renderer.domElement)
 
-    // Sin esto los colores del modelo salen apagados: three interpreta el
-    // color del material en espacio lineal y hay que convertirlo a sRGB al
-    // escribir el framebuffer.
+    // Without this the model's colors come out dull: three interprets the
+    // material's color in linear space and it has to be converted to sRGB when
+    // writing the framebuffer.
     renderer.outputColorSpace = SRGBColorSpace
     renderer.shadowMap.type = PCFSoftShadowMap
 
@@ -111,8 +112,8 @@ export default function Field3dScene(props: Props) {
     scene.background = new Color(0x222222)
 
     const camera = new PerspectiveCamera(50, 1, 0.05, 300)
-    // Z arriba: sin esto la órbita giraría alrededor del eje equivocado y la
-    // cancha se vería de canto.
+    // Z up: without this the orbit would turn about the wrong axis and the field
+    // would be seen edge-on.
     camera.up.set(0, 0, 1)
     camera.position.set(-10, -10, 7)
 
@@ -121,8 +122,8 @@ export default function Field3dScene(props: Props) {
     controls.dampingFactor = 0.1
     controls.minDistance = 1
     controls.maxDistance = 60
-    // Un poco antes del horizonte: mirar exactamente de canto deja la cancha
-    // reducida a una línea.
+    // A little before the horizon: looking exactly edge-on reduces the field to
+    // a line.
     controls.maxPolarAngle = Math.PI / 2 - 0.02
     controls.target.set(0, 0, 0)
     controls.update()
@@ -156,18 +157,17 @@ export default function Field3dScene(props: Props) {
     const animate = (time: number) => {
       frame = requestAnimationFrame(animate)
 
-      // En modo de bajo consumo se dibuja a 30 fps: en una notebook del pit
-      // sin enchufe, la mitad de los frames es la diferencia entre que la app
-      // responda y que no.
+      // In low-power mode it draws at 30 fps: on a pit laptop off the charger,
+      // half the frames is the difference between the app responding and not.
       const budget = propsRef.current.settings.quality === "lowPower" ? 33 : 0
       if (budget > 0 && time - core.lastFrame < budget) return
       core.lastFrame = time
 
-      // `updateFrame` termina llamando a `controls.update()` cuando la cámara
-      // es orbital. En las vistas fijas NO se llama a propósito: OrbitControls
-      // recalcula la posición desde su estado interno en cada update, incluso
-      // con `enabled` en false, y le pisaría a la escena la cámara que acaba
-      // de colocar.
+      // `updateFrame` ends up calling `controls.update()` when the camera is
+      // orbital. In the fixed views it is NOT called on purpose: OrbitControls
+      // recomputes the position from its internal state on every update, even
+      // with `enabled` false, and would overwrite the camera the scene just
+      // placed.
       updateFrame(core, propsRef.current)
       core.renderer.render(core.scene, core.camera)
     }
@@ -188,9 +188,10 @@ export default function Field3dScene(props: Props) {
     }
   }, [])
 
-  // --- Calidad de render ------------------------------------------------------
-  // Cambia luces, sombras y resolución. Va aparte del montaje porque se toca
-  // en caliente desde el panel y recrear el renderer perdería la cámara.
+  // --- Render quality ------------------------------------------------------
+  // Changes lights, shadows and resolution. It is separate from mounting because
+  // it is changed live from the panel and recreating the renderer would lose the
+  // camera.
   useEffect(() => {
     const core = coreRef.current
     if (!core) return
@@ -211,9 +212,9 @@ export default function Field3dScene(props: Props) {
     props.settings.showDriverStations, props.settings.quality,
   ])
 
-  // --- Objetos ----------------------------------------------------------------
-  // Se reconstruyen solo cuando cambia algo que altera mallas o materiales; las
-  // poses se aplican en el loop, que únicamente toca matrices.
+  // --- Objects ----------------------------------------------------------------
+  // They are rebuilt only when something that alters meshes or materials
+  // changes; the poses are applied in the loop, which only touches matrices.
   const signature = props.objects.map(visualSignature).join("~")
 
   useEffect(() => {
@@ -246,14 +247,14 @@ function applyQuality(core: SceneCore, quality: Field3dSettings["quality"]) {
   const { renderer, scene } = core
   const cinematic = quality === "cinematic"
 
-  // En bajo consumo se dibuja por DEBAJO de la resolución de pantalla. Es lo
-  // que de verdad se nota: el resto del ahorro (menos detalle geométrico, sin
-  // sombras) ya lo aplicó el optimizador al cargar el modelo.
+  // In low power it draws BELOW the screen's resolution. It is what really
+  // shows: the rest of the savings (less geometric detail, no shadows) the
+  // optimizer already applied when loading the model.
   renderer.setPixelRatio(quality === "lowPower" ? 0.75 : Math.min(window.devicePixelRatio || 1, 2))
   renderer.shadowMap.enabled = cinematic
 
-  // Las luces se rehacen enteras: son unos pocos objetos y mantener
-  // sincronizadas sus intensidades con un `if` por luz es más frágil.
+  // The lights are rebuilt whole: they are a few objects and keeping their
+  // intensities in sync with one `if` per light is more fragile.
   scene.children
     .filter(child => child.userData.isLight === true)
     .forEach(child => {
@@ -266,35 +267,35 @@ function applyQuality(core: SceneCore, quality: Field3dSettings["quality"]) {
     scene.add(light)
   }
 
-  // El hemisférico hace casi todo el trabajo fuera de cinematográfico: con
-  // intensidad 2 la cancha se lee plana y clara, que es exactamente lo que uno
-  // quiere para mirar datos. Bajarlo y compensar con direccionales produce esas
-  // escenas oscuras con medio modelo en sombra que no dejan ver nada.
-  // En cinematográfico el rebote ambiental va apenas cálido y con el suelo
-  // más oscuro: es lo que hace que el modo se lea como un venue iluminado y
-  // no como el modo normal con el brillo bajado.
+  // The hemisphere light does almost all the work outside cinematic: at
+  // intensity 2 the field reads flat and clear, which is exactly what you want
+  // for looking at data. Lowering it and compensating with directionals produces
+  // those dark scenes with half the model in shadow where nothing can be seen.
+  // In cinematic the ambient bounce goes slightly warm with a darker ground: it
+  // is what makes the mode read as a lit venue and not as the normal mode with
+  // the brightness turned down.
   add(cinematic
     ? new HemisphereLight(0xfff4e8, 0x2b2b33, 0.5)
     : new HemisphereLight(0xffffff, 0x444444, 2))
 
   if (!cinematic) {
-    // Un solo punto de luz alto para dar algo de relieve al plano.
+    // A single high light source to give the plane some relief.
     const point = new PointLight(0xffffff, 0.5)
     point.position.set(0, 0, 10)
     add(point)
     return
   }
 
-  // En cinematográfico se imitan las luminarias de un venue: cuatro focos
-  // desde arriba, que son los que proyectan las sombras. La luz es blanca
-  // cálida y NO va teñida de azul y rojo por los extremos: ese tinte es la
-  // firma visual de AdvantageScope y, peor, falsea el color de los materiales
-  // del robot, que es exactamente lo que uno viene a mirar a esta pestaña.
-  // El volumen sale de dónde pega cada foco y con cuánta fuerza, no del color.
+  // In cinematic the venue's fixtures are imitated: four spotlights from above,
+  // which are the ones that cast the shadows. The light is warm white and is NOT
+  // tinted blue and red at the ends: that tint is AdvantageScope's visual
+  // signature and, worse, it falsifies the color of the robot's materials, which
+  // is exactly what you come to this tab to look at.
+  // The volume comes from where each spotlight hits and how hard, not from color.
   const SPOTS: [number, number, number, number][] = [
-    // x, y, z, intensidad. Asimétricas a propósito: el foco de un lado hace de
-    // key y el opuesto de fill, que es lo que separa las caras del robot.
-    // Cuatro focos idénticos aplanan el modelo tanto como una sola ambiental.
+    // x, y, z, intensity. Asymmetric on purpose: the spotlight on one side acts as
+    // key and the opposite one as fill, which is what separates the robot's faces.
+    // Four identical spotlights flatten the model as much as a single ambient one.
     [3, 7, 10, 200], [-3, -7, 10, 95], [8, -2, 10, 140], [-8, 2, 10, 120],
   ]
   SPOTS.forEach(([x, y, z, intensity]) => {
@@ -303,16 +304,16 @@ function applyQuality(core: SceneCore, quality: Field3dSettings["quality"]) {
     spot.target.position.set(0, 0, 0)
     spot.castShadow = true
     spot.shadow.mapSize.set(2048, 2048)
-    // Sin esto la alfombra se llena del moteado clásico de auto-sombreado.
+    // Without this the carpet fills up with the classic self-shadowing speckle.
     spot.shadow.bias = -0.0001
     add(spot)
     add(spot.target)
   })
 
-  // Dos rasantes bajos en los extremos, en blanco frío muy suave. Cumplen el
-  // papel que antes hacían las luces de alianza — despegar del fondo negro las
-  // paredes del fondo y el contorno del robot cuando la cámara gira — pero sin
-  // pintar nada: el contraste lo dan el ángulo y la caída, no el matiz.
+  // Two low grazing lights at the ends, in very soft cool white. They play the
+  // role the alliance lights used to — lifting the far walls and the robot's
+  // outline off the black background as the camera turns — but without painting
+  // anything: the contrast comes from the angle and the falloff, not the hue.
   ;[-4.6, 4.6].forEach(x => {
     const rim = new PointLight(0xe6edf7, 22, 13, 2)
     rim.position.set(x, 0, 2.6)
@@ -325,9 +326,9 @@ function applyQuality(core: SceneCore, quality: Field3dSettings["quality"]) {
 function clearFieldGroup(core: SceneCore) {
   core.fieldGroup.children.slice().forEach(child => {
     core.fieldGroup.remove(child)
-    // `disposeSceneTree` respeta lo prestado: la geometría de una instancia de
-    // asset la comparten todas las copias y la caché del loader, y soltarla
-    // dejaría la cancha en negro la próxima vez que se abra la pestaña.
+    // `disposeSceneTree` respects what is borrowed: an asset instance's geometry
+    // is shared by all the copies and the loader's cache, and releasing it would
+    // leave the field black the next time the tab is opened.
     disposeSceneTree(child)
   })
   core.staged.clear()
@@ -338,22 +339,22 @@ function buildField(core: SceneCore, props: Props) {
   const { fieldAsset, fieldConfig, settings, size } = props
 
   if (fieldAsset && fieldConfig) {
-    // El modelo se carga crudo; los giros que lo llevan al marco Z-arriba los
-    // declara su config (normalmente un +90° en X, que es lo que separa la
-    // convención Y-arriba de glTF de la Z-arriba de WPILib).
+    // The model is loaded raw; the rotations that bring it to the Z-up frame are
+    // declared by its config (normally a +90° about X, which is what separates
+    // glTF's Y-up convention from WPILib's Z-up).
     const rotation = composeRotations(fieldConfig.rotations)
     const holder = new Group()
     holder.quaternion.set(rotation[1], rotation[2], rotation[3], rotation[0])
     holder.add(instantiateAsset(fieldAsset))
-    // Las banderas de sombra ya las puso el optimizador al cargar el modelo,
-    // que es quien sabe qué malla es la alfombra y cuál un vidrio.
+    // The shadow flags were already set by the optimizer when loading the model,
+    // which is what knows which mesh is the carpet and which one a pane of glass.
     core.fieldGroup.add(holder)
 
-    // Las piezas que el modelo trae ya colocadas se indexan por pieza para
-    // poder apagarlas cuando el robot publique su topic.
-    // Los nodos se buscan sobre la COPIA recién colgada y no sobre el original
-    // cacheado: apagar el original afectaría a cualquier otra pestaña Field 3D
-    // abierta sobre la misma cancha.
+    // The pieces the model carries already in place are indexed by piece so they
+    // can be turned off when the robot publishes its topic.
+    // The nodes are looked up on the freshly attached COPY and not on the cached
+    // original: turning off the original would affect any other Field 3D tab open
+    // on the same field.
     fieldConfig.gamePieces.forEach((piece, index) => {
       const wanted = new Set(piece.stagedObjects)
       const nodes: Object3D[] = []
@@ -367,9 +368,9 @@ function buildField(core: SceneCore, props: Props) {
   if (settings.showGrid) core.fieldGroup.add(makeFieldGrid(size, settings.gridCell))
 
   if (settings.showFieldAxes) {
-    // El triedro va en el origen de coordenadas del ROBOT (la esquina azul en
-    // el sistema clásico), no en el centro: es donde uno espera ver el (0,0)
-    // al comparar con los números que imprime el código.
+    // The axes go at the ROBOT's coordinate origin (the blue corner in the
+    // classic system), not at the center: it is where you expect to see (0,0)
+    // when comparing with the numbers the code prints.
     const axes = makeAxes(1.2)
     axes.position.set(-size.length / 2, -size.width / 2, 0.01)
     core.fieldGroup.add(axes)
@@ -387,7 +388,7 @@ function buildField(core: SceneCore, props: Props) {
   }
 }
 
-/** Tamaño físico del tag, leído de su variante ("36h11-6.5in" -> 0.165 m). */
+/** The tag's physical size, read from its variant ("36h11-6.5in" -> 0.165 m). */
 function tagSize(variant: string): number {
   const match = /(\d+(?:\.\d+)?)in/.exec(variant)
   return match ? Number(match[1]) * INCH : 6.5 * INCH
@@ -397,19 +398,19 @@ function makeAprilTags(config: FieldAssetConfig, withIds: boolean): Group {
   const group = new Group()
   group.name = "apriltags"
 
-  // Un material compartido por todos los tags: son 32 en la cancha 2026 y cada
-  // uno con material propio serían 32 programas de shader por nada.
+  // One material shared by every tag: there are 32 on the 2026 field and each
+  // with its own material would be 32 shader programs for nothing.
   const faceMaterial = new MeshBasicMaterial({ color: 0x101014 })
   const borderMaterial = new MeshBasicMaterial({ color: 0xf5f5f8 })
 
-  // Una cancha usa un solo tamaño de tag, así que la geometría se comparte por
-  // lado en vez de crear 64 cajas idénticas.
+  // A field uses a single tag size, so the geometry is shared per side instead
+  // of creating 64 identical boxes.
   const geometries = new Map<number, { face: BoxGeometry; border: BoxGeometry }>()
   const geometryFor = (side: number) => {
     let hit = geometries.get(side)
     if (!hit) {
-      // El tag mira hacia +X en el marco de WPILib, así que la placa es
-      // delgada en X y cuadrada en Y/Z.
+      // The tag faces +X in WPILib's frame, so the plate is thin in X and
+      // square in Y/Z.
       hit = {
         face: new BoxGeometry(0.008, side, side),
         border: new BoxGeometry(0.006, side * 1.25, side * 1.25),
@@ -446,8 +447,8 @@ function makeDriverStationMarkers(stations: [number, number][]): Group {
   group.name = "driver-stations"
 
   stations.forEach((station, index) => {
-    // Las tres primeras son azules y las tres siguientes rojas, que es el
-    // orden en que las lista el config de AdvantageScope.
+    // The first three are blue and the next three red, which is the order
+    // AdvantageScope's config lists them in.
     const color = index < stations.length / 2 ? 0x2f6fdb : 0xd63b3b
     const marker = new Mesh(
       new BoxGeometry(0.35, 0.9, 0.05),
@@ -482,9 +483,9 @@ function syncVisuals(core: SceneCore, props: Props) {
     core.visuals.delete(id)
   })
 
-  // Todo se reconstruye de una: la firma que dispara este efecto ya juntó los
-  // cambios de TODOS los objetos, y distinguir cuál cambió pediría guardarse
-  // la firma de cada uno para ganar unos milisegundos que nadie ve.
+  // Everything is rebuilt at once: the signature that fires this effect already
+  // gathered the changes of ALL the objects, and telling which one changed would
+  // mean storing each one's signature to gain a few milliseconds nobody sees.
   props.objects.forEach(object => {
     const existing = core.visuals.get(object.id)
     if (existing) {
@@ -504,9 +505,9 @@ function syncVisuals(core: SceneCore, props: Props) {
 function updateFrame(core: SceneCore, props: Props) {
   const now = Date.now()
 
-  // Las poses de los objetos `robot` se resuelven primero: los componentes y
-  // las marcas de visión cuelgan de ellas, y en el mismo frame tienen que ver
-  // la pose de ESTE frame, no la del anterior.
+  // The `robot` objects' poses are resolved first: components and vision marks
+  // hang from them, and in the same frame they have to see THIS frame's pose,
+  // not the previous one's.
   const robotPoses = new Map<string, Pose3D>()
   props.objects.forEach(object => {
     if (object.type !== "robot" && object.type !== "ghost") return
@@ -514,21 +515,22 @@ function updateFrame(core: SceneCore, props: Props) {
     if (pose) robotPoses.set(object.id, pose)
   })
 
-  // El "robot principal" es el primero de tipo `robot` que tenga pose. Es a lo
-  // que apuntan la cámara que sigue al robot y los objetos sin ancla explícita.
+  // The "main robot" is the first one of type `robot` that has a pose. It is
+  // what the robot-following camera and the objects with no explicit anchor aim at.
   const primaryId = props.objects.find(o => o.type === "robot" && robotPoses.has(o.id))?.id ?? null
   const primaryPose = primaryId === null ? null : robotPoses.get(primaryId) ?? null
 
   const anchorPose = (anchorId: string | null): Pose3D | null => {
     if (anchorId !== null) return robotPoses.get(anchorId) ?? null
-    // Sin ancla explícita se usa el primer robot de la lista: es lo que quiere
-    // decir alguien que suelta un topic de componentes y no toca nada más.
+    // With no explicit anchor the first robot in the list is used: it is what
+    // someone means when they drop a components topic and touch nothing else.
     return primaryPose
   }
 
-  // Qué asset usa un objeto anclado: el suyo si lo fijó, si no el default de
-  // la pestaña. La cámara del robot y su campo de visión tienen que resolverlo
-  // igual, o el encuadre saldría de un asset y la lente de otro.
+  // Which asset an anchored object uses: its own if it set one, otherwise the
+  // tab's default. The robot's camera and its field of view have to resolve it
+  // the same way, or the framing would come from one asset and the lens from
+  // another.
   const assetKeyOf = (anchorId: string | null): string | null => {
     const object = props.objects.find(o => o.id === (anchorId ?? primaryId))
     return object?.options.robotAssetKey ?? props.settings.robotAssetKey
@@ -553,9 +555,9 @@ function updateFrame(core: SceneCore, props: Props) {
     core.visuals.get(object.id)?.update(object, frame)
   })
 
-  // Las piezas que el modelo trae colocadas se apagan en cuanto el robot
-  // publica ese tipo de pieza: si no, cada una se vería dos veces, la de
-  // verdad y la que viene pintada en la cancha.
+  // The pieces the model carries in place are turned off as soon as the robot
+  // publishes that piece type: otherwise each one would be seen twice, the real
+  // one and the one painted on the field.
   core.staged.forEach((entry, index) => {
     const visible = props.settings.showStagedPieces && !props.activeGamePieces.has(index)
     if (entry.visible === visible) return
@@ -566,11 +568,11 @@ function updateFrame(core: SceneCore, props: Props) {
   updateCamera(core, props, primaryPose, anchorCamera, assetKeyOf(null))
 }
 
-// --- Cámara -----------------------------------------------------------------------
+// --- Camera -----------------------------------------------------------------------
 
 function resetCamera(core: SceneCore, size: FieldSize) {
-  // Tres cuartos desde la esquina azul: es el encuadre en que se ve la cancha
-  // entera y todavía se entiende la profundidad.
+  // Three quarters from the blue corner: it is the framing in which the whole
+  // field is seen and depth is still understood.
   const reach = Math.max(size.length, DEFAULT_FIELD_SIZE.length)
   core.camera.position.set(-reach * 0.62, -reach * 0.5, reach * 0.42)
   core.controls.target.set(0, 0, 0)
@@ -582,7 +584,7 @@ function updateCamera(
   props: Props,
   robotPose: Pose3D | null,
   anchorCamera: (anchorId: string | null, cameraIndex: number) => Pose3D | null,
-  /** Asset del robot principal, del que sale la lente en la vista de cámara. */
+  /** The main robot's asset, which the lens comes from in the camera view. */
   robotAssetKey: string | null,
 ) {
   const { settings, size } = props
@@ -603,9 +605,9 @@ function updateCamera(
       return
 
     case "orbitRobot": {
-      // La órbita sigue al robot pero NO gira con él: la cámara se queda donde
-      // el usuario la dejó y el robot se mueve por debajo. Girar con el heading
-      // marea y hace imposible leer hacia dónde va.
+      // The orbit follows the robot but does NOT turn with it: the camera stays
+      // where the user left it and the robot moves underneath. Turning with the
+      // heading is dizzying and makes it impossible to read where it is going.
       core.controls.enabled = true
       if (robotPose) {
         const dx = robotPose.x - core.controls.target.x
@@ -627,8 +629,8 @@ function updateCamera(
         : evergreenDriverStations(size)
       const station = stations[Math.min(settings.driverStationIndex, stations.length - 1)]
       if (!station) return
-      // Un metro por detrás de la pared y a la altura de los ojos: es lo que
-      // ve el piloto, que es el punto de esta vista.
+      // A meter behind the wall and at eye height: it is what the driver sees,
+      // which is the point of this view.
       const outward = Math.sign(station[0]) || 1
       camera.position.set(station[0] + outward * 1.1, station[1], 1.6)
       camera.lookAt(0, 0, 0.6)
@@ -640,7 +642,7 @@ function updateCamera(
       const pose = anchorCamera(null, settings.robotCameraIndex)
       if (!pose) return
       applyPose(camera, pose)
-      // La cámara de three mira hacia -Z; la del robot, hacia +X.
+      // three's camera looks towards -Z; the robot's, towards +X.
       camera.quaternion.multiply(CAMERA_FIX)
       return
     }
@@ -648,11 +650,11 @@ function updateCamera(
 }
 
 /**
- * FOV VERTICAL de la cámara elegida del robot.
+ * VERTICAL FOV of the chosen robot camera.
  *
- * El config declara el HORIZONTAL, que es como lo publican los fabricantes de
- * cámaras; three quiere el vertical, y la conversión depende del aspecto real
- * del sensor, no del de la ventana.
+ * The config declares the HORIZONTAL one, which is how camera makers publish
+ * it; three wants the vertical one, and the conversion depends on the sensor's
+ * real aspect, not the window's.
  */
 function robotCameraFov(props: Props, robotAssetKey: string | null): number {
   const camera = robotAssetKey

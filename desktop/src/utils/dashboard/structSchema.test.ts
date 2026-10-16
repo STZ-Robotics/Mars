@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 import { compileAll } from "./structSchema"
 import { STRUCT_DEFS, decodeStructBytes, StructDef } from "./valueDecoding"
 
-// Descriptores tal como los publica allwpilib en "/.schema/struct:<Tipo>".
+// Descriptors exactly as allwpilib publishes them in "/.schema/struct:<Type>".
 const WPILIB_SCHEMAS: Record<string, string> = {
   Translation2d: "double x;double y",
   Rotation2d: "double value",
@@ -46,53 +46,53 @@ const offsets = (def: StructDef) => def.fields.map(f => f.offset)
 
 // ---------------------------------------------------------------------------
 
-describe("compilación contra los tipos de WPILib", () => {
+describe("compiling against the WPILib types", () => {
   const compiled = compileAll(WPILIB_SCHEMAS)
 
-  // STRUCT_DEFS es la tabla que ya estaba escrita a mano y que sabemos correcta,
-  // así que sirve de referencia: si el compilador saca los mismos offsets y
-  // tamaños para los 21 tipos, la aritmética de bits es la de la spec.
+  // STRUCT_DEFS is the table that was already written by hand and that we know is
+  // right, so it works as a reference: if the compiler gets the same offsets and
+  // sizes for the 21 types, the bit arithmetic is the spec's.
   const shared = Object.keys(STRUCT_DEFS).filter(name => name in WPILIB_SCHEMAS)
 
-  it("cubre todos los tipos compartidos con la tabla escrita a mano", () => {
+  it("covers every type shared with the hand-written table", () => {
     expect(shared.length).toBe(21)
   })
 
-  it.each(shared)("%s coincide con STRUCT_DEFS", name => {
+  it.each(shared)("%s matches STRUCT_DEFS", name => {
     const actual = compiled[name]
     const expected = STRUCT_DEFS[name]
-    expect(actual, `${name} no compiló`).toBeDefined()
+    expect(actual, `${name} did not compile`).toBeDefined()
     expect(actual.length).toBe(expected.length)
     expect(offsets(actual)).toEqual(offsets(expected))
   })
 })
 
-describe("structs propios del equipo", () => {
+describe("the team's own structs", () => {
   const defs = compileAll({
     ...WPILIB_SCHEMAS,
     ArmState: "double angle;bool homed;int32 faultCount;Rotation2d target",
   })
   const arm = defs.ArmState
 
-  it("suma los tamaños de tipos mixtos sin alinear", () => {
+  it("adds up the sizes of mixed types without alignment", () => {
     // 8 (double) + 1 (bool) + 4 (int32) + 8 (Rotation2d) = 21
     expect(arm.length).toBe(21)
     expect(offsets(arm)).toEqual([0, 8, 9, 13])
     expect(arm.fields.map(f => f.type)).toEqual(["double", "bool", "int32", "double"])
   })
 
-  it("aplana el struct anidado con la ruta como etiqueta", () => {
+  it("flattens the nested struct with the path as the label", () => {
     expect(labels(arm)).toEqual(["angle", "homed", "faultCount", "target/value"])
   })
 
-  it("decodifica cada campo con su tipo", () => {
+  it("decodes each field with its type", () => {
     const bytes = [...f64(1.25), 1, ...i32(-7), ...f64(0.5)]
     const fields = decodeStructBytes(bytes, arm)
 
     expect(fields[0].value).toBe(1.25)
     expect(fields[1].text).toBe("true")
     expect(fields[2].value).toBe(-7)
-    // Los enteros se muestran sin decimales; antes todo pasaba por toFixed(2).
+    // Integers are shown without decimals; everything used to go through toFixed(2).
     expect(fields[2].text).toBe("-7")
     expect(fields[3].value).toBe(0.5)
   })
@@ -102,28 +102,28 @@ describe("enums", () => {
   const defs = compileAll({ Mode: "enum {kOff=0, kAuto=1, kManual=2} int8 mode;double setpoint" })
   const mode = defs.Mode
 
-  it("no altera el layout", () => {
+  it("does not change the layout", () => {
     expect(mode.length).toBe(9)
     expect(offsets(mode)).toEqual([0, 1])
   })
 
-  it("muestra el nombre declarado en vez del número", () => {
+  it("shows the declared name instead of the number", () => {
     const fields = decodeStructBytes([2, ...f64(3.5)], mode)
     expect(fields[0].value).toBe(2)
     expect(fields[0].text).toBe("kManual")
   })
 
-  it("cae al número si el valor no está en el enum", () => {
+  it("falls back to the number if the value is not in the enum", () => {
     const fields = decodeStructBytes([9, ...f64(0)], mode)
     expect(fields[0].text).toBe("9")
   })
 })
 
 describe("bitfields", () => {
-  it("empaqueta bools consecutivos en una sola palabra", () => {
+  it("packs consecutive bools into a single word", () => {
     const flags = compileAll({ Flags: "bool a:1;bool b:1;bool c:1;bool d:1;double value" }).Flags
 
-    // Los cuatro bools comparten un byte; el double arranca en el siguiente.
+    // The four bools share a byte; the double starts on the next one.
     expect(flags.length).toBe(9)
     expect(flags.fields.slice(0, 4).map(f => f.bitOffset)).toEqual([0, 1, 2, 3])
     expect(flags.fields[4].offset).toBe(1)
@@ -133,22 +133,22 @@ describe("bitfields", () => {
     expect(fields.map(f => f.text)).toEqual(["true", "false", "true", "false", "2.00"])
   })
 
-  it("abre una palabra nueva cuando el valor ya no entra", () => {
-    // 6 + 4 bits no caben en un solo uint8: el segundo abre otra palabra.
+  it("opens a new word when the value no longer fits", () => {
+    // 6 + 4 bits do not fit in a single uint8: the second one opens another word.
     const packed = compileAll({ P: "uint8 a:6;uint8 b:4" }).P
     expect(packed.length).toBe(2)
     expect(packed.fields.map(f => f.bitOffset)).toEqual([0, 8])
   })
 
-  it("extiende el signo de los enteros con signo", () => {
+  it("sign-extends signed integers", () => {
     const signed = compileAll({ S: "int8 v:4" }).S
     expect(signed.length).toBe(1)
-    // 0b1101 son 13 sin signo, pero -3 leído como 4 bits con signo.
+    // 0b1101 is 13 unsigned, but -3 read as a signed 4-bit value.
     expect(decodeStructBytes([0b1101], signed)[0].value).toBe(-3)
   })
 
-  it("descarta bitfields inválidos según la spec", () => {
-    // Un double no admite bitfield y un bool solo admite ancho 1.
+  it("drops bitfields that are invalid according to the spec", () => {
+    // A double does not allow a bitfield and a bool only allows width 1.
     const invalid = compileAll({ Bad: "double d:4;bool b:3;double ok" }).Bad
     expect(labels(invalid)).toEqual(["ok"])
   })
@@ -158,7 +158,7 @@ describe("arrays", () => {
   const defs = compileAll({ ...WPILIB_SCHEMAS, Path: "double xs[3];Translation2d pts[2]" })
   const path = defs.Path
 
-  it("aplana arrays de primitivos y de structs", () => {
+  it("flattens arrays of primitives and of structs", () => {
     // 3*8 + 2*16 = 56
     expect(path.length).toBe(56)
     expect(labels(path)).toEqual([
@@ -168,7 +168,7 @@ describe("arrays", () => {
     expect(offsets(path)).toEqual([0, 8, 16, 24, 32, 40, 48])
   })
 
-  it("trata char[] como una sola cadena", () => {
+  it("treats char[] as a single string", () => {
     const named = compileAll({ Named: "char name[4];double v" }).Named
     expect(named.length).toBe(12)
     expect(named.fields.length).toBe(2)
@@ -178,20 +178,20 @@ describe("arrays", () => {
     expect(fields[1].value).toBe(9)
   })
 
-  it("corta el aplanado de arrays enormes y lo marca", () => {
-    // Un Pose3d poses[200] generaría 1400 filas que ninguna tarjeta muestra.
+  it("cuts the flattening of huge arrays and marks it", () => {
+    // A Pose3d poses[200] would generate 1400 rows no card shows.
     const huge = compileAll({ ...WPILIB_SCHEMAS, Huge: "Pose3d poses[200]" }).Huge
     expect(huge.truncated).toBe(true)
     expect(huge.fields.length).toBeLessThanOrEqual(64)
-    // El tamaño de la instancia sigue siendo el real, que es lo que usa
-    // decodeStructArrayBytes como stride.
+    // The instance's size is still the real one, which is what
+    // decodeStructArrayBytes uses as the stride.
     expect(huge.length).toBe(200 * 56)
   })
 })
 
-describe("resolución de dependencias", () => {
-  it("compila aunque el hijo llegue después que el padre", () => {
-    // El orden de llegada por NetworkTables no está garantizado.
+describe("dependency resolution", () => {
+  it("compiles even if the child arrives after the parent", () => {
+    // The arrival order over NetworkTables is not guaranteed.
     const defs = compileAll({
       Parent: "Child c;double after",
       Child: "double a;double b",
@@ -200,12 +200,12 @@ describe("resolución de dependencias", () => {
     expect(labels(defs.Parent)).toEqual(["c/a", "c/b", "after"])
   })
 
-  it("no compila un struct cuya dependencia nunca llegó", () => {
+  it("does not compile a struct whose dependency never arrived", () => {
     const defs = compileAll({ Orphan: "Unknown u;double x" })
     expect(defs.Orphan).toBeUndefined()
   })
 
-  it("compila el resto aunque uno quede sin resolver", () => {
+  it("compiles the rest even if one stays unresolved", () => {
     const defs = compileAll({
       Orphan: "Unknown u",
       Fine: "double x;double y",
@@ -216,19 +216,19 @@ describe("resolución de dependencias", () => {
 })
 
 describe("entradas degeneradas", () => {
-  it("ignora declaraciones vacías o sin nombre", () => {
+  it("ignores empty or nameless declarations", () => {
     const defs = compileAll({ Broken: ";;garbage;;double ok;" })
     expect(labels(defs.Broken)).toEqual(["ok"])
   })
 
-  it("acepta un schema vacío", () => {
+  it("accepts an empty schema", () => {
     const defs = compileAll({ Empty: "" })
     expect(defs.Empty.length).toBe(0)
     expect(defs.Empty.fields).toEqual([])
   })
 
-  it("no rompe si el buffer es más corto que el schema", () => {
-    // Pasa de verdad: el topic se anuncia antes de tener un valor completo.
+  it("does not break if the buffer is shorter than the schema", () => {
+    // It really happens: the topic is announced before it has a complete value.
     const def = compileAll({ Big: "double a;double b;double c" }).Big
     const fields = decodeStructBytes(f64(1.5), def)
     expect(fields[0].value).toBe(1.5)

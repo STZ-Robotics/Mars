@@ -1,22 +1,22 @@
-// Mapa de calor de la cancha: dónde estuvo un objeto y cuánto tiempo.
+// The field's heat map: where an object was and for how long.
 //
-// La grilla se llena de forma INCREMENTAL. El historial solo crece, así que
-// cada frame se salpican únicamente las muestras nuevas; recalcular las
-// 30 000 desde cero a 30 fps no daría. Si cambian el encuadre o los
-// parámetros, la firma cambia y el llamador tira este objeto y crea otro.
+// The grid is filled INCREMENTALLY. The history only grows, so each frame only
+// splats the new samples; recomputing the 30 000 from scratch at 30 fps would
+// not keep up. If the framing or the parameters change, the signature changes
+// and the caller throws this object away and creates another.
 
-/** En qué marco vive la grilla: el interno, con el origen en el centro. */
+/** Which frame the grid lives in: the internal one, with the origin at the center. */
 export interface HeatmapFrame {
-  /** Largo y ancho del área de juego, en metros. */
+  /** Length and width of the playing area, in meters. */
   sizeMeters: [number, number]
-  /** Lado de la celda, en metros. */
+  /** The cell's side, in meters. */
   cell: number
-  /** Radio de influencia de cada muestra, en metros. */
+  /** Each sample's radius of influence, in meters. */
   radius: number
 }
 
-// Paradas del degradado, de frío a caliente. Es la rampa clásica de los mapas
-// de calor: el ojo lee de un vistazo dónde está el máximo sin leer una escala.
+// Gradient stops, from cold to hot. It is the classic heat map ramp: the eye
+// reads where the maximum is at a glance without reading a scale.
 const RAMP: [number, [number, number, number]][] = [
   [0.00, [43, 63, 176]],
   [0.28, [31, 158, 201]],
@@ -25,9 +25,9 @@ const RAMP: [number, [number, number, number]][] = [
   [1.00, [214, 59, 59]],
 ]
 
-/** Alfa máximo del mapa: por encima de esto tapa la foto de la cancha. */
+/** The map's maximum alpha: above this it covers the field's photo. */
 const MAX_ALPHA = 0.82
-/** Levanta los valores bajos, que si no quedan invisibles junto a un pico. */
+/** Lifts the low values, which otherwise go invisible next to a peak. */
 const GAMMA = 0.62
 
 export class Heatmap {
@@ -41,15 +41,15 @@ export class Heatmap {
   private kernel: Float32Array
   private kernelRadius: number
   private max = 0
-  /** Cuántas muestras del historial ya entraron a la grilla. */
+  /** How many samples of the history already went into the grid. */
   consumed = 0
   private image: HTMLCanvasElement | null = null
   private imageVersion = -1
   private version = 0
 
   constructor(frame: HeatmapFrame) {
-    // La celda se acota por abajo: 0.02 m sobre una cancha de 16 m son 800
-    // columnas, y el salpicado pasa a costar más que el resto del dibujo.
+    // The cell is bounded below: 0.02 m over a 16 m field is 800 columns, and
+    // the splatting ends up costing more than the rest of the drawing.
     this.cell = Math.max(0.05, frame.cell)
     this.halfL = frame.sizeMeters[0] / 2
     this.halfW = frame.sizeMeters[1] / 2
@@ -64,7 +64,7 @@ export class Heatmap {
     this.signature = signatureOf(frame)
   }
 
-  /** Salpica muestras ya convertidas al marco interno. */
+  /** Splats samples already converted to the internal frame. */
   add(points: { x: number; y: number }[]): void {
     if (points.length === 0) return
     const { cols, rows, cell, halfL, halfW, kernel, kernelRadius: k } = this
@@ -73,9 +73,9 @@ export class Heatmap {
     for (const p of points) {
       const col = Math.floor((p.x + halfL) / cell)
       const row = Math.floor((halfW - p.y) / cell)
-      // Una pose fuera del área de juego (aún no hay odometría, o el sistema
-      // de coordenadas está mal elegido) no se recorta contra el borde: se
-      // ignora, para no dejar una banda caliente pegada a la pared.
+      // A pose outside the playing area (no odometry yet, or the wrong
+      // coordinate system) is not clipped at the edge: it is ignored, so as not
+      // to leave a hot band stuck to the wall.
       if (col < -k || col > cols + k || row < -k || row > rows + k) continue
 
       for (let dy = -k; dy <= k; dy++) {
@@ -109,8 +109,8 @@ export class Heatmap {
   }
 
   /**
-   * La grilla pintada, un píxel por celda. El llamador la estira sobre el área
-   * de juego con `imageSmoothingEnabled`, que es lo que le da el difuminado.
+   * The painted grid, one pixel per cell. The caller stretches it over the
+   * playing area with `imageSmoothingEnabled`, which is what gives it the blur.
    */
   toCanvas(): HTMLCanvasElement | null {
     if (this.max === 0) return null
@@ -133,8 +133,8 @@ export class Heatmap {
       pixels[o] = r
       pixels[o + 1] = g
       pixels[o + 2] = b
-      // El alfa sube con el valor: las zonas por las que apenas pasó se
-      // desvanecen sobre la cancha en vez de taparla con un azul plano.
+      // The alpha rises with the value: the areas it barely passed through fade
+      // over the field instead of covering it with a flat blue.
       pixels[o + 3] = Math.round(255 * MAX_ALPHA * Math.min(1, t * 1.6))
     }
     ctx.putImageData(data, 0, 0)
@@ -154,11 +154,11 @@ export function signatureOf(frame: HeatmapFrame): string {
   ].join("|")
 }
 
-/** Gaussiana truncada en `k` celdas, normalizada a 1 en el centro. */
+/** A Gaussian truncated at `k` cells, normalized to 1 at the center. */
 function buildKernel(k: number): Float32Array {
   const side = 2 * k + 1
   const out = new Float32Array(side * side)
-  // σ = k/2 deja la campana casi apagada (≈2σ) justo en el borde del radio.
+  // σ = k/2 leaves the bell almost off (≈2σ) right at the radius' edge.
   const sigma = Math.max(0.5, k / 2)
   const twoSigmaSq = 2 * sigma * sigma
   for (let dy = -k; dy <= k; dy++) {

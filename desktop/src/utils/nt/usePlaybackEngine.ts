@@ -2,18 +2,18 @@ import { useEffect, useRef } from "react"
 import { useSelectionStore } from "../../store/selectionStore"
 
 /**
- * Avanza `selectedTime` en tiempo real mientras `isPlaying` esté activo.
+ * Advances `selectedTime` in real time while `isPlaying` is active.
  *
- * Se apoya en performance.now() y no en un contador de frames: si el navegador
- * baja a 30fps (pestaña de fondo, canvas pesado) la reproducción tiene que
- * seguir yendo a la velocidad de reloj, no a la mitad.
+ * It relies on performance.now() and not on a frame counter: if the browser
+ * drops to 30fps (a background tab, a heavy canvas) playback has to keep going
+ * at clock speed, not at half of it.
  */
 export function usePlaybackEngine(getEndUs: () => number | null) {
   const isPlaying = useSelectionStore(s => s.isPlaying)
   const playbackSpeed = useSelectionStore(s => s.playbackSpeed)
 
-  // Los getters se leen en cada frame para no reiniciar el rAF en cada cambio
-  // de velocidad o de fin de datos.
+  // The getters are read on every frame so the rAF does not restart on every
+  // change of speed or of end of data.
   const latest = useRef({ getEndUs, playbackSpeed })
   useEffect(() => { latest.current = { getEndUs, playbackSpeed } })
 
@@ -40,9 +40,9 @@ export function usePlaybackEngine(getEndUs: () => number | null) {
       const endUs = latest.current.getEndUs()
       const next = current + elapsedUs
 
-      // Al llegar al final de los datos se corta sola. En vivo el final se
-      // corre solo, así que esto solo dispara con un log: seguir avanzando
-      // sobre una zona sin datos dejaría el cursor en el vacío.
+      // On reaching the end of the data it stops on its own. Live the end moves
+      // by itself, so this only fires with a log: advancing further over an area
+      // with no data would leave the cursor in the void.
       if (endUs !== null && next >= endUs) {
         useSelectionStore.getState().scrubTo(endUs)
         useSelectionStore.getState().stop()

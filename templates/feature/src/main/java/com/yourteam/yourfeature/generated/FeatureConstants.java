@@ -1,4 +1,4 @@
-package com.miequipo.mifeature.generated;
+package com.yourteam.yourfeature.generated;
 
 // AUTO-GENERATED FILE DO NOT EDIT
 public final class FeatureConstants {

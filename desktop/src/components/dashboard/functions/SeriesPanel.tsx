@@ -46,7 +46,7 @@ export default function SeriesPanel({ series, onUpdate, onRemove, onDuplicate }:
     <div style={{ display: "flex", flexDirection: "column" }}>
       {series.map(s => {
         const visible = s.visible !== false
-        // Solo se puede combinar/comparar contra OTRA serie, nunca consigo misma.
+        // A series can only be combined/compared against ANOTHER series, never itself.
         const others = series.filter(o => o.id !== s.id)
 
         return (
@@ -73,8 +73,8 @@ export default function SeriesPanel({ series, onUpdate, onRemove, onDuplicate }:
                 title={visible ? "Hide series" : "Show series"}
                 onClick={() => onUpdate(s.id, { visible: !visible })}
               />
-              {/* Duplicar es lo que permite tener el MISMO topic dos veces:
-                  uno crudo y otro derivado, sin volver a arrastrarlo. */}
+              {/* Duplicating is what allows having the SAME topic twice:
+                  one raw and another derived, without dragging it again. */}
               <IconButton icon="ti-copy" title="Duplicate series" onClick={() => onDuplicate(s.id)} />
               <IconButton icon="ti-x" title="Remove series" onClick={() => onRemove(s.id)} />
             </div>
@@ -139,8 +139,8 @@ export default function SeriesPanel({ series, onUpdate, onRemove, onDuplicate }:
               </div>
             </div>
 
-            {/* Escala y offset se aplican DESPUÉS del transform: sirven para
-                convertir unidades (rad→grados) o restar el cero de un sensor. */}
+            {/* Scale and offset are applied AFTER the transform: they convert
+                units (rad→degrees) or subtract a sensor's zero. */}
             <div style={{ display: "flex", gap: 5 }}>
               <div style={{ flex: 1 }}>
                 <div style={labelStyle}>Scale ×</div>

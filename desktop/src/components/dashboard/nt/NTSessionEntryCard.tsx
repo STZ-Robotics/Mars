@@ -1,9 +1,9 @@
-// Una fila de la NT Session: el valor que MARS publica, su editor, y los
-// botones que lo copian como Java.
+// A row of the NT Session: the value MARS publishes, its editor, and the
+// buttons that copy it as Java.
 //
-// La tarjeta está plegada por defecto y solo muestra lo que se toca seguido
-// (nombre, tipo, valor). Lo de configurar una vez — el nombre de la variable
-// Java, el rango del slider, la nota — vive detrás del engranaje.
+// The card is collapsed by default and only shows what is touched often
+// (name, type, value). What is configured once — the Java variable's name, the
+// slider's range, the note — lives behind the gear.
 
 import { useState } from "react"
 import { NTSessionCopyMode, NTSessionEntry, NTSessionKind } from "../../../store/appStore"
@@ -17,13 +17,13 @@ export type PublishState = "idle" | "ok" | "error"
 
 interface Props {
   entry: NTSessionEntry
-  /** Ruta completa del topic, ya resuelta con la raíz de la sesión. */
+  /** The topic's full path, already resolved with the session's root. */
   fullName: string
-  /** El topic existe en NetworkTables ahora mismo. */
+  /** The topic exists on NetworkTables right now. */
   live: boolean
-  /** Se llegó a publicar al menos una vez con el nombre y tipo actuales. */
+  /** It was published at least once with the current name and type. */
   published: boolean
-  /** Se editó el valor después de la última publicación. */
+  /** The value was edited after the last publish. */
   pending: boolean
   publishState: PublishState
   publishError: string | null
@@ -87,9 +87,9 @@ export default function NTSessionEntryCard({
           value={entry.key}
           onChange={e => {
             const key = e.target.value
-            // El nombre Java sigue a la clave mientras no lo hayan tocado a
-            // mano: si no, renombrar el topic deja la variable con el nombre
-            // viejo y el copy sale mal sin que se note.
+            // The Java name follows the key while it has not been touched by
+            // hand: otherwise renaming the topic leaves the variable with the old
+            // name and the copy comes out wrong without anyone noticing.
             const followed = entry.javaName === suggestJavaName(entry.key)
             onUpdate(followed ? { key, javaName: suggestJavaName(key) } : { key })
           }}
@@ -129,7 +129,7 @@ export default function NTSessionEntryCard({
         <IconButton svg="delete.svg" icon="ti-trash" title="Remove" danger onClick={onRemove} />
       </div>
 
-      {/* --- Editor del valor --- */}
+      {/* --- Value editor --- */}
       <div style={{ padding: "0 8px 8px", display: "flex", flexDirection: "column", gap: 6 }}>
         <ValueEditor entry={entry} onUpdate={onUpdate} />
 
@@ -138,7 +138,7 @@ export default function NTSessionEntryCard({
         )}
       </div>
 
-      {/* --- Ajustes de una sola vez --- */}
+      {/* --- One-off settings --- */}
       {open && (
         <div style={{
           borderTop: "1px solid var(--border-light)", background: "var(--bg-panel-header)",
@@ -256,10 +256,10 @@ function ValueEditor({
     )
   }
 
-  // --- Listas de largo libre ---
+  // --- Free-length lists ---
   if (isListKind(entry.kind)) return <ListEditor entry={entry} onUpdate={onUpdate} />
 
-  // --- Geometría: un campo por componente ---
+  // --- Geometry: one field per component ---
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
       {(spec.components ?? []).map((component, i) => (
@@ -348,8 +348,8 @@ function ListEditor({
 }
 
 /**
- * Gris = nunca se publicó · ámbar = editado sin publicar · verde = lo que está
- * en la red coincide con lo que se ve acá.
+ * Grey = never published · amber = edited without publishing · green = what
+ * is on the network matches what is shown here.
  */
 function StatusDot({
   fullName, live, published, pending, error,

@@ -10,13 +10,13 @@ import TimelineSettings from "./TimelineSettings"
 
 interface Props {
   connection: ConnectionState
-  /** Hay un log cargado: hay datos que recorrer aunque no haya conexion NT4. */
+  /** A log is loaded: there is data to go through even without an NT4 connection. */
   hasLog?: boolean
 }
 
-// Chrome de la timeline global: transporte (play/pausa/ir al final), marcas y
-// ajustes. El motor de dibujo y toda la interacción de scrub/pan/zoom viven en
-// TimelineCanvas — este componente solo orquesta el estado.
+// The global timeline's chrome: transport (play/pause/go to the end), marks and
+// settings. The drawing engine and all the scrub/pan/zoom interaction live in
+// TimelineCanvas — this component only orchestrates the state.
 export default function TimelineGlobal({ connection, hasLog = false }: Props) {
   const canvasRef = useRef<TimelineCanvasHandle>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -37,29 +37,29 @@ export default function TimelineGlobal({ connection, hasLog = false }: Props) {
   const addMarker = useMarkerStore((s) => s.addMarker)
   const removeMarker = useMarkerStore((s) => s.removeMarker)
 
-  // Reloj real: startUs viene del PRIMER dato recibido por el backend (no
-  // del montaje del componente), getEstimatedNowUs() del último dato + una
-  // interpolación suave para que fluya entre polls.
+  // The real clock: startUs comes from the FIRST data point the backend
+  // received (not from the component's mount), getEstimatedNowUs() from the last
+  // one + a smooth interpolation so it flows between polls.
   const { startUs, endUs, getEstimatedNowUs } = useNTLiveClock(200)
 
-  // En un log el "ahora" es el ultimo sample y no se mueve: extrapolar con
-  // performance.now() (que es lo correcto en vivo) haria que el playhead se
-  // fuera corriendo hacia adelante sobre una zona sin datos.
+  // In a log "now" is the last sample and it does not move: extrapolating with
+  // performance.now() (which is right when live) would make the playhead run
+  // ahead over an area with no data.
   const getNowUs = hasLog ? () => endUs : getEstimatedNowUs
 
-  // Reproducir avanza selectedTime; el tope es el último dato disponible.
+  // Playing advances selectedTime; the cap is the last available data point.
   usePlaybackEngine(getNowUs)
 
-  // "isConnected" aca significa "hay una fuente de datos", no literalmente un
-  // socket: con un log abierto la timeline tiene que funcionar igual.
+  // "isConnected" here means "there is a data source", not literally a socket:
+  // with a log open the timeline has to work the same.
   const isConnected = connection !== "disconnected" || hasLog
   const hasData = startUs !== null
 
   const statusColor = !isConnected || !hasData ? "var(--text-muted)"
     : isPlaying ? "var(--mars-accent)"
     : isLive ? "var(--status-sim)" : "var(--mars-red)"
-  // El texto se fue al tooltip: la barra ya dice lo mismo con el color, y
-  // ese bloque de letras comía ancho útil de la regla de tiempo.
+  // The text went into the tooltip: the bar already says the same with the
+  // color, and that block of letters was eating the time ruler's useful width.
   const statusTitle = !isConnected
     ? "Offline"
     : !hasData ? "Waiting for data"
@@ -67,7 +67,7 @@ export default function TimelineGlobal({ connection, hasLog = false }: Props) {
     : hasLog ? "Log file"
     : isLive ? "Live" : "Paused"
 
-  /** Instante al que apuntan las acciones que necesitan un "ahora" concreto. */
+  /** The instant the actions that need a concrete "now" point at. */
   const currentTime = () => selectedTime ?? getNowUs() ?? startUs ?? 0
 
   const handlePlayPause = () => {
@@ -75,7 +75,7 @@ export default function TimelineGlobal({ connection, hasLog = false }: Props) {
       stop()
       return
     }
-    // Sin cursor (en vivo) arranca desde el presente; con cursor, desde ahí.
+    // With no cursor (live) it starts from the present; with a cursor, from there.
     canvasRef.current?.stopFollowingLive()
     play(currentTime())
   }
@@ -111,8 +111,8 @@ export default function TimelineGlobal({ connection, hasLog = false }: Props) {
         WebkitUserSelect: "none"
       }}
     >
-      {/* Transporte: reproducir sigue desde la línea, "ir al final" es lo que
-          salta al último dato. Antes esas dos cosas eran el mismo botón. */}
+      {/* Transport: play continues from the line, "go to the end" is what
+          jumps to the last data point. Those two used to be the same button. */}
       <div style={{ display: "flex", gap: 2, flexShrink: 0 }}>
         <ToolbarButton
           size="sm"
@@ -161,7 +161,7 @@ export default function TimelineGlobal({ connection, hasLog = false }: Props) {
         style={{
           width: 9, height: 9, borderRadius: "50%", flexShrink: 0, margin: "0 2px",
           background: statusColor,
-          // Hueco hundido alrededor del LED, como un indicador de panel físico.
+          // A sunken recess around the LED, like a physical panel indicator.
           boxShadow: `inset 0 0 0 1px rgba(0,0,0,0.25), 0 0 0 2px var(--bg-toolbar), 0 0 0 3px var(--bevel-dark)${
             isConnected && hasData ? `, 0 0 6px ${statusColor}` : ""
           }`,

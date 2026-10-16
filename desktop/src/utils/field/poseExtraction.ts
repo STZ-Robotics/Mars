@@ -1,27 +1,28 @@
-// Extracción de poses (x, y, θ) desde valores NT4, para el 2D Visualizer.
+// Extraction of poses (x, y, θ) from NT4 values, for the 2D Visualizer.
 //
-// Reutiliza el decodificador de structs binarios de WPILib que ya usa la
-// Dashboard (valueDecoding.ts): acá solo mapeamos los campos ya decodificados
-// a la terna (x, y, θ) que necesita el renderer de la cancha.
+// It reuses the WPILib binary struct decoder the Dashboard already uses
+// (valueDecoding.ts): here we only map the already decoded fields to the
+// (x, y, θ) triple the field renderer needs.
 
 import { decodeStructBytes, decodeStructArrayBytes } from "../dashboard/valueDecoding"
 import { getStructDef } from "../../store/structSchemaStore"
 import { classifyTopic } from "../dashboard/topicClassification"
 
 export interface FieldPose {
-  x: number      // metros, eje largo de la cancha
+  x: number      // meters, the field's long axis
   y: number      // metros, eje corto
-  theta: number  // RADIANES (decodeStructBytes devuelve grados; se convierte acá)
+  theta: number  // RADIANS (decodeStructBytes returns degrees; it is converted here)
+
 }
 
-// Cancha FRC (temporadas 2023-2025): 16.541 m x 8.211 m.
-// El origen de coordenadas de WPILib es la esquina inferior izquierda vista
-// desde la alianza azul, con X hacia la alianza roja e Y hacia arriba.
+// FRC field (2023-2025 seasons): 16.541 m x 8.211 m.
+// WPILib's coordinate origin is the bottom-left corner seen from the blue
+// alliance, with X towards the red alliance and Y up.
 export const FIELD_LENGTH_M = 16.541
 export const FIELD_WIDTH_M = 8.211
 
-// Structs de los que se puede sacar una pose. Transform2d/3d comparten layout
-// binario con Pose2d/3d, y las Translation solo aportan traslación (θ = 0).
+// Structs a pose can be taken from. Transform2d/3d share their binary layout
+// with Pose2d/3d, and the Translations only provide a translation (θ = 0).
 const POSE_STRUCTS = new Set([
   "Pose2d", "Transform2d", "Translation2d",
   "Pose3d", "Transform3d", "Translation3d",
@@ -32,15 +33,15 @@ function isNumericArrayTopic(topicType: string): boolean {
   return c.isArrayType && !c.isStructType && ["double", "float", "int"].includes(c.baseType)
 }
 
-// Un topic sirve para la cancha si es un struct de geometría (suelto o array)
-// o un double[] con tripletas — el formato del Field2d clásico de WPILib.
+// A topic is usable on the field if it is a geometry struct (loose or array)
+// or a double[] of triples — the classic WPILib Field2d format.
 export function isPoseTopic(topicType: string): boolean {
   const c = classifyTopic(topicType)
   if (c.isStructType && c.structName) return POSE_STRUCTS.has(c.structName)
   return isNumericArrayTopic(topicType)
 }
 
-// Yaw (rotación en el plano de la cancha) a partir del cuaternión de un Pose3d.
+// Yaw (rotation in the field's plane) from a Pose3d's quaternion.
 function quaternionYaw(w: number, x: number, y: number, z: number): number {
   return Math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
 }
@@ -50,7 +51,7 @@ function structToPose(structName: string, fields: { value: number }[]): FieldPos
   const DEG_TO_RAD = Math.PI / 180
 
   switch (structName) {
-    // decodeStructBytes ya pasó θ a grados (isAngle), así que se revierte.
+    // decodeStructBytes already took θ to degrees (isAngle), so it is reverted.
     case "Pose2d":
     case "Transform2d":
       return { x: v(0), y: v(1), theta: v(2) * DEG_TO_RAD }
@@ -66,8 +67,8 @@ function structToPose(structName: string, fields: { value: number }[]): FieldPos
   }
 }
 
-// Devuelve TODAS las poses que contiene el valor: una sola para un struct
-// suelto, N para un struct:X[] o para un double[] de tripletas.
+// Returns ALL the poses the value contains: a single one for a loose struct,
+// N for a struct:X[] or for a double[] of triples.
 export function extractPoses(liveValue: any, topicType: string): FieldPose[] {
   if (!liveValue) return []
   const c = classifyTopic(topicType)
@@ -90,7 +91,7 @@ export function extractPoses(liveValue: any, topicType: string): FieldPose[] {
   if (isNumericArrayTopic(topicType)) {
     const arr: number[] | undefined = liveValue.NumberArray
     if (!arr) return []
-    // Field2d de WPILib publica [x, y, θ] por objeto, con θ en GRADOS.
+    // WPILib's Field2d publishes [x, y, θ] per object, with θ in DEGREES.
     const out: FieldPose[] = []
     for (let i = 0; i + 2 < arr.length; i += 3) {
       out.push({ x: arr[i], y: arr[i + 1], theta: arr[i + 2] * (Math.PI / 180) })

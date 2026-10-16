@@ -1,31 +1,31 @@
-// Reconstrucción de un Mechanism2d de WPILib a partir de los topics sueltos
-// que publica en NetworkTables.
+// Rebuilding a WPILib Mechanism2d from the loose topics it publishes on
+// NetworkTables.
 //
-// Un Mechanism2d NO es un topic: es una TABLA con esta forma
+// A Mechanism2d is NOT a topic: it is a TABLE with this shape
 //
 //   /Mech/.type                      string   = "Mechanism2d"
-//   /Mech/dims                       double[] [ancho, alto] en unidades del dibujo
+//   /Mech/dims                       double[] [width, height] in drawing units
 //   /Mech/backgroundColor            string   "#RRGGBB"
-//   /Mech/<root>/x                   double   origen del root
+//   /Mech/<root>/x                   double   the root's origin
 //   /Mech/<root>/y                   double
 //   /Mech/<root>/<lig>/.type         string   = "line"
-//   /Mech/<root>/<lig>/angle         double   GRADOS, RELATIVOS al ligamento padre
+//   /Mech/<root>/<lig>/angle         double   DEGREES, RELATIVE to the parent ligament
 //   /Mech/<root>/<lig>/length        double
 //   /Mech/<root>/<lig>/color         string
-//   /Mech/<root>/<lig>/weight        double   grosor en px
-//   /Mech/<root>/<lig>/<lig2>/...             ligamentos anidados
+//   /Mech/<root>/<lig>/weight        double   thickness in px
+//   /Mech/<root>/<lig>/<lig2>/...             nested ligaments
 //
-// Cada ligamento arranca donde termina su padre y suma su ángulo al de él.
-// Aplanar esa cadena a segmentos absolutos es todo el trabajo de este archivo:
-// el canvas solo recibe líneas ya resueltas.
+// Each ligament starts where its parent ends and adds its angle to the parent's.
+// Flattening that chain into absolute segments is this file's whole job: the
+// canvas only gets already resolved lines.
 
 import { TopicAnnounce } from "../../store/appStore"
 import { unpackLiveValue } from "../dashboard/valueDecoding"
 
 const DEG_TO_RAD = Math.PI / 180
 
-// Claves que WPILib publica como hojas de datos y que por lo tanto NUNCA son
-// un root ni un ligamento.
+// Keys WPILib publishes as data leaves, which are therefore NEVER a root or a
+// ligament.
 const RESERVED_KEYS = new Set([".type", "dims", "backgroundColor", "x", "y", "angle", "length", "color", "weight"])
 
 export type MechanismPoint = [number, number]
@@ -35,9 +35,9 @@ export interface MechanismLine {
   end: MechanismPoint
   color: string
   weight: number
-  /** Ruta del topic del ligamento, para poder identificarlo en la lectura numérica. */
+  /** The ligament's topic path, to identify it in the numeric readout. */
   path: string
-  /** Ángulo absoluto del segmento, en radianes. */
+  /** The segment's absolute angle, in radians. */
   angle: number
   length: number
 }
@@ -46,16 +46,16 @@ export interface MechanismState {
   backgroundColor: string
   dimensions: MechanismPoint
   lines: MechanismLine[]
-  /** Cantidad de roots encontrados (un Mechanism2d puede tener varios). */
+  /** Number of roots found (a Mechanism2d can have several). */
   rootCount: number
 }
 
 // --- Descubrimiento de tablas Mechanism2d -----------------------------------
 
-// No se puede preguntar por el valor de "<prefix>/.type" con solo los
-// announces, así que la tabla se reconoce por su forma: dims + backgroundColor
-// son obligatorios en todo Mechanism2d y no aparecen juntos en ninguna otra
-// estructura de WPILib.
+// The value of "<prefix>/.type" cannot be asked for with only the announces,
+// so the table is recognized by its shape: dims + backgroundColor are mandatory
+// in every Mechanism2d and do not appear together in any other WPILib
+// structure.
 export function isMechanismTable(topics: Map<string, TopicAnnounce>, prefix: string): boolean {
   const dims = topics.get(prefix + "/dims")
   const background = topics.get(prefix + "/backgroundColor")
@@ -63,13 +63,13 @@ export function isMechanismTable(topics: Map<string, TopicAnnounce>, prefix: str
   return dims.topic_type.endsWith("[]") && background.topic_type.includes("string")
 }
 
-// Todas las rutas de tabla que son un Mechanism2d, ordenadas alfabéticamente.
+// Every table path that is a Mechanism2d, sorted alphabetically.
 export function findMechanismTables(topics: Map<string, TopicAnnounce>): string[] {
   const prefixes = new Set<string>()
   topics.forEach(topic => {
     const parts = topic.name.split("/").filter(Boolean)
-    // Solo interesa el padre directo de "dims"/"backgroundColor"; recorrer
-    // todos los prefijos posibles multiplicaría el trabajo sin encontrar más.
+    // Only the direct parent of "dims"/"backgroundColor" matters; walking every
+    // possible prefix would multiply the work without finding more.
     if (parts.length < 2) return
     const prefix = "/" + parts.slice(0, parts.length - 1).join("/")
     if (isMechanismTable(topics, prefix)) prefixes.add(prefix)
@@ -77,7 +77,7 @@ export function findMechanismTables(topics: Map<string, TopicAnnounce>): string[
   return Array.from(prefixes).sort()
 }
 
-// Los topics que hay que pedirle al backend para poder dibujar esta tabla.
+// The topics to ask the backend for to be able to draw this table.
 export function mechanismTopicNames(topics: Map<string, TopicAnnounce>, prefix: string): string[] {
   const names: string[] = []
   topics.forEach(topic => {
@@ -86,7 +86,7 @@ export function mechanismTopicNames(topics: Map<string, TopicAnnounce>, prefix: 
   return names
 }
 
-// --- Árbol de claves --------------------------------------------------------
+// --- Key tree --------------------------------------------------------
 
 interface KeyNode {
   path: string
@@ -114,9 +114,9 @@ function buildKeyTree(topicNames: string[], prefix: string): KeyNode {
   return root
 }
 
-// Un root o un ligamento SIEMPRE es una subtabla (tiene hijos: x/y, o
-// angle/length/color/weight). Las hojas de datos no tienen hijos, así que
-// esta sola condición separa la estructura de los valores.
+// A root or a ligament is ALWAYS a subtable (it has children: x/y, or
+// angle/length/color/weight). Data leaves have no children, so this condition
+// alone separates the structure from the values.
 function subTables(node: KeyNode): KeyNode[] {
   const out: KeyNode[] = []
   node.children.forEach((child, key) => {
@@ -125,7 +125,7 @@ function subTables(node: KeyNode): KeyNode[] {
   return out
 }
 
-// --- Lectura de valores -----------------------------------------------------
+// --- Reading values --------------------------------------------------------
 
 function readNumber(values: Record<string, any>, key: string, fallback: number): number {
   const value = unpackLiveValue(values[key])
@@ -142,7 +142,7 @@ function readNumberArray(values: Record<string, any>, key: string): number[] | n
   return Array.isArray(value) ? value : null
 }
 
-// --- Construcción del estado ------------------------------------------------
+// --- Building the state ------------------------------------------------
 
 export function buildMechanismState(
   values: Record<string, any>,
@@ -150,8 +150,8 @@ export function buildMechanismState(
   prefix: string,
 ): MechanismState | null {
   const dims = readNumberArray(values, prefix + "/dims")
-  // Sin dims no hay sistema de coordenadas: el dibujo no se puede escalar, así
-  // que se prefiere no mostrar nada antes que inventar un tamaño.
+  // Without dims there is no coordinate system: the drawing cannot be scaled,
+  // so showing nothing is preferred over making up a size.
   if (!dims || dims.length < 2 || dims[0] <= 0 || dims[1] <= 0) return null
 
   const state: MechanismState = {
@@ -196,8 +196,8 @@ export function buildMechanismState(
   return state
 }
 
-// Varias tablas en un mismo lienzo: el área dibujable es la que cabe a todas,
-// y el fondo lo pone la primera (las de abajo quedan superpuestas encima).
+// Several tables on one canvas: the drawable area is the one that fits them all,
+// and the background is set by the first one (the ones below are overlaid on top).
 export function mergeMechanismStates(states: MechanismState[]): MechanismState | null {
   if (states.length === 0) return null
   return {

@@ -18,8 +18,8 @@ interface Props {
   onReorderWidgets: (newOrder: DashboardWidget[]) => void
 }
 
-// Tamaño del canvas en celdas. Con GRID_CELL=48px esto da un lienzo amplio
-// tipo "banco de instrumentos" que se puede recorrer con scroll.
+// The canvas size in cells. With GRID_CELL=48px this gives a wide
+// "instrument bench" canvas that can be scrolled around.
 const CANVAS_COLS = 50
 const CANVAS_ROWS = 36
 
@@ -30,25 +30,25 @@ export default function DisplayPage({ topics, widgets, onAddWidget, onRemoveWidg
 
   const isLive = useSelectionStore((s) => s.isLive)
 
-  // Valores de los widgets: en vivo o en el instante seleccionado de la
-  // timeline, según corresponda. useNTSnapshot ya decide internamente si
-  // hay que pedir get_live_values o get_values_at con el timestamp
-  // scrubbeado (ver useNTTick). Esto reemplaza el poll manual que había
-  // acá antes -> ese poll siempre pedía "ahora" con setTimeout, sin
-  // enterarse nunca de si el timeline estaba pausado o no.
+  // The widgets' values: live or at the timeline's selected instant, as
+  // appropriate. useNTSnapshot already decides internally whether to ask for
+  // get_live_values or get_values_at with the scrubbed timestamp (see
+  // useNTTick). This replaces the manual poll there used to be here -> that
+  // poll always asked for "now" with setTimeout, never finding out whether the
+  // timeline was paused or not.
   const topicNames = useMemo(() => widgets.map((w) => w.topicName), [widgets])
   const liveValues = useNTSnapshot(topicNames, 33)
 
   const canvasRef = useRef<HTMLDivElement>(null)
   const dragState = useRef<{ id: string; startMouseX: number; startMouseY: number; startX: number; startY: number } | null>(null)
   const resizeState = useRef<{ id: string; startMouseX: number; startMouseY: number; startW: number; startH: number } | null>(null)
-  // Guardamos la última posición conocida durante el "dragover": en Tauri/WebView2
-  // las coordenadas del evento "drop" pueden llegar desactualizadas (congeladas
-  // en el punto donde empezó el drag), lo que causaba el desfase de varias celdas
-  // en el eje Y. Usamos siempre la posición más reciente de "dragover" en su lugar.
+  // We keep the last known position during "dragover": in Tauri/WebView2 the
+  // "drop" event's coordinates can arrive stale (frozen at the point where the
+  // drag started), which caused the several-cell offset on the Y axis. We
+  // always use the most recent "dragover" position instead.
   const lastDragPos = useRef({ x: 0, y: 0 })
 
-  // ---- DROP DESDE EL DATA DIRECTORY (arrastrar variable -> soltar en la cuadrícula) ----
+  // ---- DROP FROM THE DATA DIRECTORY (drag a variable -> drop it on the grid) ----
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault()
     e.dataTransfer.dropEffect = "copy"
@@ -64,14 +64,14 @@ export default function DisplayPage({ topics, widgets, onAddWidget, onRemoveWidg
 
     const topicName = e.dataTransfer.getData("topicName")
     const topicType = e.dataTransfer.getData("topicType")
-    // Se arrastró UN índice de un array, no el array entero.
+    // ONE index of an array was dragged, not the whole array.
     const rawArrayIndex = e.dataTransfer.getData("arrayIndex")
     const arrayIndex = rawArrayIndex === "" ? undefined : Number(rawArrayIndex)
     if (!topicName || !canvasRef.current) return
 
     const rect = canvasRef.current.getBoundingClientRect()
-    // Usamos la última posición de "dragover" en vez de e.clientX/Y del propio
-    // "drop" (ver nota en lastDragPos más arriba).
+    // We use the last "dragover" position instead of the "drop" event's own
+    // e.clientX/Y (see the note on lastDragPos above).
     const { x: dropX, y: dropY } = lastDragPos.current
     const offsetX = dropX - rect.left
     const offsetY = dropY - rect.top
@@ -83,8 +83,8 @@ export default function DisplayPage({ topics, widgets, onAddWidget, onRemoveWidg
     const baseLabel = parts.length > 0 ? parts[parts.length - 1] : topicName
     const defaultLabel = arrayIndex === undefined ? baseLabel : `${baseLabel}[${arrayIndex}]`
 
-    // Una cancha en 4x4 celdas es ilegible: arranca con el tamaño que respeta
-    // más o menos la proporción del campo.
+    // A field in 4x4 cells is unreadable: it starts with a size that roughly
+    // respects the field's proportions.
     const isField = topicType === FIELD2D_TYPE
 
     onAddWidget({
@@ -100,7 +100,7 @@ export default function DisplayPage({ topics, widgets, onAddWidget, onRemoveWidg
     })
   }
 
-  // ---- MOVER (drag de widgets ya colocados) ----
+  // ---- MOVE (dragging already placed widgets) ----
   const handleDragMove = useCallback((e: MouseEvent) => {
     const drag = dragState.current
     if (!drag) return
@@ -159,7 +159,7 @@ export default function DisplayPage({ topics, widgets, onAddWidget, onRemoveWidg
   return (
     <div style={{ display: "flex", width: "100%", height: "100%", background: "var(--bg-page)", overflow: "hidden", position: "relative" }}>
 
-      {/* SIDEBAR: DATA DIRECTORY (arrastrable hacia la cuadrícula) */}
+      {/* SIDEBAR: DATA DIRECTORY (draggable onto the grid) */}
       <DataDirectoryPanel
         topics={topics}
         hint="Drag a topic, an array index, or a whole Field2d table onto the grid"
@@ -169,15 +169,15 @@ export default function DisplayPage({ topics, widgets, onAddWidget, onRemoveWidg
       {/* MAIN GRID: WIDGET DASHBOARD */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
-        {/* CABECERA TOP DEL WORKSPACE. El badge refleja el estado del timeline:
-            si está pausado, los valores son los del instante seleccionado, no "ahora". */}
+        {/* THE WORKSPACE'S TOP HEADER. The badge reflects the timeline's state:
+            if it is paused, the values are the selected instant's, not "now"'s. */}
         <PanelHeader
           title="Dashboard Workspace"
           meta={`${widgets.length} widget${widgets.length !== 1 ? "s" : ""} · drag a variable from the directory · drag to move · corner to resize`}
           action={<StatusBadge color={isLive ? "var(--status-sim)" : "var(--mars-red)"} label={isLive ? "LIVE" : "VIEWING HISTORY"} />}
         />
 
-        {/* CANVAS CON SCROLL: la cuadrícula es la guía literal de posicionamiento */}
+        {/* SCROLLING CANVAS: the grid is the literal positioning guide */}
         <div style={{ flex: 1, overflow: "auto", background: "var(--bg-page)" }}>
           <div style={{ display: "flex" }}>
             {/* Regla vertical (izquierda) */}
@@ -186,7 +186,7 @@ export default function DisplayPage({ topics, widgets, onAddWidget, onRemoveWidg
               {/* Regla horizontal (arriba) */}
               <Ruler length={CANVAS_COLS} />
 
-              {/* Cuadrícula */}
+              {/* Grid */}
               <div
                 ref={canvasRef}
                 onDragOver={handleDragOver}
@@ -264,8 +264,8 @@ export default function DisplayPage({ topics, widgets, onAddWidget, onRemoveWidg
   )
 }
 
-// Regla de coordenadas: además de ser un detalle visual, funciona como guía
-// real de la cuadrícula (marca cada 5 celdas).
+// A coordinate ruler: besides being a visual detail, it works as a real guide
+// for the grid (it marks every 5 cells).
 function Ruler({ length, vertical = false }: { length: number, vertical?: boolean }) {
   const majors = []
   for (let i = 0; i <= length; i += 5) majors.push(i)

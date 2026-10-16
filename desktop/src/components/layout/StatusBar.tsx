@@ -19,11 +19,11 @@ interface Props {
   logSource: LogSource | null
 }
 
-// Barra inferior estilo el panel "Time" de RViz: campos "Label: [valor en
-// caja]" en fila, plana, sin bloques de color sólido — el color se reserva
-// para el punto de estado de conexión, todo lo demás es texto+caja neutra.
+// A bottom bar in the style of RViz's "Time" panel: "Label: [boxed value]"
+// fields in a row, flat, without solid color blocks — color is reserved for the
+// connection status dot, everything else is text + a neutral box.
 export default function StatusBar({ connection, projectName, logSource }: Props) {
-  // Un log cargado sustituye a la conexion: comparten el buffer en el backend.
+  // A loaded log replaces the connection: they share the backend's buffer.
   const connLabel = logSource
     ? "Log file"
     : connection === "sim" ? "Sim running" : connection === "real" ? "Real robot" : "Not connected"
@@ -48,16 +48,16 @@ export default function StatusBar({ connection, projectName, logSource }: Props)
         {connLabel}
       </StatusField>
 
-      {/* Host y puerto reales de la sesión: el destino ya no es siempre
-          localhost:5810 (puede ser el robot, la DS en 6767 o Systemcore). */}
+      {/* The session's real host and port: the target is no longer always
+          localhost:5810 (it can be the robot, the DS on 6767 or Systemcore). */}
       <StatusField label={logSource ? "Source" : "NT4"}>
         {logSource
           ? `${logSource.name} · ${logSource.topic_count} topics`
           : link ? `${link.address}:${link.port}` : "—"}
       </StatusField>
 
-      {/* Mitad del round trip medido con el ping RTT. "sync…" = todavía no
-          volvió ninguna respuesta, así que los relojes no están alineados. */}
+      {/* Half the round trip measured with the RTT ping. "sync…" = no
+          response has come back yet, so the clocks are not aligned. */}
       {!logSource && (
         <StatusField label="Latency">
           {link === null
@@ -83,8 +83,8 @@ export default function StatusBar({ connection, projectName, logSource }: Props)
   )
 }
 
-// El estado del enlace lo mide el backend con el ping RTT; se relee a 1Hz
-// porque solo alimenta texto de la barra, no nada que se anime.
+// The link's state is measured by the backend with the RTT ping; it is reread
+// at 1Hz because it only feeds the bar's text, nothing that animates.
 function useNTLinkStatus(connection: ConnectionState): NTLinkStatus | null {
   const [status, setStatus] = useState<NTLinkStatus | null>(null)
 

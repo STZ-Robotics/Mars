@@ -1,14 +1,13 @@
-// Mechanism 3D: modelador de mecanismos articulados.
+// Mechanism 3D: a modeler of articulated mechanisms.
 //
-// Se arma un árbol de piezas (cada una con su STL/GLB o una primitiva), se le
-// da a cada una una articulación — que rota, que desliza, o que toma una pose
-// entera — y se la maneja con un topic de NT, a mano, o con una rutina de
-// animación. Todo el conjunto se exporta a un JSON que se puede volver a
-// importar.
+// A tree of parts is built (each one with its STL/GLB or a primitive), each one
+// is given a joint — that rotates, that slides, or that takes a whole pose —
+// and it is driven with an NT topic, by hand, or with an animation routine. The
+// whole assembly exports to a JSON that can be imported back.
 //
-// La vista NO sigue la pose del robot en la cancha: el mecanismo se mira
-// quieto, que es lo que hace falta para verificar reducciones, límites,
-// sentidos de giro y offsets de encoder.
+// The view does NOT follow the robot's pose on the field: the mechanism is
+// looked at still, which is what verifying reductions, limits, directions of
+// rotation and encoder offsets needs.
 
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
@@ -42,8 +41,9 @@ interface Props {
   onUpdateSettings: (updates: Partial<Mechanism3dSettings>) => void
 }
 
-// Contador propio: crear tres piezas de un archivo múltiple ocurre dentro del
-// mismo milisegundo y compartirían el id, que es la clave del árbol entero.
+// A counter of its own: creating three parts from a multi-file pick happens
+// within the same millisecond and they would share the id, which is the key of
+// the whole tree.
 let idCounter = 0
 const nextId = (prefix = "p") => `${prefix}${Date.now().toString(36)}${(idCounter++).toString(36)}`
 
@@ -70,7 +70,7 @@ export default function Mechanism3dPage({
   const [models, setModels] = useState<Map<string, LoadedModel>>(new Map())
   const [modelErrors, setModelErrors] = useState<Map<string, string>>(new Map())
   const [loadingPaths, setLoadingPaths] = useState<Set<string>>(new Set())
-  // Rutas ya pedidas, para no volver a lanzar la carga en cada render.
+  // Paths already requested, so the load is not launched again on every render.
   const requested = useRef<Set<string>>(new Set())
 
   const modelPaths = useMemo(() => {
@@ -96,7 +96,7 @@ export default function Mechanism3dPage({
     })
   }, [modelPaths])
 
-  // --- Edición de piezas ---------------------------------------------------------
+  // --- Part editing ---------------------------------------------------------
   const updatePart = (id: string, updates: Partial<Mechanism3dPart>) => {
     onSetParts(parts.map(part => part.id === id ? { ...part, ...updates } : part))
   }
@@ -116,8 +116,8 @@ export default function Mechanism3dPage({
         ...makeMechanism3dPart(nextId(), fileNameOf(path).replace(/\.[^.]+$/, ""), parentId),
         modelPath: path,
         modelName: fileNameOf(path),
-        // Con archivo no se dibuja la primitiva: sería una caja flotando
-        // adentro del modelo recién importado.
+        // With a file the primitive is not drawn: it would be a box floating
+        // inside the freshly imported model.
         shape: "none" as const,
       }))
       onSetParts([...parts, ...added])
@@ -138,14 +138,14 @@ export default function Mechanism3dPage({
   }
 
   const removePart = (id: string) => {
-    // Borrar una pieza se lleva su rama: dejar los hijos sueltos los mandaría
-    // de golpe al origen del mundo, que es peor que perderlos.
+    // Deleting a part takes its branch with it: leaving the children loose would
+    // send them straight to the world's origin, which is worse than losing them.
     const doomed = new Set(descendantIds(parts, id))
     onSetParts(parts.filter(part => !doomed.has(part.id)))
     if (selectedId !== null && doomed.has(selectedId)) setSelectedId(null)
 
-    // Un paso que apunta a una pieza borrada no hace nada, pero deja basura en
-    // el editor de rutinas y confunde.
+    // A step pointing at a deleted part does nothing, but it leaves garbage in
+    // the routine editor and confuses.
     onUpdateSettings({
       routines: settings.routines.map(routine => ({
         ...routine,
@@ -162,15 +162,15 @@ export default function Mechanism3dPage({
     setSelectedId(copy.id)
   }
 
-  // El gizmo devuelve solo los campos que tocó (colocación o pivote).
+  // The gizmo returns only the fields it touched (placement or pivot).
   const commitTransform = (id: string, updates: Partial<Mechanism3dPart>) => updatePart(id, updates)
 
   // --- Rutinas ---------------------------------------------------------------------
   const [playState, setPlayState] = useState<"stopped" | "playing" | "paused">("stopped")
   const [speed, setSpeed] = useState(1)
   const [seekToken, setSeekToken] = useState(0)
-  // La barra de progreso se escribe directo en el DOM: el reloj corre a 60 fps
-  // y pasarlo por estado de React re-renderizaría los paneles en cada cuadro.
+  // The progress bar is written straight into the DOM: the clock runs at 60 fps
+  // and passing it through React state would re-render the panels on every frame.
   const progressRef = useRef<HTMLDivElement>(null)
   const timeRef = useRef<HTMLSpanElement>(null)
 
@@ -238,9 +238,9 @@ export default function Mechanism3dPage({
   }
 
   /**
-   * "Animate": deja lista una rutina de ida y vuelta para la pieza
-   * seleccionada y la arranca. Es el camino de un solo click al showcase, sin
-   * pasar por el editor.
+   * "Animate": sets up a back-and-forth routine for the selected part and
+   * starts it. It is the one-click path to the showcase, without going through
+   * the editor.
    */
   const animateSelected = () => {
     const part = parts.find(p => p.id === selectedId)
@@ -292,7 +292,7 @@ export default function Mechanism3dPage({
       onUpdateSettings(config.settings)
       setSelectedId(null)
       stop()
-      // Las rutas del archivo importado no se pidieron todavía en esta sesión.
+      // The imported file's paths have not been requested yet in this session.
       requested.current = new Set()
       setModelErrors(new Map())
       setStatus({ kind: "ok", message: `Loaded ${config.parts.length} parts from ${source}` })
@@ -319,8 +319,8 @@ export default function Mechanism3dPage({
     }
   }
 
-  // Soltar un topic sobre el lienzo no crea nada por sí solo: el enlace se hace
-  // sobre la articulación, en el inspector. Se avisa para que no parezca roto.
+  // Dropping a topic on the canvas creates nothing by itself: the binding is
+  // done on the joint, in the inspector. A notice says so, so it does not look broken.
   const [dropHint, setDropHint] = useState(false)
 
   const selected = parts.find(part => part.id === selectedId) ?? null
@@ -505,9 +505,9 @@ export default function Mechanism3dPage({
               )}
             </div>
 
-            {/* El export vive fuera de las pestañas del panel: guardar el
-                mecanismo es lo último que se hace después de acomodarlo, y no
-                tiene por qué obligar a cambiar de pestaña para encontrarlo. */}
+            {/* The export lives outside the panel's tabs: saving the mechanism
+                is the last thing done after arranging it, and it has no reason
+                to force switching tabs to find it. */}
             <div style={{
               flexShrink: 0, borderTop: "1px solid var(--border-main)",
               background: "var(--bg-panel-header)", padding: "8px 10px",
@@ -542,7 +542,7 @@ export default function Mechanism3dPage({
   )
 }
 
-// --- Barra de reproducción -------------------------------------------------------
+// --- Playback bar -------------------------------------------------------
 
 function TransportBar({
   routines, activeRoutine, playState, speed, progressRef, timeRef, selectedName,
@@ -618,8 +618,8 @@ function TransportBar({
             {SPEEDS.map(v => <option key={v} value={v}>{v}×</option>)}
           </select>
 
-          {/* Barra de progreso: la escena le escribe el ancho directo, sin
-              pasar por React. */}
+          {/* Progress bar: the scene writes its width directly, without
+              going through React. */}
           <div style={{ flex: 1, minWidth: 40, height: 4, borderRadius: 2, background: "var(--border-main)", overflow: "hidden" }}>
             <div ref={progressRef} style={{ width: 0, height: "100%", background: "var(--mars-accent)" }} />
           </div>

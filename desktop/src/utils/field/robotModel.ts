@@ -1,15 +1,15 @@
-// Carga de modelos 3D (.stl / .glb / .gltf) para las vistas Swerve 3D y
-// Mechanism 3D.
+// Loading of 3D models (.stl / .glb / .gltf) for the Swerve 3D and Mechanism 3D
+// views.
 //
-// El archivo lo elige el usuario con el dialog nativo, así que llega como una
-// RUTA de disco, no como una URL servible: los loaders de three no pueden
-// buscarlo solos. Por eso los bytes se piden al backend (`read_binary_file`)
-// y se le pasan ya parseados al loader.
+// The user picks the file with the native dialog, so it arrives as a disk PATH,
+// not as a servable URL: three's loaders cannot fetch it on their own. That is
+// why the bytes are requested from the backend (`read_binary_file`) and handed
+// to the loader already parsed.
 //
-// Toda la escena se arma con Z arriba (X adelante, Y a la izquierda), que es
-// el marco de WPILib. Un .glb viene con Y arriba por convención de glTF, así
-// que al cargarlo se le aplica un giro de +90° en X para llevarlo a este
-// marco; los .stl de CAD ya suelen venir con Z arriba.
+// The whole scene is built with Z up (X forward, Y to the left), which is
+// WPILib's frame. A .glb comes with Y up by glTF convention, so on loading it a
+// +90° turn around X is applied to bring it into this frame; CAD .stl files
+// usually already come with Z up.
 
 import { Box3, Group, Mesh, MeshStandardMaterial, Object3D, Vector3, Material } from "three"
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js"
@@ -20,36 +20,36 @@ import { open } from "@tauri-apps/plugin-dialog"
 export type ModelFormat = "stl" | "gltf"
 
 /**
- * Dónde queda el origen del modelo, que es el punto sobre el que rota.
+ * Where the model's origin is, which is the point it rotates around.
  *
- * - `origin`: el origen del archivo, sin tocar. Es lo correcto para piezas
- *   exportadas de CAD con el eje del joint en el (0,0,0).
- * - `center`: el centro de su bounding box.
- * - `base`: centrado en XY y apoyado en z = 0 (un robot sobre el piso).
+ * - `origin`: the file's origin, untouched. It is right for parts exported
+ *   from CAD with the joint's axis at (0,0,0).
+ * - `center`: the center of its bounding box.
+ * - `base`: centered in XY and resting on z = 0 (a robot on the floor).
  */
 export type ModelAnchor = "origin" | "center" | "base"
 
 export interface LoadedModel {
-  /** Modelo ya rotado al marco Z-arriba, SIN recentrar. */
+  /** The model already rotated into the Z-up frame, NOT recentered. */
   holder: Group
   format: ModelFormat
-  /** Tamaño del bounding box, en unidades del archivo. */
+  /** Size of the bounding box, in file units. */
   size: Vector3
-  /** Centro del bounding box, en unidades del archivo. */
+  /** Center of the bounding box, in file units. */
   center: Vector3
-  /** Z más bajo del bounding box, para el anclaje `base`. */
+  /** Lowest Z of the bounding box, for the `base` anchor. */
   minZ: number
-  /** Cantidad de triángulos, para avisar si el modelo es demasiado pesado. */
+  /** Number of triangles, to warn if the model is too heavy. */
   triangles: number
 }
 
 export const MODEL_EXTENSIONS = ["stl", "glb", "gltf"]
 
-/** Gris neutro para los .stl, que no traen color alguno. */
+/** A neutral grey for .stl files, which carry no color at all. */
 export const DEFAULT_MODEL_COLOR = "#8f9299"
 
-// Un modelo puede pesar decenas de MB y parsearse tarda; sin caché, cada
-// cambio de pestaña volvería a leer el disco y a construir la malla.
+// A model can weigh tens of MB and parsing takes time; without a cache, every
+// tab switch would read the disk and build the mesh again.
 const cache = new Map<string, Promise<LoadedModel>>()
 
 function extensionOf(path: string): string {
@@ -62,7 +62,7 @@ export function fileNameOf(path: string): string {
   return parts[parts.length - 1] || path
 }
 
-/** Abre el dialog nativo filtrado a los formatos que las vistas saben leer. */
+/** Opens the native dialog filtered to the formats the views can read. */
 export async function pickModelFile(title = "Select a 3D model"): Promise<string | null> {
   const picked = await open({
     multiple: false,
@@ -72,7 +72,7 @@ export async function pickModelFile(title = "Select a 3D model"): Promise<string
   return typeof picked === "string" ? picked : null
 }
 
-/** Igual que `pickModelFile` pero admitiendo varios archivos de una vez. */
+/** Same as `pickModelFile` but allowing several files at once. */
 export async function pickModelFiles(title = "Add 3D models"): Promise<string[]> {
   const picked = await open({
     multiple: true,
@@ -85,8 +85,8 @@ export async function pickModelFiles(title = "Add 3D models"): Promise<string[]>
 
 export async function readFileBytes(path: string): Promise<ArrayBuffer> {
   const raw = await invoke<ArrayBuffer | number[]>("read_binary_file", { path })
-  // El comando devuelve `ipc::Response`, que llega como ArrayBuffer. Un
-  // fallback a array de números cuesta nada y evita quedar atado a ese detalle.
+  // The command returns `ipc::Response`, which arrives as an ArrayBuffer. A
+  // fallback to an array of numbers costs nothing and avoids being tied to that detail.
   if (raw instanceof ArrayBuffer) return raw
   if (ArrayBuffer.isView(raw)) return (raw as ArrayBufferView).buffer as ArrayBuffer
   return new Uint8Array(raw as number[]).buffer
@@ -94,10 +94,10 @@ export async function readFileBytes(path: string): Promise<ArrayBuffer> {
 
 function parseGltf(buffer: ArrayBuffer): Promise<Object3D> {
   return new Promise((resolve, reject) => {
-    // El segundo argumento es la ruta base para los recursos externos. Se
-    // manda vacía a propósito: un .gltf que apunte a .bin/texturas sueltas no
-    // se puede resolver desde acá, y es preferible que falle con el mensaje
-    // del loader a que cargue a medias.
+    // The second argument is the base path for external resources. It is sent
+    // empty on purpose: a .gltf pointing at loose .bin/textures cannot be
+    // resolved from here, and it is better for it to fail with the loader's
+    // message than to load halfway.
     new GLTFLoader().parse(
       buffer, "",
       gltf => resolve(gltf.scene),
@@ -138,7 +138,7 @@ async function buildModel(path: string): Promise<LoadedModel> {
     format = "stl"
   } else {
     object = await parseGltf(buffer)
-    // glTF define Y arriba; la escena trabaja con Z arriba.
+    // glTF defines Y up; the scene works with Z up.
     object.rotation.x = Math.PI / 2
     format = "gltf"
   }
@@ -148,9 +148,9 @@ async function buildModel(path: string): Promise<LoadedModel> {
   holder.add(object)
   holder.updateMatrixWorld(true)
 
-  // La caja se mide DESPUÉS de la rotación al marco Z-arriba: es la que usan
-  // el auto-fit y los anclajes, y tiene que estar en el mismo marco en que se
-  // va a colocar la pieza.
+  // The box is measured AFTER the rotation into the Z-up frame: it is the one
+  // auto-fit and the anchors use, and it has to be in the same frame the part
+  // will be placed in.
   const box = new Box3().setFromObject(object)
   const center = box.getCenter(new Vector3())
   const size = box.getSize(new Vector3())
@@ -166,8 +166,8 @@ export function loadModel(path: string): Promise<LoadedModel> {
   const hit = cache.get(path)
   if (hit) return hit
 
-  // Si la carga falla se saca de la caché: si no, corregir el archivo y
-  // volver a elegirlo devolvería el mismo error para siempre.
+  // If loading fails it is removed from the cache: otherwise fixing the file and
+  // picking it again would return the same error forever.
   const pending = buildModel(path).catch(error => {
     cache.delete(path)
     throw error
@@ -177,13 +177,13 @@ export function loadModel(path: string): Promise<LoadedModel> {
 }
 
 /**
- * Copia independiente del modelo cacheado, con materiales propios: la escena
- * les cambia color y opacidad, y sin clonarlos eso pisaría el original que
- * comparten las demás pestañas.
+ * An independent copy of the cached model, with its own materials: the scene
+ * changes their color and opacity, and without cloning them that would
+ * overwrite the original the other tabs share.
  *
- * El desplazamiento del anclaje se aplica al hijo y no al grupo devuelto, para
- * que quien llama pueda usar libremente `position`/`scale` del grupo sin que
- * el anclaje se le escale encima.
+ * The anchor's offset is applied to the child and not to the returned group,
+ * so the caller can freely use the group's `position`/`scale` without the
+ * anchor getting scaled on top.
  */
 export function instantiateModel(model: LoadedModel, anchor: ModelAnchor = "base"): Group {
   const clone = model.holder.clone(true)
@@ -206,7 +206,7 @@ export function instantiateModel(model: LoadedModel, anchor: ModelAnchor = "base
   return clone
 }
 
-/** Devuelve los materiales de una instancia, para poder mutarlos en bloque. */
+/** Returns an instance's materials, so they can be mutated as a block. */
 export function materialsOf(object: Object3D): Material[] {
   const out: Material[] = []
   object.traverse(child => {
@@ -218,13 +218,13 @@ export function materialsOf(object: Object3D): Material[] {
   return out
 }
 
-/** Libera los materiales de una instancia que se va a descartar. */
+/** Frees the materials of an instance about to be discarded. */
 export function disposeInstance(object: Object3D) {
   object.traverse(child => {
     const mesh = child as Mesh
     if (!mesh.isMesh) return
-    // La geometría es COMPARTIDA con el modelo cacheado (clone() no la copia),
-    // así que solo se descartan los materiales, que sí son propios.
+    // The geometry is SHARED with the cached model (clone() does not copy it),
+    // so only the materials are discarded, which are its own.
     if (Array.isArray(mesh.material)) mesh.material.forEach(m => m.dispose())
     else mesh.material?.dispose()
   })

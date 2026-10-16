@@ -1,13 +1,13 @@
-// Derivación simbólica sobre el AST.
+// Symbolic differentiation over the AST.
 //
-// A diferencia de d(x), que deriva NUMÉRICAMENTE respecto al tiempo usando el
-// buffer, esto deriva respecto a una variable y devuelve otra expresión: de
-// x^3 sale 3x^2, no un número. Por eso la fórmula resultante se puede ver
-// escrita en LaTeX además de evaluarse.
+// Unlike d(x), which differentiates NUMERICALLY with respect to time using the
+// buffer, this differentiates with respect to a variable and returns another
+// expression: from x^3 comes 3x^2, not a number. That is why the resulting
+// formula can be seen written in LaTeX as well as evaluated.
 //
-// Sin simplificación el resultado es ilegible (la regla del producto sobre
-// 2*x escupe "0*x + 2*1"), así que simplify() es parte del contrato, no un
-// adorno opcional.
+// Without simplification the result is unreadable (the product rule on 2*x
+// spits out "0*x + 2*1"), so simplify() is part of the contract, not an
+// optional nicety.
 
 import { Node } from "./parser"
 
@@ -26,7 +26,7 @@ function isNumber(node: Node, value: number): boolean {
   return node.kind === "number" && node.value === value
 }
 
-// --- Constructores que simplifican al vuelo --------------------------------
+// --- Constructors that simplify on the fly --------------------------------
 
 function sum(left: Node, right: Node): Node {
   if (isNumber(left, 0)) return right
@@ -64,10 +64,10 @@ function power(base: Node, exponent: Node): Node {
 
 const call = (name: string, ...args: Node[]): Node => ({ kind: "call", name, args })
 
-// --- Reglas de la cadena por función ---------------------------------------
+// --- Chain rules per function ---------------------------------------
 
-// Derivada de f respecto a su argumento; la regla de la cadena la aplica
-// differentiate() multiplicando por u'.
+// Derivative of f with respect to its argument; differentiate() applies the
+// chain rule by multiplying by u'.
 const OUTER_DERIVATIVES: Record<string, (u: Node) => Node> = {
   sin: u => call("cos", u),
   cos: u => ({ kind: "unary", op: "-", operand: call("sin", u) }),
@@ -91,11 +91,11 @@ const OUTER_DERIVATIVES: Record<string, (u: Node) => Node> = {
   log1p: u => quotient(ONE, sum(ONE, u)),
 }
 
-// Funciones cuya derivada es 0 en casi todo punto (escalones).
+// Functions whose derivative is 0 almost everywhere (steps).
 const PIECEWISE_CONSTANT = new Set(["sign", "floor", "ceil", "round", "trunc", "rint"])
 
-// Continuas a trozos o discretas: derivarlas daría un resultado que miente en
-// los bordes, así que se rechazan explícitamente.
+// Piecewise continuous or discrete: differentiating them would give a result
+// that lies at the edges, so they are explicitly rejected.
 const NON_DIFFERENTIABLE = new Set([
   "min", "max", "clamp", "wrap",
   "deadband", "inputModulus", "angleModulus", "isNear",
@@ -154,8 +154,8 @@ export function differentiate(node: Node, variable: string): Node {
         throw new SymbolicError(`Cannot symbolically differentiate ${node.name}()`)
       }
 
-      // fma(a,b,c) = a·b + c y lerp son combinaciones lineales: se derivan
-      // reescribiéndolas con los operadores básicos.
+      // fma(a,b,c) = a·b + c and lerp are linear combinations: they are
+      // differentiated by rewriting them with the basic operators.
       if (node.name === "fma" && node.args.length === 3) {
         const [a, b, c] = node.args
         return differentiate({
@@ -165,7 +165,7 @@ export function differentiate(node: Node, variable: string): Node {
         }, variable)
       }
       if (node.name === "lerp" && node.args.length === 3) {
-        // a + (b − a)·t, tratando t como una variable más
+        // a + (b − a)·t, treating t as one more variable
         const [a, b, t] = node.args
         return differentiate({
           kind: "binary", op: "+",
@@ -174,7 +174,7 @@ export function differentiate(node: Node, variable: string): Node {
         }, variable)
       }
 
-      // Los operadores temporales no dependen de una variable simbólica.
+      // Temporal operators do not depend on a symbolic variable.
       if (["d", "derivative", "int", "integral", "avg", "rms", "stddev", "peak"].includes(node.name)) {
         throw new SymbolicError(`Cannot symbolically differentiate the time operator ${node.name}()`)
       }
@@ -211,7 +211,7 @@ export function differentiate(node: Node, variable: string): Node {
     }
 
     case "matrix":
-      // Se deriva entrada por entrada.
+      // Differentiated entry by entry.
       return {
         kind: "matrix",
         rows: node.rows.map(row => row.map(entry => differentiate(entry, variable))),
@@ -221,7 +221,7 @@ export function differentiate(node: Node, variable: string): Node {
   throw new SymbolicError("Malformed expression")
 }
 
-/** Pasada de limpieza sobre el árbol ya derivado. */
+/** A cleanup pass over the already differentiated tree. */
 export function simplify(node: Node): Node {
   switch (node.kind) {
     case "number":
@@ -261,7 +261,7 @@ export function simplify(node: Node): Node {
   }
 }
 
-/** Deriva y simplifica en un paso: es como se usa siempre. */
+/** Differentiates and simplifies in one step: it is how it is always used. */
 export function derive(node: Node, variable: string): Node {
   return simplify(differentiate(node, variable))
 }

@@ -1,26 +1,26 @@
-//! Lector y escritor de WPILOG (el DataLog de WPILib), versión 1.0.
+//! WPILOG (WPILib's DataLog) reader and writer, version 1.0.
 //! Spec: https://github.com/wpilibsuite/allwpilib/blob/main/wpiutil/doc/datalog.adoc
 //!
-//! Estructura del archivo:
+//! File layout:
 //!
 //!   header = "WPILOG" + u16 version (0x0100) + u32 len + extra header (JSON)
 //!   record = bitfield + entry id + payload size + timestamp + payload
 //!
-//! El bitfield dice cuántos BYTES ocupa cada campo del record (todo little
-//! endian), lo que permite que un timestamp chico no gaste 8 bytes:
+//! The bitfield says how many BYTES each field of the record takes (all little
+//! endian), which lets a small timestamp not spend 8 bytes:
 //!
-//!   bits 0-1 -> largo del entry id       - 1   (1..4)
-//!   bits 2-3 -> largo del payload size   - 1   (1..4)
-//!   bits 4-6 -> largo del timestamp      - 1   (1..8)
+//!   bits 0-1 -> length of the entry id      - 1   (1..4)
+//!   bits 2-3 -> length of the payload size  - 1   (1..4)
+//!   bits 4-6 -> length of the timestamp     - 1   (1..8)
 //!
-//! El entry id 0 está reservado para records de CONTROL, que son los que
-//! declaran nombre y tipo de cada entry (start), la dan de baja (finish) o le
-//! cambian la metadata. Sin ellos un record de datos es solo bytes sueltos.
+//! Entry id 0 is reserved for CONTROL records, which are the ones that declare
+//! each entry's name and type (start), retire it (finish) or change its
+//! metadata. Without them a data record is just loose bytes.
 //!
-//! Al escribir usamos siempre el tamaño máximo de cada campo (4/4/8): el
-//! archivo queda algo más grande pero el writer no tiene casos especiales.
-//! Al leer sí se respetan todos los tamaños, porque los archivos que genera
-//! el robot vienen con los campos comprimidos.
+//! When writing we always use each field's maximum size (4/4/8): the file comes
+//! out somewhat bigger but the writer has no special cases. When reading every
+//! size is honored, because the files the robot produces come with the fields
+//! compressed.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -34,15 +34,15 @@ use super::client::{NTBuffer, NTValue, TopicHistory};
 const MAGIC: &[u8; 6] = b"WPILOG";
 const VERSION: u16 = 0x0100;
 
-// Tamaños fijos que usa el writer (el reader acepta cualquiera).
+// Fixed sizes the writer uses (the reader accepts any).
 const WRITE_ID_LEN: usize = 4;
 const WRITE_SIZE_LEN: usize = 4;
 const WRITE_TS_LEN: usize = 8;
 
-// --- Traducción de tipos ----------------------------------------------------
+// --- Type translation ----------------------------------------------------
 
-/// NT4 dice "int"/"int[]"; wpilog los llama "int64"/"int64[]". El resto de los
-/// nombres coinciden, incluidos "struct:Foo", "proto:Foo" y "msgpack".
+/// NT4 says "int"/"int[]"; wpilog calls them "int64"/"int64[]". The rest of the
+/// names match, including "struct:Foo", "proto:Foo" and "msgpack".
 fn nt_type_to_wpilog(t: &str) -> String {
     match t {
         "int" => "int64".to_string(),
@@ -59,11 +59,11 @@ fn wpilog_type_to_nt(t: &str) -> String {
     }
 }
 
-// --- Codificación de payloads ----------------------------------------------
+// --- Payload encoding ----------------------------------------------
 
-// El tipo declarado manda sobre la variante guardada: un topic "int" vive en
-// memoria como NTValue::Number(f64) pero en el archivo tiene que salir como
-// un i64 de 8 bytes, o ningún otro lector lo va a entender.
+// The declared type wins over the stored variant: an "int" topic lives in
+// memory as NTValue::Number(f64) but in the file it has to come out as an
+// 8-byte i64, or no other reader will understand it.
 fn encode_payload(wpilog_type: &str, value: &NTValue) -> Option<Vec<u8>> {
     match (wpilog_type, value) {
         ("boolean", NTValue::Boolean(b)) => Some(vec![u8::from(*b)]),
@@ -82,8 +82,8 @@ fn encode_payload(wpilog_type: &str, value: &NTValue) -> Option<Vec<u8>> {
         ("double[]", NTValue::NumberArray(a)) => {
             Some(a.iter().flat_map(|n| n.to_le_bytes()).collect())
         }
-        // string[] es el único que necesita framing propio: u32 con la cantidad
-        // y después cada string precedido por su largo.
+        // string[] is the only one that needs framing of its own: a u32 with the
+        // count and then each string preceded by its length.
         ("string[]", NTValue::StringArray(a)) => {
             let mut out = Vec::new();
             out.extend_from_slice(&(a.len() as u32).to_le_bytes());
@@ -97,8 +97,8 @@ fn encode_payload(wpilog_type: &str, value: &NTValue) -> Option<Vec<u8>> {
         // Cualquier tipo desconocido (structs, protobuf, msgpack) viaja crudo.
         (_, NTValue::Raw(b)) => Some(b.clone()),
 
-        // El tipo declarado y el valor guardado no concuerdan: se saltea el
-        // sample en vez de escribir bytes que después nadie puede decodificar.
+        // The declared type and the stored value do not agree: the sample is
+        // skipped instead of writing bytes nobody can decode later.
         _ => None,
     }
 }
@@ -188,26 +188,26 @@ fn control_start(entry_id: u32, name: &str, type_str: &str, metadata: &str) -> V
 }
 
 pub fn write_wpilog(buffer: &NTBuffer, path: &Path) -> Result<ExportSummary, String> {
-    let file = File::create(path).map_err(|e| format!("No se pudo crear {}: {}", path.display(), e))?;
+    let file = File::create(path).map_err(|e| format!("Could not create {}: {}", path.display(), e))?;
     let mut out = BufWriter::new(file);
 
-    // Cabecera. El extra header es texto libre; se deja un JSON con la fuente
-    // para que al reabrir se sepa de dónde salió.
+    // Header. The extra header is free text; a JSON with the source is left so
+    // that on reopening it is known where it came from.
     out.write_all(MAGIC).map_err(|e| e.to_string())?;
     out.write_all(&VERSION.to_le_bytes()).map_err(|e| e.to_string())?;
     let extra = format!("{{\"source\":\"MARS\",\"version\":\"1.0\"}}");
     out.write_all(&(extra.len() as u32).to_le_bytes()).map_err(|e| e.to_string())?;
     out.write_all(extra.as_bytes()).map_err(|e| e.to_string())?;
 
-    // Los entry id del archivo son propios (1..N) y no los del servidor NT:
-    // el 0 está reservado para control y los ids de NT pueden empezar en 0.
+    // The file's entry ids are its own (1..N) and not the NT server's: 0 is
+    // reserved for control and NT's ids can start at 0.
     let mut entry_ids: HashMap<i32, u32> = HashMap::new();
     let mut next_entry_id: u32 = 1;
     let mut topic_count = 0usize;
 
-    // Índice plano de todos los samples para poder ordenarlos por tiempo sin
-    // materializar los payloads: se guarda solo (timestamp, entry, topic, idx),
-    // y el payload se codifica recién al escribir.
+    // A flat index of all the samples so they can be sorted by time without
+    // materializing the payloads: only (timestamp, entry, topic, idx) is stored,
+    // and the payload is encoded only when writing.
     let mut index: Vec<(u64, u32, i32, usize)> = Vec::new();
 
     let mut topic_ids: Vec<&i32> = buffer.topics.keys().collect();
@@ -223,8 +223,8 @@ pub fn write_wpilog(buffer: &NTBuffer, path: &Path) -> Result<ExportSummary, Str
         topic_count += 1;
 
         let wpilog_type = nt_type_to_wpilog(&history.topic_type);
-        // El record de start va en el primer timestamp del topic: declarar la
-        // entry DESPUÉS de su primer dato deja ese dato huérfano al releer.
+        // The start record goes at the topic's first timestamp: declaring the
+        // entry AFTER its first data point leaves that point orphaned on rereading.
         let first_ts = history.data.front().map(|(ts, _)| *ts).unwrap_or(0);
         let payload = control_start(entry_id, &history.name, &wpilog_type, "");
         write_record(&mut out, 0, first_ts, &payload).map_err(|e| e.to_string())?;
@@ -288,8 +288,8 @@ impl<'a> Cursor<'a> {
         Some(slice)
     }
 
-    /// Entero little endian de `n` bytes (1..8), que es como el formato guarda
-    /// los campos de largo variable del record header.
+    /// Little endian integer of `n` bytes (1..8), which is how the format stores
+    /// the record header's variable-length fields.
     fn take_uint(&mut self, n: usize) -> Option<u64> {
         let bytes = self.take(n)?;
         let mut value: u64 = 0;
@@ -309,32 +309,32 @@ impl<'a> Cursor<'a> {
     }
 }
 
-/// El árbol de la app parte los nombres por "/" y los prefijos de tabla se
-/// arman con barra inicial, así que los nombres del log se normalizan igual.
+/// The app's tree splits names by "/" and table prefixes are built with a
+/// leading slash, so the log's names are normalized the same way.
 fn normalize_name(name: &str) -> String {
     if name.starts_with('/') { name.to_string() } else { format!("/{}", name) }
 }
 
 pub fn read_wpilog(path: &Path) -> Result<(HashMap<i32, TopicHistory>, LogSummary), String> {
-    let mut file = File::open(path).map_err(|e| format!("No se pudo abrir {}: {}", path.display(), e))?;
+    let mut file = File::open(path).map_err(|e| format!("Could not open {}: {}", path.display(), e))?;
     let mut data = Vec::new();
-    file.read_to_end(&mut data).map_err(|e| format!("Error leyendo el archivo: {}", e))?;
+    file.read_to_end(&mut data).map_err(|e| format!("Error reading the file: {}", e))?;
 
     let mut cursor = Cursor { data: &data, pos: 0 };
 
     if cursor.take(6) != Some(MAGIC) {
-        return Err("No es un archivo WPILOG (falta la firma en la cabecera).".to_string());
+        return Err("Not a WPILOG file (the header signature is missing).".to_string());
     }
     let version = cursor.take_uint(2).ok_or("Cabecera incompleta")? as u16;
     if version >> 8 != 1 {
-        return Err(format!("Versión de WPILOG no soportada: {}.{}", version >> 8, version & 0xff));
+        return Err(format!("Unsupported WPILOG version: {}.{}", version >> 8, version & 0xff));
     }
     let extra_len = cursor.take_u32().ok_or("Cabecera incompleta")? as usize;
     cursor.take(extra_len).ok_or("Cabecera incompleta")?;
 
-    // Un entry id del archivo se puede dar de baja (finish) y reusar para otro
-    // nombre, así que el mapa entry->topic se rearma en cada start; los topics
-    // se identifican por NOMBRE, que es lo único estable.
+    // A file's entry id can be retired (finish) and reused for another name, so
+    // the entry->topic map is rebuilt on every start; topics are identified by
+    // NAME, which is the only stable thing.
     let mut topics: HashMap<i32, TopicHistory> = HashMap::new();
     let mut by_name: HashMap<String, i32> = HashMap::new();
     let mut entry_to_topic: HashMap<u32, i32> = HashMap::new();
@@ -364,7 +364,7 @@ pub fn read_wpilog(path: &Path) -> Result<(HashMap<i32, TopicHistory>, LogSummar
             let ctrl_type = match ctrl.take(1) { Some(b) => b[0], None => continue };
             match ctrl_type {
                 0 => {
-                    // Start: declara (o redeclara) una entry.
+                    // Start: declares (or redeclares) an entry.
                     let (Some(file_entry), Some(name), Some(type_str)) =
                         (ctrl.take_u32(), ctrl.take_string(), ctrl.take_string())
                     else { continue };
@@ -385,20 +385,20 @@ pub fn read_wpilog(path: &Path) -> Result<(HashMap<i32, TopicHistory>, LogSummar
                     entry_to_topic.insert(file_entry, topic_id);
                 }
                 1 => {
-                    // Finish: la entry deja de existir, pero los datos ya
-                    // leídos se conservan.
+                    // Finish: the entry stops existing, but the data already read
+                    // is kept.
                     if let Some(file_entry) = ctrl.take_u32() {
                         entry_to_topic.remove(&file_entry);
                     }
                 }
-                _ => { /* setMetadata y futuros: no cambian los valores */ }
+                _ => { /* setMetadata and future ones: they do not change the values */ }
             }
             continue;
         }
 
         let Some(topic_id) = entry_to_topic.get(&entry_id).copied() else {
-            // Dato de una entry que nunca se declaró: sin tipo no se puede
-            // decodificar, así que se descarta en vez de adivinar.
+            // Data for an entry that was never declared: without a type it cannot
+            // be decoded, so it is discarded instead of guessed.
             continue;
         };
         let Some(history) = topics.get_mut(&topic_id) else { continue };
@@ -412,8 +412,8 @@ pub fn read_wpilog(path: &Path) -> Result<(HashMap<i32, TopicHistory>, LogSummar
         }
     }
 
-    // El buffer y `get_values_at` asumen data ordenada por timestamp; un
-    // archivo puede traer records fuera de orden (varios writers, o merges).
+    // The buffer and `get_values_at` assume data sorted by timestamp; a file
+    // can carry out-of-order records (several writers, or merges).
     for history in topics.values_mut() {
         if history.data.iter().zip(history.data.iter().skip(1)).any(|((a, _), (b, _))| a > b) {
             let mut sorted: Vec<_> = history.data.drain(..).collect();
@@ -434,15 +434,15 @@ pub fn read_wpilog(path: &Path) -> Result<(HashMap<i32, TopicHistory>, LogSummar
     };
 
     if topics.is_empty() {
-        return Err("El archivo no contiene ningún dato legible.".to_string());
+        return Err("The file does not contain any readable data.".to_string());
     }
 
     Ok((topics, summary))
 }
 
-/// Reemplaza el contenido del buffer con el de un log. La retención se apaga:
-/// un log de 40 minutos no se puede podar a la ventana de 15 que usa el modo
-/// en vivo, o la mitad de la sesión desaparecería al abrirla.
+/// Replaces the buffer's contents with a log's. Retention is turned off: a
+/// 40-minute log cannot be pruned to the 15-minute window the live mode uses,
+/// or half the session would vanish on opening it.
 pub fn load_into_buffer(buffer: &mut NTBuffer, topics: HashMap<i32, TopicHistory>, summary: &LogSummary) {
     buffer.topics = topics;
     buffer.end_time = summary.end_us;
@@ -499,8 +499,8 @@ mod tests {
         let by_name: HashMap<String, &TopicHistory> =
             topics.values().map(|h| (h.name.clone(), h)).collect();
 
-        // El tipo declarado tiene que sobrevivir la ida y vuelta por wpilog
-        // (donde "int" se llama "int64").
+        // The declared type has to survive the round trip through wpilog
+        // (where "int" is called "int64").
         assert_eq!(by_name["/Robot/Ticks"].topic_type, "int");
         assert_eq!(by_name["/Robot/Counts"].topic_type, "int[]");
         assert_eq!(by_name["/Odom/Pose"].topic_type, "struct:Pose2d");
@@ -572,8 +572,8 @@ mod tests {
 
     #[test]
     fn reads_records_with_compact_field_widths() {
-        // Los archivos del robot no usan siempre 4/4/8 bytes como nuestro
-        // writer: comprimen cada campo al mínimo. El reader tiene que aceptarlo.
+        // The robot's files do not always use 4/4/8 bytes like our writer: they
+        // compress each field to the minimum. The reader has to accept it.
         let mut data = Vec::new();
         data.extend_from_slice(MAGIC);
         data.extend_from_slice(&VERSION.to_le_bytes());

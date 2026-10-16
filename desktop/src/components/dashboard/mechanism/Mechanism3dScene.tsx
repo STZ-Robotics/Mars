@@ -1,21 +1,21 @@
-// Escena del Mechanism 3D.
+// The Mechanism 3D's scene.
 //
-// El mecanismo es un árbol. Cada pieza arma esta cadena de grupos:
+// The mechanism is a tree. Each part builds this chain of groups:
 //
-//   originGroup   colocación FIJA respecto del padre (origin + originRotation)
-//     └ pivotOut  +pivot   ─┐ juntos hacen que el giro ocurra alrededor del
-//         └ jointGroup      │  pivote y no del origen: en reposo se cancelan,
-//             └ pivotIn  -pivot  así que mover el pivote NO mueve la pieza.
-//                 ├ modelSlot   el STL/GLB o la primitiva
-//                 └ originGroup de cada hijo…
+//   originGroup   FIXED placement relative to the parent (origin + originRotation)
+//     └ pivotOut  +pivot   ─┐ together they make the rotation happen about the
+//         └ jointGroup      │  pivot and not the origin: at rest they cancel,
+//             └ pivotIn  -pivot  so moving the pivot does NOT move the part.
+//                 ├ modelSlot   the STL/GLB or the primitive
+//                 └ each child's originGroup…
 //
-// Los indicadores de junta (el anillo del revoluto, el riel del prismático)
-// cuelgan de originGroup, no del joint: marcan por dónde pasa el eje, así que
-// tienen que quedarse quietos mientras la pieza se mueve.
+// The joint indicators (the revolute's ring, the prismatic's rail) hang from
+// originGroup, not from the joint: they mark where the axis goes through, so
+// they have to stay still while the part moves.
 //
-// La reconstrucción del árbol solo ocurre cuando cambia la estructura o la
-// apariencia; los valores se aplican en el frame loop tocando únicamente
-// transformaciones, que es barato.
+// The tree is only rebuilt when the structure or the appearance changes; the
+// values are applied in the frame loop touching only transforms, which is
+// cheap.
 
 import { useEffect, useRef } from "react"
 import {
@@ -42,30 +42,30 @@ import {
 interface Props {
   parts: Mechanism3dPart[]
   settings: Mechanism3dSettings
-  /** Modelos ya cargados, indexados por ruta. */
+  /** Already loaded models, indexed by path. */
   models: Map<string, LoadedModel>
-  /** Último valor de cada topic que maneja alguna articulación. */
+  /** The last value of each topic that drives some joint. */
   values: Record<string, any>
   selectedId: string | null
   onSelect: (id: string | null) => void
-  /** Se llama al SOLTAR el gizmo, con los campos que cambió. */
+  /** Called on RELEASING the gizmo, with the fields it changed. */
   onCommit: (id: string, updates: Partial<Mechanism3dPart>) => void
   resetCameraToken: number
 
-  // --- Reproducción de rutinas ---
-  /** Rutina elegida, o null si no hay ninguna. */
+  // --- Routine playback ---
+  /** The chosen routine, or null if there is none. */
   routine: Mechanism3dRoutine | null
-  /** La rutina manda sobre los topics y sobre el valor manual. */
+  /** The routine wins over the topics and over the manual value. */
   routineActive: boolean
-  /** Avanza el reloj. En pausa se queda mostrando la pose actual. */
+  /** Advances the clock. Paused, it keeps showing the current pose. */
   routinePlaying: boolean
   routineSpeed: number
-  /** Cambia de valor para mandar el reloj de vuelta a cero. */
+  /** Changes value to send the clock back to zero. */
   routineSeekToken: number
   /**
-   * Progreso, ~10 veces por segundo. Va como callback y no como estado de
-   * React a propósito: el reloj corre a 60 fps y re-renderizar la página a ese
-   * ritmo volvería a montar los paneles enteros en cada cuadro.
+   * Progress, ~10 times per second. It goes as a callback and not as React
+   * state on purpose: the clock runs at 60 fps and re-rendering the page at
+   * that pace would remount the whole panels on every frame.
    */
   onRoutineTick?: (timeMs: number, fraction: number) => void
 }
@@ -75,27 +75,27 @@ const SELECTION_COLOR = 0x4a5fd9
 const PRIMITIVE_COLOR = 0x9aa0ad
 const PIVOT_COLOR = 0xd97706
 
-// Morado = gira, turquesa = desliza. Mismo código en el badge del árbol.
+// Purple = rotates, teal = slides. The same code as the tree's badge.
 const REVOLUTE_COLOR = 0x7c3aed
 const PRISMATIC_COLOR = 0x0e9aa7
 
 const SWEEP_SEGMENTS = 60
-const JOINT_RADIUS = 0.09      // m, antes de multiplicar por settings.jointScale
+const JOINT_RADIUS = 0.09      // m, before multiplying by settings.jointScale
 
 const THEME = {
   light: { clear: 0xe6e6ea, grid: 0x9a9aa2, label: "#1c1c1f", labelBg: "rgba(255,255,255,0.85)" },
   dark: { clear: 0x1b1b20, grid: 0x50505a, label: "#f2f2f5", labelBg: "rgba(20,20,24,0.8)" },
 }
 
-/** Lo que el frame loop necesita mover en el indicador de una junta. */
+/** What the frame loop needs to move in a joint's indicator. */
 interface JointVisual {
   kind: "revolute" | "prismatic"
-  /** Segmentos del arco de barrido, se muestran los primeros n. */
+  /** Segments of the sweep arc; the first n are shown. */
   sweep: Group | null
   segments: Mesh[]
-  /** Punta que corre por el anillo o por el riel. */
+  /** The tip that runs along the ring or the rail. */
   head: Object3D | null
-  /** Extremos del riel, en metros, para no dibujar fuera de él. */
+  /** The rail's ends, in meters, so nothing is drawn outside it. */
   travel: { min: number; max: number }
 }
 
@@ -112,7 +112,7 @@ interface SceneCore {
   scene: Scene
   camera: PerspectiveCamera | OrthographicCamera
   controls: OrbitControls
-  /** Raíz del mecanismo; se vacía y rearma en cada reconstrucción. */
+  /** The mechanism's root; emptied and rebuilt on every rebuild. */
   root: Group
   floor: Group
   transform: TransformControls | null
@@ -120,7 +120,7 @@ interface SceneCore {
   visuals: Map<string, PartVisual>
   raycaster: Raycaster
   pointer: Vector2
-  /** Reloj de la rutina, en ms. */
+  /** The routine's clock, in ms. */
   routineClock: number
   lastFrame: number
   lastTick: number
@@ -133,8 +133,8 @@ export default function Mechanism3dScene({
   const containerRef = useRef<HTMLDivElement>(null)
   const coreRef = useRef<SceneCore | null>(null)
 
-  // El loop corre a 60 fps y los datos llegan a ~30 Hz: lee de refs para no
-  // tener que recrearse en cada muestra.
+  // The loop runs at 60 fps and the data arrives at ~30 Hz: it reads from refs
+  // so it does not have to be recreated on every sample.
   const liveRef = useRef({ parts, settings, values, routine, routineActive, routinePlaying, routineSpeed })
   liveRef.current = { parts, settings, values, routine, routineActive, routinePlaying, routineSpeed }
   const tickRef = useRef(onRoutineTick)
@@ -203,9 +203,9 @@ export default function Mechanism3dScene({
     observer.observe(container)
     resize()
 
-    // --- Selección por click ---
-    // Se distingue un click de un arrastre de cámara por la distancia
-    // recorrida: sin esto, orbitar seleccionaría una pieza al azar al soltar.
+    // --- Click selection ---
+    // A click is told apart from a camera drag by the distance traveled: without
+    // this, orbiting would select a random part on release.
     let downAt: { x: number; y: number } | null = null
     const onPointerDown = (event: PointerEvent) => {
       if (event.button !== 0) return
@@ -216,7 +216,7 @@ export default function Mechanism3dScene({
       const moved = Math.hypot(event.clientX - downAt.x, event.clientY - downAt.y)
       downAt = null
       if (moved > 4) return
-      if (core.transform?.dragging) return   // el click es del gizmo
+      if (core.transform?.dragging) return   // the click belongs to the gizmo
 
       const rect = core.renderer.domElement.getBoundingClientRect()
       core.pointer.set(
@@ -236,8 +236,8 @@ export default function Mechanism3dScene({
       frame = requestAnimationFrame(animate)
 
       const now = performance.now()
-      // Se acota el paso: volver a la pestana despues de un rato daria un dt
-      // enorme y la rutina saltaria varios segundos de golpe.
+      // The step is capped: coming back to the tab after a while would give a
+      // huge dt and the routine would jump several seconds at once.
       const dt = Math.min(now - core.lastFrame, 100)
       core.lastFrame = now
 
@@ -266,7 +266,7 @@ export default function Mechanism3dScene({
     }
   }, [])
 
-  // --- Piso, fondo y ejes del mundo ------------------------------------------
+  // --- Floor, background and world axes ------------------------------------------
   useEffect(() => {
     const core = coreRef.current
     if (!core) return
@@ -278,10 +278,10 @@ export default function Mechanism3dScene({
     if (settings.showWorldAxes) core.floor.add(makeAxes(0.35))
   }, [settings.showFloor, settings.gridCell, settings.showWorldAxes, settings.background])
 
-  // --- Árbol de piezas --------------------------------------------------------
-  // La firma deja afuera el valor manual de cada articulación: es el único
-  // campo que se edita arrastrando, y rebuildear en cada frame del slider haría
-  // parpadear la escena entera.
+  // --- Part tree --------------------------------------------------------
+  // The signature leaves out each joint's manual value: it is the only field
+  // edited by dragging, and rebuilding on every frame of the slider would make
+  // the whole scene flicker.
   const structureSignature = JSON.stringify(parts.map(p => ({
     ...p,
     joint: { ...p.joint, manual: 0 },
@@ -311,7 +311,7 @@ export default function Mechanism3dScene({
     settings.showPartLabels, settings.background,
   ])
 
-  // --- Selección: caja y marcador de pivote -----------------------------------
+  // --- Selection: box and pivot marker -----------------------------------
   useEffect(() => {
     const core = coreRef.current
     if (!core) return
@@ -322,8 +322,8 @@ export default function Mechanism3dScene({
       core.selectionBox = null
     }
 
-    // El marcador de pivote solo aparece en la pieza seleccionada: uno por
-    // pieza sería una nube de puntos naranjas sin significado.
+    // The pivot marker only shows on the selected part: one per part would be a
+    // cloud of meaningless orange dots.
     core.visuals.forEach(visual => {
       if (visual.pivotMarker) visual.pivotMarker.visible = visual.id === selectedId
     })
@@ -331,7 +331,7 @@ export default function Mechanism3dScene({
     const visual = selectedId ? core.visuals.get(selectedId) : undefined
     if (visual && settings.showBounds) {
       const box = new BoxHelper(visual.jointGroup, new Color(SELECTION_COLOR))
-      // Sin esto la caja desaparece cuando queda justo sobre la superficie.
+      // Without this the box disappears when it lies right on the surface.
       box.material.depthTest = false
       box.renderOrder = 5
       core.scene.add(box)
@@ -349,30 +349,30 @@ export default function Mechanism3dScene({
     const visual = selectedId ? core.visuals.get(selectedId) : undefined
     if (settings.gizmo === "off" || !part || !visual || part.locked) return
 
-    // El modo "pivot" arrastra el marcador naranja, no la pieza: mientras se
-    // arrastra solo se mueve el marcador, que es exactamente lo que se está
-    // eligiendo (dónde va a quedar el eje).
+    // The "pivot" mode drags the orange marker, not the part: while dragging
+    // only the marker moves, which is exactly what is being chosen (where the
+    // axis will end up).
     const movingPivot = settings.gizmo === "pivot"
     const target = movingPivot ? visual.pivotMarker : visual.originGroup
     if (!target) return
     if (movingPivot) target.visible = true
 
     const transform = new TransformControls(core.camera, core.renderer.domElement)
-    // `pivot` es un modo nuestro, no de TransformControls: por debajo es un
-    // translate, lo único distinto es a qué objeto se engancha.
+    // `pivot` is a mode of ours, not TransformControls': underneath it is a
+    // translate, the only difference is which object it attaches to.
     transform.setMode(movingPivot || settings.gizmo === "translate" ? "translate" : "rotate")
     transform.setSpace(movingPivot ? "local" : settings.gizmoSpace)
     transform.setTranslationSnap(settings.gizmoSnap ? 0.01 : null)
     transform.setRotationSnap(settings.gizmoSnap ? 5 * DEG : null)
     transform.attach(target)
 
-    // Orbitar y arrastrar el gizmo al mismo tiempo pelearía por el puntero.
+    // Orbiting and dragging the gizmo at the same time would fight over the pointer.
     const onDragging = (event: { value: unknown }) => {
       core.controls.enabled = !event.value
       if (event.value) return
 
-      // El commit va al SOLTAR: mandar el estado en cada frame del arrastre
-      // dispararía una reconstrucción del árbol por movimiento del mouse.
+      // The commit goes on RELEASE: sending the state on every frame of the
+      // drag would trigger a tree rebuild per mouse move.
       if (movingPivot) {
         commitRef.current(part.id, {
           pivot: [round(target.position.x), round(target.position.y), round(target.position.z)],
@@ -404,7 +404,7 @@ export default function Mechanism3dScene({
     structureSignature, modelsSignature, settings.projection,
   ])
 
-  // --- Proyección --------------------------------------------------------------
+  // --- Projection --------------------------------------------------------------
   useEffect(() => {
     const core = coreRef.current
     const container = containerRef.current
@@ -480,15 +480,15 @@ function detachGizmo(core: SceneCore) {
   core.transform = null
 }
 
-/** Vacía el árbol liberando materiales de las instancias y el resto de mallas. */
+/** Empties the tree, releasing the instances' materials and the rest of the meshes. */
 function clearTree(root: Group) {
   root.children.slice().forEach(child => {
     root.remove(child)
     child.traverse(node => {
       const mesh = node as Mesh
       if (!mesh.isMesh) return
-      // Las mallas importadas comparten geometría con el modelo cacheado, así
-      // que solo se descarta lo propio: sus materiales y las primitivas.
+      // Imported meshes share geometry with the cached model, so only what is
+      // our own is discarded: their materials and the primitives.
       if (node.userData.imported) disposeInstance(node)
       else {
         mesh.geometry?.dispose()
@@ -500,7 +500,7 @@ function clearTree(root: Group) {
   })
 }
 
-/** Sube por los padres hasta encontrar a qué pieza pertenece la malla tocada. */
+/** Goes up through the parents until it finds which part the hit mesh belongs to. */
 function findPartId(object: Object3D): string | null {
   let current: Object3D | null = object
   while (current) {
@@ -510,7 +510,7 @@ function findPartId(object: Object3D): string | null {
   return null
 }
 
-// --- Construcción del árbol --------------------------------------------------------
+// --- Building the tree --------------------------------------------------------
 
 function buildNode(
   node: PartNode,
@@ -533,8 +533,8 @@ function buildNode(
   )
   parent.add(originGroup)
 
-  // pivotOut/pivotIn se cancelan en reposo: el par es lo que traslada el centro
-  // de giro sin mover la pieza de donde está.
+  // pivotOut/pivotIn cancel out at rest: the pair is what moves the center of
+  // rotation without moving the part from where it is.
   const pivotOut = new Group()
   pivotOut.position.set(px, py, pz)
   originGroup.add(pivotOut)
@@ -545,8 +545,8 @@ function buildNode(
 
   const pivotIn = new Group()
   pivotIn.position.set(-px, -py, -pz)
-  // El id va acá y no en originGroup: el gizmo mueve el origen, y si el raycast
-  // devolviera ese mismo objeto el helper se estaría seleccionando a sí mismo.
+  // The id goes here and not on originGroup: the gizmo moves the origin, and if
+  // the raycast returned that same object the helper would be selecting itself.
   pivotIn.userData.partId = part.id
   jointGroup.add(pivotIn)
 
@@ -555,7 +555,7 @@ function buildNode(
   pivotIn.add(modelSlot)
   fillModelSlot(modelSlot, part, models)
 
-  // El indicador marca por dónde pasa el eje, así que va en el marco FIJO.
+  // The indicator marks where the axis goes through, so it goes in the FIXED frame.
   let joint: JointVisual | null = null
   if (settings.showJointAxes) {
     const built = buildJointIndicator(part, settings)
@@ -586,7 +586,7 @@ function buildNode(
   node.children.forEach(child => buildNode(child, pivotIn, core, models, settings, theme))
 }
 
-/** Crucecita naranja que marca el centro de rotación de la pieza seleccionada. */
+/** A little orange cross marking the selected part's center of rotation. */
 function makePivotMarker(scale: number): Group {
   const size = 0.02 * scale
   const group = new Group()
@@ -596,7 +596,7 @@ function makePivotMarker(scale: number): Group {
   ball.renderOrder = 8
   group.add(ball)
 
-  // Tres varillas cortas: una bolita sola es difícil de ubicar en profundidad.
+  // Three short rods: a lone ball is hard to place in depth.
   const arms: [number, number, number][] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
   arms.forEach(dir => {
     const arm = new Mesh(new CylinderGeometry(size * 0.12, size * 0.12, size * 3, 6), material)
@@ -610,9 +610,9 @@ function makePivotMarker(scale: number): Group {
 // --- Indicadores de junta -----------------------------------------------------------
 
 /**
- * Anillo (revoluto) o riel (prismático) sobre el eje de la articulación, con la
- * porción recorrida resaltada. Es lo que en Onshape deja ver de un vistazo qué
- * junta es cada una, hacia dónde se mueve y cuánto le queda de recorrido.
+ * Ring (revolute) or rail (prismatic) on the joint's axis, with the traveled
+ * portion highlighted. It is what in Onshape shows at a glance which joint is
+ * which, which way it moves and how much travel it has left.
  */
 function buildJointIndicator(
   part: Mechanism3dPart,
@@ -623,7 +623,7 @@ function buildJointIndicator(
 
   const group = new Group()
 
-  // Una pose no tiene eje: se marca el marco que va a tomar del topic.
+  // A pose has no axis: the frame it will take from the topic is marked.
   if (joint.type === "pose") {
     group.add(makeAxes(0.1 * settings.jointScale))
     return {
@@ -632,8 +632,8 @@ function buildJointIndicator(
     }
   }
 
-  // Todo el indicador se dibuja con el eje en +Z y después se lo orienta: es
-  // mucho más simple que construir cada pieza sobre un eje arbitrario.
+  // The whole indicator is drawn with the axis on +Z and then oriented: it is
+  // much simpler than building each piece on an arbitrary axis.
   const axis = normalizeAxis(joint.axis)
   group.quaternion.setFromUnitVectors(new Vector3(0, 0, 1), new Vector3(axis[0], axis[1], axis[2]))
 
@@ -647,17 +647,17 @@ function buildJointIndicator(
     const radius = JOINT_RADIUS * scale
     const tube = radius * 0.035
 
-    // Anillo completo: la "pista" sobre la que corre el barrido.
+    // Full ring: the "track" the sweep runs on.
     group.add(new Mesh(new TorusGeometry(radius, tube, 8, 64), trackMaterial))
 
-    // Varilla del eje, que es lo que hace evidente alrededor de qué gira.
+    // The axis rod, which is what makes it obvious what it rotates about.
     const rod = new Mesh(
       new CylinderGeometry(tube * 0.8, tube * 0.8, radius * 2.6, 10).rotateX(Math.PI / 2),
       trackMaterial,
     )
     group.add(rod)
 
-    // Sector de los límites: se ve de una cuánto recorrido queda de cada lado.
+    // The limits' sector: it shows at once how much travel is left on each side.
     const range = settings.showJointLimits ? sweepRange(joint) : null
     if (range) {
       const sector = new Mesh(
@@ -665,7 +665,7 @@ function buildJointIndicator(
         new MeshBasicMaterial({ color, transparent: true, opacity: 0.12, side: DoubleSide }),
       )
       group.add(sector)
-      // Topes: dos varillas radiales en los extremos del recorrido.
+      // Stops: two radial rods at the ends of the travel.
       ;[range.min, range.max].forEach(angle => {
         const stop = new Mesh(new BoxGeometry(radius * 0.9, tube * 1.6, tube * 1.6), trackMaterial)
         stop.position.set(Math.cos(angle) * radius * 0.45, Math.sin(angle) * radius * 0.45, 0)
@@ -674,13 +674,13 @@ function buildJointIndicator(
       })
     }
 
-    // Marca del cero, para saber desde dónde se está midiendo.
+    // The zero mark, to know where it is being measured from.
     const zero = new Mesh(new BoxGeometry(radius * 0.34, tube * 2.2, tube * 2.2), liveMaterial)
     zero.position.x = radius * 1.12
     group.add(zero)
 
-    // Barrido: trozos fijos de los que se muestran los primeros n. Cambiar
-    // `thetaLength` obligaría a rehacer la geometría en cada frame.
+    // Sweep: fixed segments of which the first n are shown. Changing
+    // `thetaLength` would force redoing the geometry every frame.
     const sweep = new Group()
     const step = (Math.PI * 2) / SWEEP_SEGMENTS
     const segmentGeometry = new TorusGeometry(radius, tube * 2.1, 6, 6, step * 1.06)
@@ -693,7 +693,7 @@ function buildJointIndicator(
       segments.push(segment)
     }
 
-    // Punta tangente al anillo: marca dónde está la pieza ahora mismo.
+    // A tip tangent to the ring: it marks where the part is right now.
     const head = new Group()
     const cone = new Mesh(new ConeGeometry(tube * 4, tube * 10, 12).rotateZ(-Math.PI / 2), liveMaterial)
     cone.position.x = radius
@@ -708,7 +708,7 @@ function buildJointIndicator(
     }
   }
 
-  // --- Prismático: riel con topes y un cursor que corre por él ---
+  // --- Prismatic: a rail with stops and a cursor running along it ---
   const travel = travelRange(joint, 0.15 * scale)
   const span = Math.max(travel.max - travel.min, 1e-3)
   const tube = 0.006 * scale
@@ -720,7 +720,7 @@ function buildJointIndicator(
   rail.position.z = (travel.min + travel.max) / 2
   group.add(rail)
 
-  // Topes en las dos puntas del recorrido.
+  // Stops at both ends of the travel.
   ;[travel.min, travel.max].forEach((z, i) => {
     const stop = new Mesh(new CylinderGeometry(tube * 3.4, tube * 3.4, tube * 1.4, 16).rotateX(Math.PI / 2), trackMaterial)
     stop.position.z = z
@@ -738,7 +738,7 @@ function buildJointIndicator(
   return { group, visual: { kind: "prismatic", sweep: null, segments: [], head, travel } }
 }
 
-// --- Modelo de cada pieza -----------------------------------------------------------
+// --- Each part's model -----------------------------------------------------------
 
 function fillModelSlot(slot: Group, part: Mechanism3dPart, models: Map<string, LoadedModel>) {
   const wrapper = new Group()
@@ -774,7 +774,7 @@ function primitiveGeometry(part: Mechanism3dPart) {
   const [a, b, c] = part.shapeSize.map(v => Math.max(Math.abs(v), 1e-4))
   switch (part.shape) {
     case "cylinder":
-      // El cilindro de three tiene el eje en Y; acá todo se piensa con Z arriba.
+      // three's cylinder has its axis on Y; here everything is thought with Z up.
       return new CylinderGeometry(a, a, c, 24).rotateX(Math.PI / 2)
     case "sphere":
       return new SphereGeometry(a, 24, 16)
@@ -796,7 +796,7 @@ function applyAppearance(object: Object3D, part: Mechanism3dPart, fallbackColor:
   })
 }
 
-// --- Actualización por frame ----------------------------------------------------------
+// --- Per-frame update ----------------------------------------------------------
 
 const tmpQuat = new Quaternion()
 
@@ -817,7 +817,7 @@ function updateFrame(
   onTick: ((timeMs: number, fraction: number) => void) | undefined,
   now: number,
 ) {
-  // La rutina, si esta activa, manda sobre los topics y sobre el valor manual.
+  // The routine, if active, wins over the topics and over the manual value.
   let routineValues: Record<string, number> | null = null
   if (live.routine && live.routineActive) {
     const duration = routineDuration(live.routine)
@@ -830,8 +830,8 @@ function updateFrame(
     }
     routineValues = evaluateRoutine(live.routine, core.routineClock)
 
-    // El progreso sale a ~10 Hz: es suficiente para una barra y evita
-    // re-renderizar la pagina sesenta veces por segundo.
+    // Progress goes out at ~10 Hz: it is enough for a bar and avoids
+    // re-rendering the page sixty times per second.
     if (onTick && now - core.lastTick > 100) {
       core.lastTick = now
       onTick(core.routineClock, duration > 0 ? core.routineClock / duration : 0)
@@ -864,8 +864,8 @@ function updateFrame(
       const magnitude = Math.min(Math.abs(angle), Math.PI * 2)
       const count = Math.round((magnitude / (Math.PI * 2)) * SWEEP_SEGMENTS)
       visual.joint.segments.forEach((segment, i) => { segment.visible = i < count })
-      // Con ángulo negativo se espeja el barrido entero, que es lo mismo que
-      // dibujarlo en sentido horario.
+      // With a negative angle the whole sweep is mirrored, which is the same as
+      // drawing it clockwise.
       visual.joint.sweep.scale.y = angle < 0 ? -1 : 1
       if (visual.joint.head) {
         visual.joint.head.visible = count > 0

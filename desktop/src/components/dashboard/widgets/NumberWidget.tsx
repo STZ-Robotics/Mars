@@ -38,9 +38,9 @@ interface Props {
   voltageOrientation?: "horizontal" | "vertical"
 }
 
-// Este componente es solo un router de "style" -> widget concreto. Añadir un
-// nuevo estilo para numeros = 1) agregar el archivo del widget en ./widgets,
-// 2) agregar el case aquí, 3) agregar la opción + campos en settings/.
+// This component is only a "style" -> concrete widget router. Adding a new
+// style for numbers = 1) add the widget's file in ./widgets, 2) add the case
+// here, 3) add the option + fields in settings/.
 export default function NumberWidget({
   value, style, min, max, unit,
   matchTimeMode = "mmss", matchTimeYellow = 30, matchTimeRed = 15,

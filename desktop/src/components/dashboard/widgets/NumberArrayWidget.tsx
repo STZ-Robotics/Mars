@@ -1,8 +1,8 @@
 import UnsupportedValue from "../../common/UnsupportedValue"
 import ArrayHeader from "../../common/ArrayHeader"
 
-// Se muestra como una lista con mini-barras relativas, útil para ver
-// módulos swerve, encoders, PID arrays, etc.
+// Shown as a list with relative mini-bars, useful for looking at swerve
+// modules, encoders, PID arrays, etc.
 export default function NumberArrayWidget({ values }: { values: number[] }) {
   if (!Array.isArray(values) || values.length === 0) {
     return <UnsupportedValue message="Empty array" />

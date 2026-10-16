@@ -1,13 +1,13 @@
-// Evaluador del AST contra los buffers de NT4.
+// Evaluator of the AST against the NT4 buffers.
 //
-// Los valores pueden ser escalares o matrices, así que los operadores
-// despachan según el tipo de sus operandos.
+// Values can be scalars or matrices, so the operators dispatch on their
+// operands' type.
 //
-// La parte interesante son los operadores temporales. d(expr) e int(expr) no
-// se pueden resolver con el valor instantáneo: necesitan la SERIE de la
-// subexpresión. Se construye evaluando el árbol en cada instante del buffer y
-// aplicando después la transformada numérica. Como el resultado se cachea por
-// nodo, anidarlos —d(int(x))— sigue costando una sola pasada por operador.
+// The interesting part is the temporal operators. d(expr) and int(expr) cannot
+// be resolved with the instantaneous value: they need the subexpression's
+// SERIES. It is built by evaluating the tree at each instant of the buffer and
+// then applying the numeric transform. Since the result is cached per node,
+// nesting them —d(int(x))— still costs a single pass per operator.
 
 import { Node, collectVariables } from "./parser"
 import { TimeSeriesPoint, integrateTrapezoidal, differentiateFinite } from "../functions/mathTransforms"
@@ -25,9 +25,9 @@ import { derive } from "./symbolic"
 export type EqValue = number | Matrix
 
 export interface EvalContext {
-  /** Serie temporal por nombre de variable. */
+  /** Time series by variable name. */
   buffers: Record<string, TimeSeriesPoint[]>
-  /** Valores fijos que ganan sobre los buffers (los usa solve()). */
+  /** Fixed values that win over the buffers (solve() uses them). */
   overrides?: Record<string, number>
 }
 
@@ -131,7 +131,7 @@ export const PURE_FUNCTIONS: Record<string, PureFn> = {
   ieeeRem: { arity: 2, fn: (x, y) => x - y * Math.round(x / y), help: "IEEE remainder" },
   rint: {
     arity: 1,
-    // Redondeo al par más cercano (banker's rounding), como Math.rint.
+    // Rounds half to even (banker's rounding), like Math.rint.
     fn: (x) => {
       const rounded = Math.round(x)
       return Math.abs(x % 1) === 0.5 && rounded % 2 !== 0 ? rounded - Math.sign(x) : rounded
@@ -152,8 +152,8 @@ export const PURE_FUNCTIONS: Record<string, PureFn> = {
   },
 }
 
-// WPILib MathUtil.applyDeadband: por debajo de la banda da 0, y por encima
-// reescala linealmente para que no haya un salto en el borde.
+// WPILib MathUtil.applyDeadband: below the band it gives 0, and above it
+// rescales linearly so there is no jump at the edge.
 function applyDeadband(value: number, deadband: number, maxMagnitude: number): number {
   if (Math.abs(value) < deadband) return 0
   if (maxMagnitude === deadband) return value
@@ -233,7 +233,7 @@ export function isKnownFunction(name: string): boolean {
     || name === "D"
 }
 
-// --- Coerción ---------------------------------------------------------------
+// --- Coercion ---------------------------------------------------------------
 
 function asNumber(value: EqValue, context: string): number {
   if (isMatrix(value)) throw new EvalError(`${context} expects a scalar, got a ${value.rows}×${value.cols} matrix`)
@@ -247,10 +247,9 @@ function asMatrix(value: EqValue, context: string): Matrix {
 
 // --- Muestreo ---------------------------------------------------------------
 
-// Valor de la serie en el instante t, tomando la muestra más cercana por
-// búsqueda binaria. Los buffers de distintos topics comparten los timestamps
-// del mismo poll, pero un topic sin valor se saltea, así que no se puede
-// asumir que estén alineados por índice.
+// The series' value at instant t, taking the nearest sample by binary search.
+// Different topics' buffers share the same poll's timestamps, but a topic with
+// no value is skipped, so they cannot be assumed aligned by index.
 function sampleAt(points: TimeSeriesPoint[], t: number): number {
   if (points.length === 0) return NaN
   if (t <= points[0].t) return points[0].v
@@ -276,7 +275,7 @@ function timelineFor(node: Node, ctx: EvalContext): TimeSeriesPoint[] {
   return longest
 }
 
-// --- Evaluación -------------------------------------------------------------
+// --- Evaluation -------------------------------------------------------------
 
 interface EvalState {
   ctx: EvalContext
@@ -321,7 +320,7 @@ function applyBinary(op: string, left: EqValue, right: EqValue): EqValue {
     if (isMatrix(left)) {
       const exponent = asNumber(right, "matrix exponent")
       if (!Number.isInteger(exponent)) throw new EvalError("Matrix powers must be integers")
-      // M^-1 es la inversa; M^n son n multiplicaciones.
+      // M^-1 is the inverse; M^n is n multiplications.
       if (exponent === -1) return collapseScalar(inverse(left))
       if (exponent < 0) throw new EvalError("Only ^-1 is supported for negative matrix powers")
       let result = identity(left.rows)
@@ -548,15 +547,16 @@ function windowedStat(points: TimeSeriesPoint[], seconds: number, kind: string):
   return out
 }
 
-// --- solve(): raíz de f = 0 -------------------------------------------------
+// --- solve(): root of f = 0 -------------------------------------------------
 
 const SOLVE_TOLERANCE = 1e-10
 const SOLVE_MAX_ITERATIONS = 80
 
-// Newton-Raphson usando la derivada SIMBÓLICA cuando se puede obtener (es
-// exacta y converge cuadráticamente). Si la expresión no es derivable
-// simbólicamente —por un clamp, un min, un operador temporal— se cae a una
-// diferencia central, que converge un poco peor pero funciona igual.
+// Newton-Raphson using the SYMBOLIC derivative when it can be obtained (it is
+// exact and converges quadratically). If the expression cannot be
+// differentiated symbolically —because of a clamp, a min, a temporal operator—
+// it falls back to a central difference, which converges a bit worse but works
+// all the same.
 function solveRoot(node: Node & { kind: "call" }, t: number, state: EvalState): number {
   if (node.args.length < 2 || node.args.length > 3) {
     throw new EvalError("solve() takes solve(expression, variable[, guess])")
@@ -579,7 +579,7 @@ function solveRoot(node: Node & { kind: "call" }, t: number, state: EvalState): 
     derivative = null // se usa diferencia central
   }
 
-  // Evalúa la expresión sustituyendo la incógnita, sin tocar el contexto real.
+  // Evaluates the expression substituting the unknown, without touching the real context.
   const evalWith = (expr: Node, value: number): number => {
     const scoped: EvalState = {
       ctx: { ...state.ctx, overrides: { ...state.ctx.overrides, [variable]: value } },
@@ -614,9 +614,9 @@ function solveRoot(node: Node & { kind: "call" }, t: number, state: EvalState): 
   throw new EvalError(`solve() did not converge in ${SOLVE_MAX_ITERATIONS} iterations`)
 }
 
-// --- Entradas públicas ------------------------------------------------------
+// --- Public entry points ------------------------------------------------------
 
-/** Valor de la expresión en el instante más reciente disponible. */
+/** The expression's value at the most recent available instant. */
 export function evaluateLatest(node: Node, ctx: EvalContext): EqValue {
   const state: EvalState = { ctx, seriesCache: new Map() }
   const timeline = timelineFor(node, ctx)
@@ -624,7 +624,7 @@ export function evaluateLatest(node: Node, ctx: EvalContext): EqValue {
   return evaluateAt(node, t, state)
 }
 
-/** Serie temporal completa de la expresión (solo escalares). */
+/** The expression's whole time series (scalars only). */
 export function evaluateSeries(node: Node, ctx: EvalContext): TimeSeriesPoint[] {
   const state: EvalState = { ctx, seriesCache: new Map() }
   const timeline = timelineFor(node, ctx)

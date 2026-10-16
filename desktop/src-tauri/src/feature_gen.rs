@@ -1,21 +1,21 @@
 // feature_gen.rs
-// Generador de paquetes (features) de MARS a partir de la plantilla de feature.
+// Generator of MARS packages (features) from the feature template.
 //
-// Es la hermana de `create_mars_project`: extrae una plantilla y la reescribe
-// con los datos del wizard. La diferencia es que acá
-// hay que tocar cuatro archivos coordinados entre si -- MarsFeature.json,
-// build.gradle, settings.gradle y el arbol de paquetes java -- porque el
-// groupId aparece en los cuatro y si uno queda desfasado el gradle no compila.
+// It is `create_mars_project`'s sibling: it extracts a template and rewrites it
+// with the wizard's data. The difference is that here
+// four files have to be touched in coordination -- MarsFeature.json,
+// build.gradle, settings.gradle and the java package tree -- because the
+// groupId appears in all four and if one gets out of step gradle does not build.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Una dependencia elegida en el wizard. `artifacts` ya viene con las
-/// coordenadas gradle resueltas ("com.ctre.phoenix6:wpiapi-java:26.1.1"); la
-/// version literal "wpilib" es la convencion de los vendordeps de WPILib para
-/// "la misma que el GradleRIO activo" y se traduce al interpolar.
+/// A dependency chosen in the wizard. `artifacts` already comes with the gradle
+/// coordinates resolved ("com.ctre.phoenix6:wpiapi-java:26.1.1"); the literal
+/// version "wpilib" is the WPILib vendordeps' convention for "the same as the
+/// active GradleRIO" and is translated when interpolating.
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct GradleDependency {
     pub id: String,
@@ -50,7 +50,7 @@ pub struct FeatureWizardConfig {
     pub folder_name: String,
     #[serde(default)]
     pub dependencies: Vec<GradleDependency>,
-    /// Marca el artefacto propio como annotation processor en MarsFeature.json.
+    /// Marks the feature's own artifact as an annotation processor in MarsFeature.json.
     #[serde(rename = "isProcessor", default)]
     pub is_processor: bool,
     #[serde(rename = "initGit", default)]
@@ -62,7 +62,7 @@ pub struct FeatureWizardConfig {
 #[derive(Serialize, Debug, Clone)]
 pub struct CreateFeatureResult {
     pub path: String,
-    /// La URL que se pega en Packages > Manual Install.
+    /// The URL pasted into Packages > Manual Install.
     #[serde(rename = "installUrl")]
     pub install_url: String,
     #[serde(rename = "mavenUrl")]
@@ -73,7 +73,7 @@ pub struct CreateFeatureResult {
     pub main_class: String,
     #[serde(rename = "gitInitialized")]
     pub git_initialized: bool,
-    /// Pasos opcionales que fallaron sin invalidar la feature (git, editor).
+    /// Optional steps that failed without invalidating the feature (git, editor).
     pub warnings: Vec<String>,
 }
 
@@ -118,12 +118,12 @@ fn validate(config: &FeatureWizardConfig) -> Result<(), String> {
 // Parche de build.gradle
 // ---------------------------------------------------------------------------
 
-/// Inserta `snippet` justo antes del cierre del bloque que abre `header`.
+/// Inserts `snippet` right before the closing of the block `header` opens.
 ///
-/// Se cuentan llaves en vez de buscar el `}` mas cercano porque tanto
-/// `repositories` como `dependencies` contienen bloques y `${...}` anidados.
-/// El header se ancla a inicio de linea ("\nrepositories {") para no capturar
-/// el `repositories {` indentado que vive dentro de `publishing`.
+/// Braces are counted instead of looking for the nearest `}` because both
+/// `repositories` and `dependencies` contain nested blocks and `${...}`.
+/// The header is anchored to the start of a line ("\nrepositories {") so it does
+/// not capture the indented `repositories {` that lives inside `publishing`.
 fn insert_into_block(source: &str, header: &str, snippet: &str) -> Result<String, String> {
     let start = source.find(header).ok_or_else(|| {
         format!(
@@ -132,7 +132,7 @@ fn insert_into_block(source: &str, header: &str, snippet: &str) -> Result<String
         )
     })?;
 
-    let brace = start + header.len() - 1; // el header termina en '{'
+    let brace = start + header.len() - 1; // the header ends in '{'
     let bytes = source.as_bytes();
     let mut depth = 0usize;
     let mut end = None;
@@ -160,9 +160,9 @@ fn insert_into_block(source: &str, header: &str, snippet: &str) -> Result<String
     Ok(out)
 }
 
-/// Linea `implementation` para una coordenada gradle. Las coordenadas que
-/// terminan en `:wpilib` usan comillas dobles porque hay que interpolar la
-/// version del GradleRIO activo -- es lo mismo que hace la plantilla con
+/// `implementation` line for a gradle coordinate. Coordinates ending in
+/// `:wpilib` use double quotes because the active GradleRIO's version has to be
+/// interpolated -- it is the same thing the template does with
 /// wpilibNewCommands.
 fn implementation_line(coordinate: &str) -> String {
     match coordinate.strip_suffix(":wpilib") {
@@ -178,9 +178,9 @@ fn patch_build_gradle(path: &Path, deps: &[GradleDependency]) -> Result<(), Stri
     let original = fs::read_to_string(path)
         .map_err(|e| format!("Could not read build.gradle: {}", e))?;
 
-    // Los repos y coordenadas que la plantilla ya trae (WPILib, Mars,
-    // ForgeMini) se saltan: repetirlos no rompe gradle pero ensucia el archivo
-    // que el usuario va a editar a mano despues.
+    // The repos and coordinates the template already carries (WPILib, Mars,
+    // ForgeMini) are skipped: repeating them does not break gradle but it clutters
+    // the file the user is going to edit by hand later.
     let mut repos = String::new();
     for dep in deps {
         for url in &dep.maven_urls {
@@ -197,8 +197,8 @@ fn patch_build_gradle(path: &Path, deps: &[GradleDependency]) -> Result<(), Stri
         let mut lines = String::new();
         for coordinate in &dep.artifacts {
             let coordinate = coordinate.trim();
-            // "group:artifact" sin la version: si ya esta declarado, aunque sea
-            // en otra version, no lo duplicamos.
+            // "group:artifact" without the version: if it is already declared, even
+            // in another version, we do not duplicate it.
             let key: String = coordinate.rsplitn(2, ':').last().unwrap_or(coordinate).to_string();
             if coordinate.is_empty() || original.contains(&key) || artifacts.contains(&key) {
                 continue;
@@ -367,9 +367,9 @@ fn readme_source(config: &FeatureWizardConfig, pages: Option<&str>) -> String {
 // Comandos
 // ---------------------------------------------------------------------------
 
-/// Lee los vendordeps del proyecto abierto. Sirve para que el wizard ofrezca
-/// CTRE/PathPlanner/etc. con la version exacta que ya usa el robot en vez de
-/// una hardcodeada que envejece cada temporada.
+/// Reads the open project's vendordeps. It lets the wizard offer
+/// CTRE/PathPlanner/etc. with the exact version the robot already uses instead
+/// of a hardcoded one that ages every season.
 #[tauri::command]
 pub fn read_project_vendordeps(project_path: String) -> Result<Vec<serde_json::Value>, String> {
     let dir = PathBuf::from(&project_path).join("vendordeps");
@@ -397,8 +397,8 @@ pub async fn create_mars_feature(config: FeatureWizardConfig) -> Result<CreateFe
     scaffold_feature(config)
 }
 
-/// El cuerpo real, sincronico, para que el test de integracion pueda correrlo
-/// sin montar un runtime ni el contexto de Tauri.
+/// The real, synchronous body, so the integration test can run it without
+/// setting up a runtime or Tauri's context.
 fn scaffold_feature(config: FeatureWizardConfig) -> Result<CreateFeatureResult, String> {
     validate(&config)?;
 
@@ -413,10 +413,10 @@ fn scaffold_feature(config: FeatureWizardConfig) -> Result<CreateFeatureResult, 
         return Err(format!("{} already exists and is not empty.", target.display()));
     }
 
-    // 1. Plantilla. Viaja dentro del binario (ver templates.rs): antes se
-    //    clonaba con --depth 1 y se le borraba el .git acto seguido, que era
-    //    pagar una dependencia de red y del binario `git` para no usar nada del
-    //    historial.
+    // 1. Template. It travels inside the binary (see templates.rs): it used to be
+    //    cloned with --depth 1 and have its .git deleted right after, which was
+    //    paying for a network dependency and the `git` binary to use nothing of
+    //    the history.
     crate::templates::extract(crate::templates::FEATURE, &target)?;
 
     // 2. Descriptor.
@@ -442,9 +442,9 @@ fn scaffold_feature(config: FeatureWizardConfig) -> Result<CreateFeatureResult, 
     )
     .map_err(|e| format!("Could not write settings.gradle: {}", e))?;
 
-    // 4. Arbol de paquetes. La plantilla trae com/miequipo/mifeature de
-    //    ejemplo; se reemplaza entero en vez de renombrarlo para no dejar
-    //    carpetas huerfanas con el package viejo.
+    // 4. Package tree. The template carries com/yourteam/yourfeature as an
+    //    example; it is replaced whole instead of renamed so no orphaned folders
+    //    with the old package are left behind.
     let java_root = target.join("src").join("main").join("java");
     if java_root.exists() {
         fs::remove_dir_all(&java_root)
@@ -472,7 +472,7 @@ fn scaffold_feature(config: FeatureWizardConfig) -> Result<CreateFeatureResult, 
     fs::write(target.join("README.md"), readme_source(&config, pages.as_deref()))
         .map_err(|e| format!("Could not write README.md: {}", e))?;
 
-    // 6. Pasos opcionales: que fallen no invalida la feature ya generada.
+    // 6. Optional steps: their failing does not invalidate the already generated feature.
     let mut warnings = Vec::new();
     let mut git_initialized = false;
 
@@ -504,7 +504,7 @@ fn scaffold_feature(config: FeatureWizardConfig) -> Result<CreateFeatureResult, 
 }
 
 fn init_repository(target: &Path, config: &FeatureWizardConfig) -> Result<(), String> {
-    // -b main: el workflow de publicacion solo dispara en `main`.
+    // -b main: the publish workflow only fires on `main`.
     let status = Command::new("git")
         .args(["init", "-b", "main"])
         .current_dir(target)
@@ -516,8 +516,8 @@ fn init_repository(target: &Path, config: &FeatureWizardConfig) -> Result<(), St
 
     let _ = Command::new("git").args(["add", "-A"]).current_dir(target).status();
 
-    // El commit necesita user.name/user.email; si no estan configurados falla
-    // y solo avisamos -- el arbol ya quedo listo para commitear a mano.
+    // The commit needs user.name/user.email; if they are not configured it fails
+    // and we only warn -- the tree is already ready to commit by hand.
     let committed = Command::new("git")
         .args(["commit", "-m", "Initial commit from MARS-Feature-Template"])
         .current_dir(target)
@@ -569,7 +569,7 @@ mod tests {
     fn inserts_before_the_matching_close_brace() {
         let out = insert_into_block(GRADLE, "\nrepositories {", "\n    MARK\n").unwrap();
         let marked = out.find("MARK").unwrap();
-        // Debe caer dentro del bloque top-level, antes de `dependencies`.
+        // It has to land inside the top-level block, before `dependencies`.
         assert!(marked > out.find("mavenCentral()").unwrap());
         assert!(marked < out.find("\ndependencies {").unwrap());
     }
@@ -622,8 +622,8 @@ mod tests {
         );
     }
 
-    /// Corre el generador completo contra la plantilla real. Necesita red y
-    /// git, por eso va marcado `#[ignore]`:
+    /// Runs the whole generator against the real template. It needs network and
+    /// git, which is why it is marked `#[ignore]`:
     /// `cargo test end_to_end_scaffold -- --ignored --nocapture`
     #[test]
     #[ignore]
@@ -652,7 +652,7 @@ mod tests {
                 id: "vendordep:WPILibNewCommands.json".into(),
                 label: "WPILib-New-Commands".into(),
                 maven_urls: vec![],
-                // Ya esta en la plantilla: no debe duplicarse.
+                // Already in the template: it must not be duplicated.
                 artifacts: vec!["edu.wpi.first.wpilibNewCommands:wpilibNewCommands-java:wpilib".into()],
             },
         ];
@@ -673,8 +673,8 @@ mod tests {
         assert!(gradle.contains("https://maven.ctr-electronics.com/release/"));
         assert!(gradle.contains("implementation 'com.ctre.phoenix6:wpiapi-java:26.1.1'"));
         assert_eq!(gradle.matches("wpilibNewCommands-java").count(), 1, "the template line must not be duplicated");
-        // El repo va dentro de `repositories` y la coordenada dentro de
-        // `dependencies`, no al reves ni dentro del `publishing`.
+        // The repo goes inside `repositories` and the coordinate inside
+        // `dependencies`, not the other way round nor inside `publishing`.
         let repos_at = gradle.find("https://maven.ctr-electronics.com/release/").unwrap();
         let deps_at = gradle.find("
 dependencies {").unwrap();
@@ -687,7 +687,7 @@ dependencies {").unwrap();
         let pkg = root.join("src/main/java/com/stzteam/features/posefinder");
         assert!(pkg.join("MARSPoseFinderCTRESwerve.java").exists());
         assert!(pkg.join("generated/FeatureConstants.java").exists());
-        assert!(!root.join("src/main/java/com/miequipo").exists(), "the sample package must be gone");
+        assert!(!root.join("src/main/java/com/yourteam").exists(), "the sample package must be gone");
 
         let readme = fs::read_to_string(root.join("README.md")).unwrap();
         assert!(readme.contains("https://imcab.github.io/CTREPoseFinderFeature/MarsFeature.json"));

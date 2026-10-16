@@ -105,7 +105,7 @@ taking them along.
   `simulationstudio/environment.yml`) and the compiled engine. The Studio opens,
   its Diagnostics page says what is missing and how to create the environment.
   That is a separate multi-gigabyte dependency.
-- **A launch that fails is never silent.** `abrir_sim_app` waits a moment,
+- **A launch that fails is never silent.** `open_sim_app` waits a moment,
   notices if the Studio died, and reports the reason it wrote to stderr. "I
   click and nothing happens" is the worst symptom there is.
 

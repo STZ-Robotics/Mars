@@ -13,10 +13,9 @@ interface Props {
   projectName: string | null
 }
 
-// Pantalla de arranque estilo suite de escritorio de los 2000: una banda
-// oscura arriba con el logo y tres paneles biselados con listas densas. Nada
-// de tarjetas grandes ni hero a pantalla completa — esto es el índice de una
-// herramienta, no la landing de un producto.
+// A startup screen in the style of a 2000s desktop suite: a dark band on top
+// with the logo and three beveled panels with dense lists. No big cards nor a
+// full-screen hero — this is a tool's index, not a product's landing page.
 export default function WelcomePage({ navigate, onOpenProject, onCreateTab, projectName }: Props) {
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", background: "var(--bg-app)", overflow: "hidden" }}>
@@ -91,8 +90,8 @@ export default function WelcomePage({ navigate, onOpenProject, onCreateTab, proj
   )
 }
 
-// Banda oscura con el logo, del mismo gris que la barra de menú: las dos
-// juntas forman el "techo" de la ventana.
+// A dark band with the logo, the same grey as the menu bar: together they form
+// the window's "roof".
 function Banner({ projectName }: { projectName: string | null }) {
   return (
     <div style={{
@@ -126,8 +125,8 @@ function Banner({ projectName }: { projectName: string | null }) {
   )
 }
 
-// Panel con relieve: barra de título en degradé y borde biselado, como un
-// QGroupBox de Qt clásico.
+// A raised panel: a gradient title bar and a beveled border, like a classic Qt
+// QGroupBox.
 function BevelPanel({ title, icon, children }: { title: string; icon: string; children: React.ReactNode }) {
   return (
     <div style={{
@@ -175,8 +174,8 @@ function LaunchList({ items, navigate, onCreateTab }: {
           item={item}
           navigate={navigate}
           onCreateTab={onCreateTab}
-          // Cebrado: en listas densas de filas parejas es lo que hace que el
-          // ojo siga la línea hasta la descripción de la derecha.
+          // Striping: in dense lists of even rows it is what makes the eye follow
+          // the line to the description on the right.
           striped={i % 2 === 1}
         />
       ))}

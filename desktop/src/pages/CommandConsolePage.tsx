@@ -22,7 +22,7 @@ function writableType(topicType: string): WritableType | null {
   if (topicType === "int") return "int"
   if (topicType === "float") return "float"
   if (topicType === "string") return "string"
-  return null // arrays, structs y raw no son escribibles todavía (ver commands.rs)
+  return null // arrays, structs and raw are not writable yet (see commands.rs)
 }
 
 interface CommandLogEntry {
@@ -61,9 +61,9 @@ export default function CommandConsolePage({ connection, topics }: Props) {
 
   const topicNamesKey = writableTopics.map(t => t.name).join("|")
 
-  // Readback en vivo, mismo patrón que TelemetryPage: así el operador ve al
-  // toque si lo que mandó realmente pegó en el robot, no solo que el invoke
-  // no tiró error.
+  // Live readback, the same pattern as TelemetryPage: that way the operator sees
+  // right away whether what they sent really took on the robot, not just that the
+  // invoke did not throw.
   useEffect(() => {
     if (writableTopics.length === 0) { setLiveValues({}); return }
     let active = true
@@ -99,7 +99,7 @@ export default function CommandConsolePage({ connection, topics }: Props) {
     } else {
       const n = parseFloat(String(rawValue))
       if (isNaN(n)) {
-        pushLog({ topicName: topic.name, value: String(rawValue), status: "error", error: "Valor numérico inválido" })
+        pushLog({ topicName: topic.name, value: String(rawValue), status: "error", error: "Invalid numeric value" })
         return
       }
       value = type === "int" ? Math.round(n) : n
@@ -117,7 +117,7 @@ export default function CommandConsolePage({ connection, topics }: Props) {
   return (
     <div style={{ display: "flex", width: "100%", height: "100%", background: "var(--bg-page)", overflow: "hidden" }}>
 
-      {/* SIDEBAR: BÚSQUEDA + AVISO DE SEGURIDAD */}
+      {/* SIDEBAR: SEARCH + SAFETY NOTICE */}
       <div style={{ width: 300, background: "var(--bg-panel)", borderRight: "1px solid var(--border-main)", display: "flex", flexDirection: "column", flexShrink: 0 }}>
         <PageHeader
           eyebrow="NetworkTables 4"
@@ -155,7 +155,7 @@ export default function CommandConsolePage({ connection, topics }: Props) {
         </div>
       </div>
 
-      {/* MAIN: LISTA DE TOPICS ESCRIBIBLES + LOG DE COMANDOS */}
+      {/* MAIN: WRITABLE TOPICS LIST + COMMAND LOG */}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
 
         <PanelHeader

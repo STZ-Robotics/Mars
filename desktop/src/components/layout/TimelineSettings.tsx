@@ -10,10 +10,10 @@ interface Props {
   onClose: () => void
 }
 
-// Cuánto historial guarda el buffer del backend. Sin tope, una sesión larga
-// deja una timeline de horas en la que el rango útil es una franja invisible;
-// con tope, el inicio se va corriendo y el zoom siempre cae sobre datos.
-// 0 = sin límite (opt-in explícito, se come la RAM).
+// How much history the backend's buffer keeps. With no cap, a long session
+// leaves an hours-long timeline in which the useful range is an invisible
+// sliver; with a cap, the start keeps moving and the zoom always lands on data.
+// 0 = no limit (explicit opt-in, it eats the RAM).
 const RETENTION_OPTIONS = [
   { minutes: 1, label: "1 minute" },
   { minutes: 5, label: "5 minutes" },
@@ -32,8 +32,8 @@ export default function TimelineSettings({ playbackSpeed, speeds, onChangeSpeed,
   const clearMarkers = useMarkerStore(s => s.clearMarkers)
   const removeMarker = useMarkerStore(s => s.removeMarker)
 
-  // La retención vive en la config, pero el valor efectivo lo tiene el buffer:
-  // se sincroniza desde settings una vez que terminaron de cargar.
+  // Retention lives in the config, but the effective value is the buffer's: it
+  // is synced from settings once they have finished loading.
   useEffect(() => {
     if (retention === null) setRetention(settings.nt_retention_minutes)
   }, [settings.nt_retention_minutes, retention])
@@ -48,11 +48,11 @@ export default function TimelineSettings({ playbackSpeed, speeds, onChangeSpeed,
 
   const applyRetention = async (minutes: number) => {
     setRetention(minutes)
-    // Se aplica al buffer YA conectado y además se guarda, para que la próxima
-    // conexión arranque igual (el buffer se recrea en cada connect).
+    // It is applied to the ALREADY connected buffer and also saved, so the next
+    // connection starts the same (the buffer is recreated on every connect).
     try {
       await invoke("set_buffer_retention_minutes", { minutes })
-    } catch { /* sin conexión todavía; queda guardado para el próximo connect */ }
+    } catch { /* no connection yet; it stays saved for the next connect */ }
     save({ ...settings, nt_retention_minutes: minutes }).catch(() => {})
   }
 

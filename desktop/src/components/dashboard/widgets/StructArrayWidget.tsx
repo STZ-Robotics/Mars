@@ -3,8 +3,8 @@ import { useStructDef } from "../../../store/structSchemaStore"
 import UnsupportedValue from "../../common/UnsupportedValue"
 import ArrayHeader from "../../common/ArrayHeader"
 
-// Arreglo de structs (ej. struct:Pose2d[] para una trayectoria completa).
-// Los bytes vienen concatenados uno tras otro, cada bloque del tamaño fijo del struct.
+// An array of structs (e.g. struct:Pose2d[] for a whole trajectory).
+// The bytes come concatenated one after another, each block the struct's fixed size.
 export default function StructArrayWidget({ rawVal, structName }: { rawVal: any; structName: string }) {
   const def = useStructDef(structName)
   if (!def || !Array.isArray(rawVal)) {

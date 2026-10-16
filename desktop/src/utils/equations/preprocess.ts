@@ -1,9 +1,9 @@
-// Pasadas que reescriben el AST ANTES de evaluarlo o de pasarlo a LaTeX.
+// Passes that rewrite the AST BEFORE evaluating it or passing it to LaTeX.
 //
-// Trabajar por sustitución en el árbol —en vez de resolver en el evaluador—
-// hace que todo lo de aguas abajo funcione gratis: una ecuación que referencia
-// a otra se puede derivar simbólicamente, se puede meter dentro de d(), y se
-// renderiza expandida sin código extra.
+// Working by substitution on the tree —instead of resolving in the evaluator—
+// makes everything downstream work for free: an equation that references
+// another can be differentiated symbolically, put inside d(), and rendered
+// expanded with no extra code.
 
 import { Node } from "./parser"
 import { derive } from "./symbolic"
@@ -15,7 +15,7 @@ export class PreprocessError extends Error {
   }
 }
 
-/** Ecuación con nombre que otras pueden referenciar como si fuera una variable. */
+/** A named equation others can reference as if it were a variable. */
 export interface NamedEquation {
   name: string
   ast: Node
@@ -38,9 +38,9 @@ function mapChildren(node: Node, fn: (child: Node) => Node): Node {
 }
 
 /**
- * Reemplaza las referencias a otras ecuaciones por su árbol completo.
- * `visiting` detecta ciclos: si A usa B y B vuelve a A, se corta con un error
- * en vez de colgarse.
+ * Replaces the references to other equations with their whole tree.
+ * `visiting` detects cycles: if A uses B and B goes back to A, it stops with an
+ * error instead of hanging.
  */
 export function inlineEquations(
   node: Node,
@@ -61,9 +61,9 @@ export function inlineEquations(
 }
 
 /**
- * Expande diff(f, x) a la derivada simbólica de f respecto a x.
- * Se hace de adentro hacia afuera para que diff(diff(f, x), x) —la segunda
- * derivada— también funcione.
+ * Expands diff(f, x) into f's symbolic derivative with respect to x.
+ * It is done inside-out so diff(diff(f, x), x) —the second derivative— also
+ * works.
  */
 export function expandSymbolicDerivatives(node: Node): Node {
   const expanded = mapChildren(node, expandSymbolicDerivatives)
@@ -82,9 +82,9 @@ export function expandSymbolicDerivatives(node: Node): Node {
   return expanded
 }
 
-/** Preprocesado completo, en el orden en que tiene que pasar. */
+/** The whole preprocessing, in the order it has to happen. */
 export function preprocess(node: Node, definitions: Map<string, Node>): Node {
-  // Primero se inlinean las referencias, para que diff() pueda derivar a
-  // través de una ecuación con nombre y no se tope con una variable opaca.
+  // The references are inlined first, so diff() can differentiate through a
+  // named equation and does not run into an opaque variable.
   return expandSymbolicDerivatives(inlineEquations(node, definitions))
 }

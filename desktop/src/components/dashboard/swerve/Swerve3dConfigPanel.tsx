@@ -1,9 +1,9 @@
-// Panel de configuración de la vista Swerve 3D: qué modelo se carga, cómo se
-// orienta, y dónde se dibuja cada módulo.
+// Configuration panel of the Swerve 3D view: which model is loaded, how it is
+// oriented, and where each module is drawn.
 //
-// Las posiciones de los módulos son editables a mano porque el chasis
-// rectangular no siempre alcanza: hay drivetrains con los módulos metidos
-// hacia adentro, o de tres módulos, o con el centro de giro corrido.
+// The module positions can be edited by hand because the rectangular chassis is
+// not always enough: there are drivetrains with the modules tucked inwards, or
+// with three modules, or with the center of rotation offset.
 
 import {
   Swerve3dSettings, Swerve3dModulePlacement, Swerve3dProjection, SwerveSettings,
@@ -24,7 +24,7 @@ interface Props {
   error: string | null
   onPickModel: () => void
   onClearModel: () => void
-  /** Vuelve a poner las cuatro esquinas según frameLength/frameWidth. */
+  /** Puts the four corners back according to frameLength/frameWidth. */
   onResetModules: () => void
 }
 

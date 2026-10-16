@@ -1,15 +1,15 @@
-// Carga de los assets que necesita la pestaña Field 3D: el catálogo instalado,
-// el modelo de la cancha elegida, sus piezas de juego, y los modelos de robot
-// que usen los objetos de la lista.
+// Loading of the assets the Field 3D tab needs: the installed catalog, the
+// chosen field's model, its game pieces, and the robot models the list's
+// objects use.
 //
-// Todo va por la caché de `assetModels`: un modelo de cancha pesa ~18 MB y
-// parsearlo tarda casi un segundo, así que cambiar de pestaña, volver, o abrir
-// una segunda Field 3D tiene que reusar lo ya parseado.
+// Everything goes through the `assetModels` cache: a field model weighs ~18 MB
+// and parsing it takes almost a second, so switching tabs, coming back, or
+// opening a second Field 3D has to reuse what was already parsed.
 //
-// Las cargas se lanzan en paralelo y cada una actualiza su parte del estado
-// por separado: la cancha aparece en cuanto está lista sin esperar a que
-// terminen los robots, que es lo que hace que la pestaña se sienta rápida
-// aunque el trabajo total sea el mismo.
+// The loads are launched in parallel and each one updates its part of the state
+// separately: the field shows up as soon as it is ready without waiting for the
+// robots to finish, which is what makes the tab feel fast even though the total
+// work is the same.
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Field3dObjectConfig, Field3dSettings, EVERGREEN_FIELD_KEY } from "../store/appStore"
@@ -22,18 +22,18 @@ import { GamePieceEntry, RobotAssetEntry } from "../components/dashboard/field3d
 export type AssetStatus = "idle" | "loading" | "ready" | "error"
 
 export interface Field3dAssets {
-  /** Todo lo instalado, canchas y robots. */
+  /** Everything installed, fields and robots. */
   packs: AssetPack[]
   fieldPacks: FieldPack[]
   robotPacks: RobotPack[]
-  /** Paquete de la cancha elegida, o null si es la esquemática. */
+  /** The chosen field's package, or null if it is the schematic one. */
   fieldPack: FieldPack | null
   fieldModel: LoadedAsset | null
   gamePieces: GamePieceEntry[]
   robotAssets: Map<string, RobotAssetEntry>
   status: AssetStatus
   error: string | null
-  /** Vuelve a leer el almacén; la llama el panel después de instalar o borrar. */
+  /** Reads the store again; the panel calls it after installing or deleting. */
   refresh: () => void
 }
 
@@ -51,13 +51,13 @@ export function useField3dAssets(
 
   const refresh = useCallback(() => setReloadToken(token => token + 1), [])
 
-  // El modo de calidad cambia CÓMO se optimiza el modelo (cuánto detalle se
-  // descarta y con qué brillo se dibuja), no solo cómo se ilumina. Por eso
-  // cambiarlo obliga a volver a optimizar; la caché guarda cada modo por
-  // separado, así que ir y volver entre dos es instantáneo la segunda vez.
+  // The quality mode changes HOW the model is optimized (how much detail is
+  // discarded and how bright it is drawn), not just how it is lit. That is why
+  // changing it forces optimizing again; the cache keeps each mode separately,
+  // so going back and forth between two is instant the second time.
   const optimize = OPTIMIZE_PRESETS[settings.quality]
 
-  // --- Catálogo ---------------------------------------------------------------
+  // --- Catalog ---------------------------------------------------------------
   useEffect(() => {
     let cancelled = false
     listAssetPacks()
@@ -76,7 +76,7 @@ export function useField3dAssets(
     [fieldPacks, settings.fieldKey],
   )
 
-  // --- Cancha y sus piezas de juego -------------------------------------------
+  // --- Field and its game pieces -------------------------------------------
   useEffect(() => {
     if (fieldPack === null) {
       setFieldModel(null)
@@ -90,9 +90,9 @@ export function useField3dAssets(
     setStatus("loading")
     setError(null)
 
-    // Los nodos de las piezas ya colocadas se piden SIN fusionar: la escena
-    // tiene que poder apagarlos uno por uno cuando el robot publique ese tipo
-    // de pieza, y una malla fusionada no se puede partir después.
+    // The nodes of the pieces already in place are requested WITHOUT merging: the
+    // scene has to be able to turn them off one by one when the robot publishes
+    // that piece type, and a merged mesh cannot be split afterwards.
     const staged = fieldPack.config.gamePieces.flatMap(piece => piece.stagedObjects)
     const source = modelSource(fieldPack, 0)
     if (source === null) {
@@ -114,10 +114,10 @@ export function useField3dAssets(
         setError(String(err?.message ?? err))
       })
 
-    // Las piezas de juego son model_0.glb en adelante; la 0 del config es la
-    // primera después de model.glb. Se cargan sueltas y sin bloquear a la
-    // cancha: una pieza que falte deja su objeto con la esfera de reemplazo,
-    // no la cancha entera sin dibujar.
+    // The game pieces are model_0.glb onwards; the config's 0 is the first one
+    // after model.glb. They are loaded separately and without blocking the
+    // field: a missing piece leaves its object with the stand-in sphere, not the
+    // whole field undrawn.
     Promise.all(fieldPack.config.gamePieces.map(async (piece, index): Promise<GamePieceEntry> => {
       const pieceSource = modelSource(fieldPack, index + 1)
       if (pieceSource === null) return { config: piece, asset: null }
@@ -133,9 +133,9 @@ export function useField3dAssets(
 
   // --- Robots ------------------------------------------------------------------
 
-  // Solo se cargan los que alguien usa: el default de la pestaña más los que
-  // fijen los objetos. Cargar todo el catálogo por si acaso serían decenas de
-  // MB para nada.
+  // Only the ones someone uses are loaded: the tab's default plus the ones the
+  // objects set. Loading the whole catalog just in case would be tens of MB for
+  // nothing.
   const neededRobots = useMemo(() => {
     const keys = new Set<string>()
     if (settings.robotAssetKey) keys.add(settings.robotAssetKey)
@@ -158,8 +158,8 @@ export function useField3dAssets(
 
       try {
         const base = await loadAssetModel(baseSource, [], optimize)
-        // Un componente por cada `model_N.glb`, en el mismo orden en que el
-        // config los declara: es el índice de la pose publicada.
+        // One component per `model_N.glb`, in the same order the config declares
+        // them: it is the published pose's index.
         const components = await Promise.all(
           pack.config.components.map(async (_, index) => {
             const source = modelSource(pack, index + 1)
@@ -172,8 +172,8 @@ export function useField3dAssets(
           components: components.filter((c): c is LoadedAsset => c !== null),
         }]
       } catch {
-        // Un robot que no carga no debe tumbar la pestaña: su objeto cae al
-        // chasis genérico, que es exactamente lo que se ve sin asset.
+        // A robot that does not load must not bring down the tab: its object falls
+        // back to the generic chassis, which is exactly what you see without an asset.
         return null
       }
     })).then(entries => {

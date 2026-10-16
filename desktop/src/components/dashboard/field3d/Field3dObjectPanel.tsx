@@ -1,9 +1,9 @@
-// Lista de objetos del Field 3D, con las opciones propias de cada tipo.
+// The Field 3D's object list, with each type's own options.
 //
-// Misma forma que el panel del visualizador 2D: una fila por objeto con su
-// color, su interruptor de visibilidad y, debajo, solo los controles que ese
-// tipo entiende. Mostrar todos los campos siempre convertiría el panel en un
-// formulario de treinta casillas donde veinticinco no hacen nada.
+// The same shape as the 2D visualizer's panel: one row per object with its
+// color, its visibility switch and, below, only the controls that type
+// understands. Always showing every field would turn the panel into a
+// thirty-box form where twenty-five do nothing.
 
 import {
   Field3dObjectConfig, Field3dObjectType, Field3dSettings, Field3dArrayFormat,
@@ -22,9 +22,9 @@ interface Props {
   objects: Field3dObjectConfig[]
   settings: Field3dSettings
   robotPacks: RobotPack[]
-  /** Nombres de las piezas de juego de la cancha activa, para el selector. */
+  /** Names of the active field's game pieces, for the selector. */
   gamePieceNames: string[]
-  /** Muestras de estela acumuladas por objeto. */
+  /** Trail samples accumulated per object. */
   sampleCounts: Record<string, number>
   onUpdate: (id: string, updates: Partial<Field3dObjectConfig>) => void
   onDuplicate: (id: string) => void
@@ -63,9 +63,9 @@ export default function Field3dObjectPanel({
     )
   }
 
-  // Los tipos anclados no tienen pose propia. Si no hay ningún robot en la
-  // lista no se dibujan, y decirlo acá evita el rato de creer que el topic
-  // está mal publicado.
+  // The anchored types have no pose of their own. If there is no robot in the
+  // list they are not drawn, and saying it here saves the time spent believing
+  // the topic is published wrong.
   const robots = objects.filter(o => o.type === "robot" || o.type === "ghost")
   const anchorOptions = [
     { value: "", label: robots.length > 0 ? `Auto (${robots[0].label})` : "Auto (no robot)" },
@@ -156,8 +156,8 @@ export default function Field3dObjectPanel({
               />
             </Row>
 
-            {/* Solo aparece cuando el topic es un array numérico: en un struct
-                el formato ya viene dado y el selector sobraría. */}
+            {/* Only shows up when the topic is a numeric array: in a struct
+                the format is already given and the selector would be pointless. */}
             {obj.topicType.endsWith("[]") && !obj.topicType.startsWith("struct:") && (
               <Select<Field3dArrayFormat>
                 label="Array format"

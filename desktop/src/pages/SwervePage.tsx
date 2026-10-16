@@ -37,9 +37,9 @@ export default function SwervePage({
 
   const { moduleSets, positionSets, chassisSets, rotation } = useSwerveSources(sources)
 
-  // La cinemática se resuelve sobre lo MEDIDO (si no hay, sobre el primer set
-  // que haya): reconstruir el chasis desde un setpoint no diría nada del robot
-  // real, solo repetiría lo que ya se le comandó.
+  // The kinematics is solved over what is MEASURED (if there is none, over the
+  // first set there is): rebuilding the chassis from a setpoint would say
+  // nothing about the real robot, it would only repeat what it was commanded.
   const measuredSet = moduleSets.find(s => s.role === "measured") ?? moduleSets[0] ?? null
   const setpointSet = moduleSets.find(s => s.role === "setpoint") ?? null
 
@@ -48,7 +48,7 @@ export default function SwervePage({
     return solveChassis(measuredSet.values, moduleLocations(settings.frameLength, settings.frameWidth))
   }, [measuredSet, settings.frameLength, settings.frameWidth])
 
-  // Error de seguimiento por módulo: comandado − medido.
+  // Tracking error per module: commanded − measured.
   const trackingErrors = useMemo(() => {
     if (!measuredSet || !setpointSet) return null
     return measuredSet.values.map((measured, i) => {
@@ -68,8 +68,8 @@ export default function SwervePage({
 
   const icr = solution ? computeICR(solution.vx, solution.vy, solution.omega) : null
 
-  // Rapidez de módulo más alta observada ahora mismo: si supera el máximo
-  // configurado, las velocidades comandadas necesitan desaturarse.
+  // The highest module speed observed right now: if it goes over the configured
+  // maximum, the commanded velocities need desaturating.
   const peakModuleSpeed = moduleSets.reduce(
     (max, set) => Math.max(max, ...set.values.map(v => Math.abs(v.speed))),
     0,
@@ -204,10 +204,10 @@ export default function SwervePage({
   )
 }
 
-// --- Lectura numérica -------------------------------------------------------
+// --- Numeric readout -------------------------------------------------------
 
-// Tabla de valores exactos debajo del diagrama: el dibujo sirve para ver la
-// forma del movimiento, pero para calibrar hacen falta los números.
+// A table of exact values under the diagram: the drawing shows the motion's
+// shape, but calibrating needs the numbers.
 function ReadoutStrip({
   moduleSets, positionSets, chassisSets, rotation, peakModuleSpeed, isSaturated, maxSpeed, solution, icr, trackingErrors,
 }: {
@@ -269,8 +269,8 @@ function ReadoutStrip({
       })}
 
       {positionSets.map(set => {
-        // La diferencia entre la rueda que más avanzó y la que menos delata
-        // patinaje o un radio de rueda mal calibrado en un módulo.
+        // The difference between the wheel that advanced the most and the one that
+        // advanced the least reveals slip or a miscalibrated wheel radius on a module.
         const distances = set.values.map(v => v.distance)
         const spread = Math.max(...distances) - Math.min(...distances)
         return (
@@ -390,9 +390,9 @@ function ReadoutStrip({
   )
 }
 
-// El cuadrito lleno indica el color con el que ESA fuente se dibuja en el
-// diagrama. Las secciones calculadas (que no se dibujan como tal) llevan un
-// cuadrito solo con borde, para no sugerir que hay que buscarlas en el canvas.
+// The filled square shows the color THAT source is drawn with in the diagram.
+// The computed sections (which are not drawn as such) carry a square with only
+// a border, so as not to suggest looking for them on the canvas.
 function ReadoutTitle({ color, label, computed = false }: { color?: string; label: string; computed?: boolean }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}>

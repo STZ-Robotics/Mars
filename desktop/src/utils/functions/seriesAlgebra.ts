@@ -18,9 +18,9 @@ function applyOperator(op: SeriesOperator, a: number, b: number): number {
   }
 }
 
-// Interpola linealmente el valor de `points` en el instante `t`. Devuelve
-// null si `t` cae fuera del rango cubierto por el buffer — no extrapola,
-// porque fuera del rango no tenemos ninguna base real para inventar un valor.
+// Linearly interpolates the value of `points` at instant `t`. Returns null if
+// `t` falls outside the range the buffer covers — it does not extrapolate,
+// because outside the range we have no real basis to make up a value.
 export function interpolateAt(points: TimeSeriesPoint[], t: number): number | null {
   if (points.length === 0) return null
   const first = points[0]
@@ -29,8 +29,8 @@ export function interpolateAt(points: TimeSeriesPoint[], t: number): number | nu
   if (t === first.t) return first.v
   if (t === last.t) return last.v
 
-  // Búsqueda lineal: los buffers de la ventana viva son cortos (segundos a
-  // ~20Hz), no vale la pena una búsqueda binaria acá.
+  // Linear search: the live window's buffers are short (seconds at ~20Hz),
+  // a binary search is not worth it here.
   for (let i = 1; i < points.length; i++) {
     if (points[i].t >= t) {
       const p0 = points[i - 1]
@@ -43,9 +43,9 @@ export function interpolateAt(points: TimeSeriesPoint[], t: number): number | nu
   return null
 }
 
-// Combina dos series muestra a muestra. Usa los timestamps de la PRIMERA
-// serie (`a`) como grilla de referencia y interpola la segunda (`b`) sobre
-// esa grilla — así el resultado siempre queda alineado al reloj de `a`.
+// Combines two series sample by sample. It uses the FIRST series' (`a`)
+// timestamps as the reference grid and interpolates the second one (`b`) over
+// that grid — that way the result always stays aligned to `a`'s clock.
 export function combineSeries(a: TimeSeriesPoint[], b: TimeSeriesPoint[], operator: SeriesOperator): TimeSeriesPoint[] {
   const out: TimeSeriesPoint[] = []
   for (const pa of a) {
@@ -60,9 +60,9 @@ export function combineSeries(a: TimeSeriesPoint[], b: TimeSeriesPoint[], operat
 
 export interface ErrorBandPoint { t: number; actual: number; target: number }
 
-// Construye la banda "actual vs target" alineando el target sobre la grilla
-// temporal de la serie actual, punto por punto, para poder sombrear el área
-// entre ambas curvas aunque no compartan timestamps exactos.
+// Builds the "actual vs target" band by aligning the target over the actual
+// series' time grid, point by point, so the area between both curves can be
+// shaded even if they do not share exact timestamps.
 export function buildErrorBand(actual: TimeSeriesPoint[], target: TimeSeriesPoint[]): ErrorBandPoint[] {
   const out: ErrorBandPoint[] = []
   for (const p of actual) {

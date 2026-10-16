@@ -2,8 +2,8 @@ interface Props {
   message: string
 }
 
-// Placeholder idéntico repetido en StructWidget, StructArrayWidget,
-// StructArraySingleWidget y RotationWidget para structs sin decoder.
+// Identical placeholder repeated in StructWidget, StructArrayWidget,
+// StructArraySingleWidget and RotationWidget for structs with no decoder.
 export default function UnsupportedValue({ message }: Props) {
   return (
     <span style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "monospace" }}>

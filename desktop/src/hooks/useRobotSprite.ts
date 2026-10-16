@@ -1,9 +1,9 @@
-// Carga del modelo del equipo y su render cenital, para el 2D Visualizer.
+// Loading of the team's model and its top-down render, for the 2D Visualizer.
 //
-// El bitmap NO se regenera al hacer zoom: se renderiza una sola vez a 512 px y
-// el canvas lo estira. Un robot de 0.85 m ocupa ~60 px en la vista completa de
-// la cancha, así que 512 px alcanzan de sobra incluso con el zoom al máximo, y
-// re-renderizar el STL en cada rueda del mouse haría saltar la vista.
+// The bitmap is NOT regenerated on zooming: it is rendered once at 512 px and
+// the canvas stretches it. A 0.85 m robot takes ~60 px in the full field view,
+// so 512 px is more than enough even at maximum zoom, and re-rendering the STL
+// on every mouse wheel turn would make the view jump.
 
 import { useEffect, useMemo, useState } from "react"
 import { FieldSettings } from "../store/appStore"
@@ -15,7 +15,7 @@ const SPRITE_PX = quantizeSpriteSize(512)
 
 export interface RobotSpriteState {
   sprite: RobotSprite | null
-  /** Metros por unidad de archivo: lo que hay que multiplicar para dibujarlo. */
+  /** Meters per file unit: what has to be multiplied to draw it. */
   scale: number
   status: SpriteStatus
   error: string | null
@@ -61,9 +61,9 @@ export function useRobotSprite(settings: FieldSettings): RobotSpriteState {
     return () => { cancelled = true }
   }, [robotModelPath, robotModelColor, robotModelRotation])
 
-  // El auto-fit iguala la HUELLA del modelo al largo del chasis, que es lo que
-  // hace que un STL en milímetros o en pulgadas caiga bien sin que nadie tenga
-  // que averiguar en qué unidades lo exportó su CAD.
+  // Auto-fit matches the model's FOOTPRINT to the chassis' length, which is what
+  // makes an STL in millimeters or in inches land right without anyone having to
+  // find out what units their CAD exported it in.
   const scale = useMemo(() => {
     if (sprite === null) return 1
     if (!settings.robotModelAutoFit) return settings.robotModelScale

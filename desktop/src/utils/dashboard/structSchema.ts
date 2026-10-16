@@ -1,25 +1,25 @@
-// Compilador de schemas de struct de WPILib.
+// Compiler of WPILib struct schemas.
 //
-// WPILib publica, junto a cada topic "struct:Foo", un topic hermano
-// "/.schema/struct:Foo" cuyo valor es un TEXTO que describe el layout binario:
+// Alongside each "struct:Foo" topic, WPILib publishes a sibling topic
+// "/.schema/struct:Foo" whose value is a TEXT describing the binary layout:
 //
 //     Pose2d              -> "Translation2d translation;Rotation2d rotation"
 //     Translation2d       -> "double x;double y"
 //     SwerveModuleState   -> "double speed;Rotation2d angle"
-//     con enum            -> "enum {kOff=0, kOn=1} int8 mode"
-//     con bitfield        -> "int32 flags:4"
-//     con array           -> "double xs[3]"
+//     with an enum        -> "enum {kOff=0, kOn=1} int8 mode"
+//     with a bitfield     -> "int32 flags:4"
+//     with an array       -> "double xs[3]"
 //
-// Compilar ese texto es lo que permite entender structs que el equipo definió
-// por su cuenta, en vez de depender de la tabla escrita a mano de
-// valueDecoding.ts (que solo cubre los tipos que trae WPILib).
+// Compiling that text is what makes it possible to understand structs the team
+// defined on its own, instead of depending on valueDecoding.ts' hand-written
+// table (which only covers the types WPILib carries).
 //
 // Spec: https://github.com/wpilibsuite/allwpilib/blob/main/wpiutil/doc/struct.adoc
 
 import type { StructDef, StructField, StructPrimitive } from "./valueDecoding"
 
-// Ancho en BITS de cada tipo primitivo. Es también el tamaño máximo que puede
-// declarar un bitfield de ese tipo.
+// Width in BITS of each primitive type. It is also the maximum size a bitfield
+// of that type can declare.
 const PRIMITIVE_BITS: Record<StructPrimitive, number> = {
   bool: 8,
   char: 8,
@@ -39,8 +39,8 @@ const PRIMITIVE_BITS: Record<StructPrimitive, number> = {
 
 const PRIMITIVES = Object.keys(PRIMITIVE_BITS) as StructPrimitive[]
 
-// Solo los enteros y bool pueden empaquetarse en un bitfield; un double con
-// ":4" es inválido y se descarta.
+// Only integers and bool can be packed into a bitfield; a double with ":4" is
+// invalid and is discarded.
 const BITFIELD_TYPES = new Set<StructPrimitive>([
   "bool", "int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64",
 ])
@@ -49,15 +49,15 @@ function isPrimitive(type: string): type is StructPrimitive {
   return (PRIMITIVES as string[]).includes(type)
 }
 
-// Tope de campos que se aplanan de un struct. Un "Pose3d poses[200]" generaría
-// miles de filas que ninguna tarjeta puede mostrar; mejor cortar y avisar.
+// Cap on the fields flattened from a struct. A "Pose3d poses[200]" would
+// generate thousands of rows no card can show; better to cut and warn.
 const MAX_FLAT_FIELDS = 64
 
 // --- Parseo del texto -------------------------------------------------------
 
 interface ParsedField {
   name: string
-  /** Primitivo, o el nombre de otro struct. */
+  /** A primitive, or another struct's name. */
   type: string
   enumValues: Record<number, string> | null
   bitWidth: number | null
@@ -78,7 +78,7 @@ function parseEnumBody(body: string): Record<number, string> {
 export function parseSchema(text: string): ParsedField[] {
   const fields: ParsedField[] = []
 
-  // Los cuerpos de enum usan "," y nunca ";", así que partir por ";" es seguro.
+  // Enum bodies use "," and never ";", so splitting on ";" is safe.
   for (const rawDecl of text.split(";")) {
     let decl = rawDecl.trim()
     if (decl.length === 0) continue
@@ -106,8 +106,8 @@ export function parseSchema(text: string): ParsedField[] {
       name = n
       bitWidth = Number(w)
       if (isNaN(bitWidth) || bitWidth <= 0) continue
-      // Un bitfield sobre un tipo que no lo admite (o un bool de más de 1 bit)
-      // es inválido según la spec.
+      // A bitfield on a type that does not allow it (or a bool wider than 1 bit)
+      // is invalid according to the spec.
       if (!isPrimitive(type) || !BITFIELD_TYPES.has(type)) continue
       if (type === "bool" && bitWidth !== 1) continue
     } else if (nameSpec.includes("[")) {
@@ -123,26 +123,26 @@ export function parseSchema(text: string): ParsedField[] {
   return fields
 }
 
-// --- Cálculo de posiciones --------------------------------------------------
+// --- Position calculation --------------------------------------------------
 
 interface CompiledField extends ParsedField {
-  /** [inicio, fin) en BITS desde el arranque del struct. */
+  /** [start, end) in BITS from the start of the struct. */
   bitRange: [number, number]
 }
 
 export interface CompiledSchema {
-  /** Tamaño total en BITS. */
+  /** Total size in BITS. */
   bitLength: number
   fields: CompiledField[]
 }
 
 /**
- * Asigna posiciones de bit. Devuelve null si el schema referencia otro struct
- * que todavía no se compiló (hay que reintentar cuando ese llegue).
+ * Assigns bit positions. Returns null if the schema references another struct
+ * that has not been compiled yet (it has to be retried when that one arrives).
  *
- * El empaquetado de bitfields sigue la spec: bits consecutivos del mismo tipo
- * comparten palabra, y se abre una palabra nueva cuando cambia el tipo o
- * cuando el valor ya no entra en la actual.
+ * Bitfield packing follows the spec: consecutive bits of the same type share a
+ * word, and a new word is opened when the type changes or when the value no
+ * longer fits in the current one.
  */
 export function compileSchema(
   parsed: ParsedField[],
@@ -151,14 +151,14 @@ export function compileSchema(
   const fields: CompiledField[] = []
   let bitPosition = 0
 
-  // Palabra de bitfield abierta: cuántos bits se llevan usados y de qué ancho
-  // es la palabra. null en ambos = no hay ninguna abierta.
+  // The open bitfield word: how many bits are used and how wide the word is.
+  // null in both = there is none open.
   let bitfieldPosition: number | null = null
   let bitfieldLength: number | null = null
 
   const closeBitfield = () => {
     if (bitfieldPosition !== null && bitfieldLength !== null) {
-      // Los bits que sobran de la palabra igual ocupan lugar.
+      // The word's leftover bits still take up room.
       bitPosition += bitfieldLength - bitfieldPosition
     }
     bitfieldPosition = null
@@ -189,7 +189,7 @@ export function compileSchema(
     const needsNewWord =
       bitfieldPosition === null ||
       bitfieldLength === null ||
-      // Un bool cabe en cualquier palabra; el resto necesita una de su tamaño.
+      // A bool fits in any word; the rest need one of their own size.
       (field.type !== "bool" && bitfieldLength !== typeLength) ||
       bitfieldPosition + valueBits > bitfieldLength
 
@@ -211,10 +211,10 @@ export function compileSchema(
 
 // --- Aplanado a StructDef ---------------------------------------------------
 
-// Los widgets y los extractores consumen una lista PLANA de campos con offset,
-// igual que la tabla escrita a mano. Aplanar acá (en vez de hacer que cada
-// consumidor entienda structs anidados) es lo que deja que un schema dinámico
-// entre por el mismo camino que un Pose2d de toda la vida.
+// The widgets and the extractors consume a FLAT list of fields with offsets,
+// just like the hand-written table. Flattening here (instead of making each
+// consumer understand nested structs) is what lets a dynamic schema come in by
+// the same path as a good old Pose2d.
 function flatten(
   schema: CompiledSchema,
   known: Record<string, CompiledSchema>,
@@ -242,7 +242,7 @@ function flatten(
       continue
     }
 
-    // char[] es una cadena, no una lista de caracteres sueltos.
+    // char[] is a string, not a list of loose characters.
     if (field.type === "char" && field.arrayLength !== null) {
       out.push({
         label,
@@ -283,21 +283,21 @@ export function toStructDef(schema: CompiledSchema, known: Record<string, Compil
   const fields: StructField[] = []
   flatten(schema, known, "", 0, fields)
   return {
-    // El tamaño de UNA instancia, que es lo que usa decodeStructArrayBytes como
-    // stride para trocear un struct:X[].
+    // The size of ONE instance, which is what decodeStructArrayBytes uses as the
+    // stride to slice a struct:X[].
     length: Math.ceil(schema.bitLength / 8),
     fields,
     truncated: fields.length >= MAX_FLAT_FIELDS,
   }
 }
 
-// --- Registro con resolución de dependencias --------------------------------
+// --- Registry with dependency resolution --------------------------------
 
 /**
- * Compila todo lo que se pueda a partir de los textos conocidos. Un schema que
- * referencia a otro no se puede compilar hasta que ese otro llegue, y el orden
- * de llegada por NetworkTables no está garantizado, así que se itera hasta que
- * una pasada no logre compilar nada nuevo.
+ * Compiles everything it can from the known texts. A schema that references
+ * another cannot be compiled until that other one arrives, and the arrival
+ * order over NetworkTables is not guaranteed, so it iterates until a pass
+ * manages to compile nothing new.
  */
 export function compileAll(texts: Record<string, string>): Record<string, StructDef> {
   const parsed: Record<string, ParsedField[]> = {}

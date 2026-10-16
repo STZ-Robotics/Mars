@@ -39,7 +39,7 @@ export default function FunctionPage({
   const buffers = useLiveSeriesBuffers(series, settings.windowSeconds)
 
   const { plotted, phaseData } = useMemo(() => {
-    // Paso 1: puntos base = buffer crudo del topic + su transform + escala.
+    // Step 1: base points = the topic's raw buffer + its transform + scale.
     const basePoints: Record<string, TimeSeriesPoint[]> = {}
     series.forEach(s => {
       basePoints[s.id] = applyTransform(buffers[s.topicName] ?? [], s.transform, {
@@ -49,8 +49,8 @@ export default function FunctionPage({
       })
     })
 
-    // Paso 2: álgebra entre series (A op B), sobre los puntos ya transformados.
-    // Si la serie con la que se combina fue borrada, se ignora el combine.
+    // Step 2: algebra between series (A op B), over the already transformed
+    // points. If the series it is combined with was deleted, the combine is ignored.
     const finalPoints: Record<string, TimeSeriesPoint[]> = {}
     series.forEach(s => {
       finalPoints[s.id] = s.combine && basePoints[s.combine.withSeriesId]
@@ -75,8 +75,8 @@ export default function FunctionPage({
       }
     })
 
-    // Paso 3 (solo modo X-Y): cada serie se cruza contra la serie elegida como
-    // eje X. La serie que hace de X no se dibuja contra sí misma.
+    // Step 3 (X-Y mode only): each series is crossed against the series chosen as
+    // the X axis. The series acting as X is not drawn against itself.
     let phaseData: { xLabel: string; xUnit: string | null; bySeries: Record<string, PhasePoint[]> } | null = null
     if (settings.xMode === "phase" && settings.xSeriesId && finalPoints[settings.xSeriesId]) {
       const xSeries = series.find(s => s.id === settings.xSeriesId)!
@@ -96,7 +96,7 @@ export default function FunctionPage({
     return { plotted, phaseData }
   }, [series, buffers, settings.xMode, settings.xSeriesId])
 
-  // En modo X-Y la serie que hace de eje X no se dibuja como curva.
+  // In X-Y mode the series acting as the X axis is not drawn as a curve.
   const drawnSeries = settings.xMode === "phase" && settings.xSeriesId
     ? plotted.filter(s => s.id !== settings.xSeriesId)
     : plotted
@@ -115,8 +115,8 @@ export default function FunctionPage({
     if (!topicName) return
     if (!classifyTopic(topicType).isNumber) return
 
-    // A propósito NO se descarta un topic ya graficado: soltar la misma
-    // posición dos veces es lo que permite ver la señal y su derivada juntas.
+    // On purpose, a topic already plotted is NOT discarded: dropping the same
+    // position twice is what lets the signal and its derivative be seen together.
     const parts = topicName.split("/").filter(Boolean)
     const base = parts.length > 0 ? parts[parts.length - 1] : topicName
     const dupes = series.filter(s => s.topicName === topicName).length
@@ -133,8 +133,9 @@ export default function FunctionPage({
     if (!source) return
     const usedColors = new Set(series.map(s => s.color))
     const color = LINE_COLORS.find(c => !usedColors.has(c)) ?? source.color
-    // La copia arranca derivada: duplicar para dejar dos curvas idénticas no
-    // le sirve a nadie, y comparar señal contra derivada es el caso típico.
+    // The copy starts out differentiated: duplicating to leave two identical
+    // curves helps nobody, and comparing a signal against its derivative is the
+    // typical case.
     const { id: _drop, ...rest } = source
     onAddSeries({
       ...rest,
@@ -150,8 +151,8 @@ export default function FunctionPage({
     const url = graphRef.current?.toDataURL()
     if (!url) return
     try {
-      // El nombre por defecto sale del título del gráfico, saneado: un "/" o
-      // un ":" en el título haría fallar la escritura en Windows.
+      // The default name comes from the plot's title, sanitized: a "/" or a ":"
+      // in the title would make writing fail on Windows.
       const safeTitle = (settings.title || "plot").replace(/[^\w\-. ]+/g, "_").trim() || "plot"
       const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)
       const path = await save({
@@ -182,8 +183,8 @@ ${error}`)
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <PanelHeader
           title={
-            // El título es editable en el lugar: es lo que termina impreso en
-            // el PNG y en el nombre del archivo.
+            // The title is editable in place: it is what ends up printed on the
+            // PNG and in the file's name.
             <input
               value={settings.title}
               onChange={e => onUpdateSettings({ title: e.target.value })}
@@ -211,8 +212,8 @@ ${error}`)
                   style={selectStyle}
                 >
                   <option value="time">Time</option>
-                  {/* Cualquier serie puede pasar a ser el eje X: eso es lo que
-                      convierte el gráfico en velocidad-vs-aceleración. */}
+                  {/* Any series can become the X axis: that is what turns the plot
+                      into velocity-vs-acceleration. */}
                   {series.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
                 </select>
               </Control>
@@ -312,10 +313,10 @@ ${error}`)
   )
 }
 
-// --- Estadística ------------------------------------------------------------
+// --- Statistics ------------------------------------------------------------
 
-// La tabla es lo que convierte el gráfico en una medición: para calibrar un
-// PID hace falta el pico y la desviación, no la forma de la curva.
+// The table is what turns the plot into a measurement: tuning a PID needs the
+// peak and the deviation, not the curve's shape.
 function StatsStrip({ rows }: {
   rows: { id: string; label: string; color: string; unit: string | null; stats: ReturnType<typeof computeStats> }[]
 }) {
@@ -392,8 +393,8 @@ function Toggle({ label, checked, onChange }: { label: string; checked: boolean;
   )
 }
 
-// Fijar el eje evita que la escala salte sola cuando entra un pico: para
-// comparar dos corridas hace falta que las dos usen la misma regla.
+// Pinning the axis keeps the scale from jumping on its own when a peak comes
+// in: comparing two runs needs both to use the same ruler.
 function AxisLock({ label, range, onChange }: {
   label: string
   range: [number, number] | null

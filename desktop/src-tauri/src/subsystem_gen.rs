@@ -1,7 +1,7 @@
 // subsystem_gen.rs
-// Generador de código para el wizard de subsistemas MARS.
-// Solo genera <Module>.java y <Module>IO.java — las Requests se generan
-// después con JavaPoet, por eso aquí quedan referenciadas pero en null.
+// Code generator for the MARS subsystem wizard.
+// It only generates <Module>.java and <Module>IO.java — the Requests are
+// generated later with JavaPoet, which is why they are referenced here but null.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -26,7 +26,7 @@ pub struct ColorCodeEntry {
     pub id: String,
     pub name: String,     // IDLE, ON_TARGET...
     pub severity: String, // OK | WARNING | ERROR
-    pub color: String,     // nombre WPI sin "k", ej. "DarkGreen"
+    pub color: String,     // WPI name without the "k", e.g. "DarkGreen"
     pub description: String,
 }
 
@@ -51,7 +51,7 @@ pub struct SubsystemWizardConfig {
     pub color_codes: Vec<ColorCodeEntry>,
 }
 
-/// Deriva el paquete java a partir de una ruta absoluta que pase por .../src/main/java/...
+/// Derives the java package from an absolute path that goes through .../src/main/java/...
 #[tauri::command]
 pub fn derive_java_package(target_dir: String) -> String {
     let path = Path::new(&target_dir);
@@ -67,7 +67,7 @@ pub fn derive_java_package(target_dir: String) -> String {
     }
 }
 
-/// Revisa si el proyecto tiene instalada la feature UnitProcessor.
+/// Checks whether the project has the UnitProcessor feature installed.
 #[tauri::command]
 pub fn check_unit_processor(project_path: String) -> bool {
     Path::new(&project_path)

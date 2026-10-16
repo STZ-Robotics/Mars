@@ -9,28 +9,28 @@ function f64(...values: number[]): number[] {
 }
 
 describe("formatNumber", () => {
-  it("colapsa el ruido de punto flotante a cero", () => {
+  it("collapses floating point noise to zero", () => {
     expect(formatNumber(1e-12)).toBe("0")
     expect(formatNumber(-1e-12)).toBe("0")
   })
 
-  it("usa notación científica en los extremos", () => {
+  it("uses scientific notation at the extremes", () => {
     expect(formatNumber(123456)).toBe("1.2e5")
     expect(formatNumber(0.0001)).toBe("1.0e-4")
   })
 
-  it("deja los enteros sin decimales", () => {
+  it("leaves integers without decimals", () => {
     expect(formatNumber(42)).toBe("42")
     expect(formatNumber(-7)).toBe("-7")
   })
 
-  it("recorta los decimales a 3", () => {
+  it("trims the decimals to 3", () => {
     expect(formatNumber(3.14159265)).toBe("3.142")
   })
 })
 
 describe("formatTopicValue", () => {
-  it("devuelve null cuando el topic todavía no tiene valor", () => {
+  it("returns null when the topic has no value yet", () => {
     expect(formatTopicValue("double", undefined)).toBeNull()
     expect(formatTopicValue("double", null)).toBeNull()
   })
@@ -42,30 +42,30 @@ describe("formatTopicValue", () => {
     expect(formatTopicValue("string", { String: "teleop" })).toBe("teleop")
   })
 
-  it("resume arrays y corta los largos", () => {
+  it("summarizes arrays and cuts the long ones", () => {
     expect(formatTopicValue("double[]", { NumberArray: [1, 2, 3] })).toBe("[1, 2, 3]")
     expect(formatTopicValue("double[]", { NumberArray: [] })).toBe("empty")
-    // Más de 6 elementos: se muestran los primeros y se marca el corte.
+    // More than 6 elements: the first ones are shown and the cut is marked.
     const long = formatTopicValue("double[]", { NumberArray: [1, 2, 3, 4, 5, 6, 7, 8] })
     expect(long).toBe("[1, 2, 3, 4, 5, 6, …]")
   })
 
-  it("aplana un struct suelto a campo: valor", () => {
-    // Pose2d = X, Y, θ(radianes -> grados por isAngle)
+  it("flattens a loose struct to field: value", () => {
+    // Pose2d = X, Y, θ(radians -> degrees because of isAngle)
     const text = formatTopicValue("struct:Pose2d", { Raw: f64(1.5, -2.25, Math.PI / 2) })
     expect(text).toBe("X: 1.50 m, Y: -2.25 m, θ: 90.00°")
   })
 
-  it("resume un struct array por cantidad y tipo", () => {
+  it("summarizes a struct array by count and type", () => {
     const text = formatTopicValue("struct:Pose2d[]", { Raw: f64(0, 0, 0, 1, 1, 0) })
     expect(text).toBe("2 × Pose2d")
   })
 
-  it("informa el tamaño de un raw sin schema en vez de mostrar bytes", () => {
+  it("reports the size of a raw without a schema instead of showing bytes", () => {
     expect(formatTopicValue("struct:TipoDesconocido", { Raw: [1, 2, 3, 4] })).toBe("4 bytes")
   })
 
-  it("trunca los strings largos", () => {
+  it("truncates long strings", () => {
     const long = "x".repeat(80)
     const text = formatTopicValue("string", { String: long })!
     expect(text.length).toBeLessThan(long.length)
@@ -74,39 +74,39 @@ describe("formatTopicValue", () => {
 })
 
 describe("arrayLengthOf", () => {
-  it("cuenta elementos de arrays planos", () => {
+  it("counts the elements of flat arrays", () => {
     expect(arrayLengthOf("double[]", { NumberArray: [1, 2, 3] })).toBe(3)
     expect(arrayLengthOf("string[]", { StringArray: ["a", "b"] })).toBe(2)
     expect(arrayLengthOf("boolean[]", { BooleanArray: [true] })).toBe(1)
   })
 
-  it("divide por el tamaño de instancia en un struct array", () => {
-    // 3 Pose2d de 24 bytes cada uno
+  it("divides by the instance size in a struct array", () => {
+    // 3 Pose2d of 24 bytes each
     expect(arrayLengthOf("struct:Pose2d[]", { Raw: f64(0, 0, 0, 1, 1, 0, 2, 2, 0) })).toBe(3)
   })
 
-  it("devuelve null para lo que no es un array", () => {
+  it("returns null for whatever is not an array", () => {
     expect(arrayLengthOf("double", { Number: 1 })).toBeNull()
     expect(arrayLengthOf("struct:Pose2d", { Raw: f64(0, 0, 0) })).toBeNull()
   })
 
-  it("devuelve null si el struct array no tiene schema conocido", () => {
+  it("returns null if the struct array has no known schema", () => {
     expect(arrayLengthOf("struct:Desconocido[]", { Raw: [1, 2, 3] })).toBeNull()
   })
 })
 
 describe("formatArrayElement", () => {
-  it("saca un escalar por índice", () => {
+  it("takes a scalar by index", () => {
     expect(formatArrayElement("double[]", { NumberArray: [10, 20, 30] }, 1)).toBe("20")
     expect(formatArrayElement("boolean[]", { BooleanArray: [true, false] }, 1)).toBe("false")
   })
 
-  it("decodifica UNA instancia de un struct array", () => {
+  it("decodes ONE instance of a struct array", () => {
     const value = { Raw: f64(0, 0, 0, 3.5, 4.5, 0) }
     expect(formatArrayElement("struct:Pose2d[]", value, 1)).toBe("X: 3.50 m, Y: 4.50 m, θ: 0.00°")
   })
 
-  it("devuelve null si el índice se pasa del array", () => {
+  it("returns null if the index goes past the array", () => {
     expect(formatArrayElement("double[]", { NumberArray: [1] }, 5)).toBeNull()
     expect(formatArrayElement("struct:Pose2d[]", { Raw: f64(0, 0, 0) }, 3)).toBeNull()
   })

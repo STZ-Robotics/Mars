@@ -1,10 +1,10 @@
-// NT Session: MARS como PUBLICADOR de NetworkTables.
+// NT Session: MARS as a NetworkTables PUBLISHER.
 //
-// Al revés que el resto de la app, acá no se lee lo que el robot manda: se
-// crean topics propios bajo una tabla raíz (por defecto "MarsDesktop") y el
-// robot los lee. Tunear ganancias es el caso obvio, pero la pestaña no está
-// atada a eso — cualquier valor que quieras mandarle al robot en caliente vive
-// acá, y cada uno sabe copiarse como código Java listo para pegar.
+// The reverse of the rest of the app: here what the robot sends is not read;
+// topics of our own are created under a root table ("MarsDesktop" by default)
+// and the robot reads them. Tuning gains is the obvious case, but the tab is not
+// tied to that — any value you want to send the robot live lives here, and each
+// one knows how to copy itself as Java code ready to paste.
 
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
@@ -37,7 +37,7 @@ interface Props {
 let idCounter = 0
 const nextId = () => `n${Date.now().toString(36)}${(idCounter++).toString(36)}`
 
-/** Publicar en cada tecla del slider satura el socket sin que se note mejor. */
+/** Publishing on every slider keystroke saturates the socket with no visible gain. */
 const PUBLISH_DEBOUNCE_MS = 60
 
 const COPY_MODES: { value: NTSessionCopyMode; label: string }[] = [
@@ -53,20 +53,20 @@ export default function NTSessionPage({
   const [toast, setToast] = useState<string | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
   const timers = useRef<Map<string, number>>(new Map())
-  // Qué se mandó por última vez de cada valor. Comparar contra esto es lo que
-  // deja marcar una fila como "editada pero sin publicar".
+  // What was last sent for each value. Comparing against this is what lets a row
+  // be marked "edited but not published".
   const [publishedSignatures, setPublishedSignatures] = useState<Record<string, string>>({})
-  // Schemas ya anunciados en esta conexión; no hace falta repetirlos.
+  // Schemas already announced on this connection; no need to repeat them.
   const sentSchemas = useRef<Set<string>>(new Set())
 
   const connected = connection !== "disconnected"
 
-  // --- Publicación ---------------------------------------------------------------
+  // --- Publishing ---------------------------------------------------------------
 
   /**
-   * Un struct sin su schema lo lee bien el robot (su clase Java ya sabe el
-   * layout) pero es opaco para cualquier consumidor dinámico. Se publica una
-   * sola vez por conexión, junto con los structs anidados.
+   * A struct without its schema reads fine on the robot (its Java class
+   * already knows the layout) but it is opaque to any dynamic consumer. It is
+   * published once per connection, together with the nested structs.
    */
   const publishSchemas = async (entry: NTSessionEntry) => {
     const structName = kindSpec(entry.kind).structName
@@ -82,7 +82,7 @@ export default function NTSessionPage({
           value: schema.value,
         })
       } catch {
-        // Si el schema falla el valor igual sirve: se reintenta la próxima vez.
+        // If the schema fails the value is still useful: it retries next time.
         sentSchemas.current.delete(schema.topicName)
       }
     }
@@ -106,16 +106,16 @@ export default function NTSessionPage({
   }
 
   /**
-   * Retira un topic de la red. Renombrar sin esto deja el nombre anterior
-   * publicado hasta que la app se cierre, y republicar el mismo nombre con otro
-   * tipo NT directamente no lo permite.
+   * Withdraws a topic from the network. Renaming without this leaves the old
+   * name published until the app closes, and republishing the same name with
+   * another type NT does not allow at all.
    */
   const unpublish = async (topicName: string) => {
     if (!connected) return
     try {
       await invoke("unpublish_value", { topicName })
     } catch {
-      // Retirar algo que nunca se publicó no es un error que valga reportar.
+      // Withdrawing something that was never published is not an error worth reporting.
     }
   }
 
@@ -139,12 +139,12 @@ export default function NTSessionPage({
     setToast(`Published ${entries.length} ${entries.length === 1 ? "value" : "values"}`)
   }
 
-  // Al reconectar, el servidor no sabe nada de nuestros topics: el cliente
-  // limpia su tabla de publicados, así que hay que volver a anunciarlos todos.
+  // On reconnecting, the server knows nothing about our topics: the client
+  // clears its published table, so they all have to be announced again.
   const wasConnected = useRef(connected)
   useEffect(() => {
     if (connected && !wasConnected.current && entries.length > 0) {
-      // El servidor no conserva nada de lo que publicamos, schemas incluidos.
+      // The server keeps nothing we published, schemas included.
       sentSchemas.current.clear()
       entries.forEach(entry => publish(entry))
       setToast("Reconnected — republished every value")
@@ -157,7 +157,7 @@ export default function NTSessionPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [connected])
 
-  // --- Edición -------------------------------------------------------------------
+  // --- Editing -------------------------------------------------------------------
   const updateEntry = (id: string, updates: Partial<NTSessionEntry>) => {
     const before = entries.find(entry => entry.id === id)
     const next = entries.map(entry => entry.id === id ? { ...entry, ...updates } : entry)
@@ -166,9 +166,9 @@ export default function NTSessionPage({
     const after = next.find(entry => entry.id === id)
     if (!before || !after) return
 
-    // Cambiar el nombre o el tipo retira el topic anterior, si es que llegó a
-    // publicarse: si no, escribir "test" letra por letra deja /t, /te y /tes
-    // colgados en la red.
+    // Changing the name or the type withdraws the previous topic, if it got
+    // published: otherwise typing "test" letter by letter leaves /t, /te and /tes
+    // hanging on the network.
     const renamed = updates.key !== undefined && updates.key !== before.key
     const retyped = updates.kind !== undefined && updates.kind !== before.kind
     if (renamed || retyped) {
@@ -182,8 +182,8 @@ export default function NTSessionPage({
       return
     }
 
-    // Solo el VALOR dispara la publicación automática. Renombrar, cambiar el
-    // rango del slider o escribir una nota no mandan nada.
+    // Only the VALUE triggers automatic publishing. Renaming, changing the
+    // slider's range or writing a note sends nothing.
     const valueChanged = updates.numbers !== undefined
       || updates.booleans !== undefined
       || updates.strings !== undefined
@@ -215,13 +215,13 @@ export default function NTSessionPage({
   }
 
   /**
-   * Crea un valor a partir de un topic que ya existe, copiando lo que vale en
-   * este momento. Lo usan el drop desde el árbol y el botón de "adoptar" de la
-   * lista de topics publicados.
+   * Creates a value from a topic that already exists, copying what it is worth
+   * right now. Used by the drop from the tree and the "adopt" button of the
+   * published topics list.
    *
-   * El valor se pide en el momento y no con una suscripción viva: esta pestaña
-   * no muestra datos del robot, así que sondear el árbol entero varias veces
-   * por segundo sería trabajo tirado a la basura.
+   * The value is requested on the spot and not with a live subscription: this
+   * tab shows no robot data, so polling the whole tree several times a second
+   * would be wasted work.
    */
   const captureTopic = async (topicName: string, topicType: string, keyOverride?: string) => {
     const kind = kindForTopic(topicType)
@@ -240,8 +240,8 @@ export default function NTSessionPage({
       const values = await invoke<Record<string, unknown>>("get_live_values", { topicNames: [topicName] })
       captured = applyLiveValue(entry, kind, values[topicName])
     } catch {
-      // Sin conexión no hay valor que copiar, pero el campo igual se crea: se
-      // llena a mano y sirve lo mismo para generar el Java.
+      // With no connection there is no value to copy, but the field is created
+      // anyway: it is filled by hand and serves the same for generating the Java.
     }
 
     onSetEntries([...entries, captured])
@@ -256,10 +256,10 @@ export default function NTSessionPage({
     if (topicName) captureTopic(topicName, topicType)
   }
 
-  // --- Topics huérfanos ------------------------------------------------------------
-  // Lo que está en la red bajo la raíz pero ya no tiene una tarjeta acá: queda
-  // así al renombrar un valor antes de que existiera el retiro automático, o al
-  // borrar la pestaña sin borrar los valores.
+  // --- Orphan topics ------------------------------------------------------------
+  // What is on the network under the root but no longer has a card here: it is
+  // left like that when a value was renamed before automatic withdrawal existed,
+  // or when the tab was deleted without deleting the values.
   const orphans = useMemo(() => {
     const owned = new Set(entries.map(entry => fullTopicName(NT_SESSION_ROOT, entry.key)))
     return [...topics.values()]
@@ -532,8 +532,8 @@ export default function NTSessionPage({
 }
 
 /**
- * Huella de lo que se publicaría ahora mismo. Si no coincide con lo último que
- * se mandó, la fila tiene cambios sin publicar.
+ * Fingerprint of what would be published right now. If it does not match the
+ * last thing sent, the row has unpublished changes.
  */
 function signatureOf(entry: NTSessionEntry, root: string): string {
   const payload = publishPayload(entry)
@@ -542,7 +542,7 @@ function signatureOf(entry: NTSessionEntry, root: string): string {
 
 // --- Captura de topics existentes ------------------------------------------------
 
-/** Con qué tipo de la sesión se puede recrear un topic del robot. */
+/** Which session type a robot topic can be recreated as. */
 function kindForTopic(topicType: string): NTSessionKind | null {
   const c = classifyTopic(topicType)
   if (c.structName === "Pose2d" || c.structName === "Transform2d") return "Pose2d"
@@ -563,9 +563,9 @@ function kindForTopic(topicType: string): NTSessionKind | null {
 }
 
 /**
- * Copia el valor actual del topic dentro del entry recién creado. Los structs
- * no se desempaquetan acá: `unpackLiveValue` devuelve los bytes crudos, así que
- * la geometría capturada arranca en cero y se ajusta a mano.
+ * Copies the topic's current value into the freshly created entry. Structs are
+ * not unpacked here: `unpackLiveValue` returns the raw bytes, so captured
+ * geometry starts at zero and is adjusted by hand.
  */
 function applyLiveValue(entry: NTSessionEntry, kind: NTSessionKind, liveValue: unknown): NTSessionEntry {
   const value = unpackLiveValue(liveValue)

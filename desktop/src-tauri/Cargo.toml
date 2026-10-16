@@ -45,25 +45,25 @@ tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 dirs = "5"
 regex = { version = "1.12.4", optional = true }
-base64 = "0.22"   # exportar el PNG del gráfico, que viaja como data URL
+base64 = "0.22"   # exporting the plot's PNG, which travels as a data URL
 
-# Descarga e instalación de los assets 3D del Field 3D. Van en Rust y no en el
-# front porque GitHub no manda cabeceras CORS en sus releases: un `fetch` desde
-# el webview falla siempre, sin importar la CSP.
+# Downloading and installing the Field 3D's 3D assets. They live in Rust and
+# not in the front end because GitHub sends no CORS headers on its releases: a
+# `fetch` from the webview always fails, whatever the CSP.
 #
-# rustls con las raíces del SISTEMA a propósito: muchos equipos trabajan detrás
-# del proxy de su escuela, que reemplaza los certificados por los suyos. Con las
-# raíces embebidas de webpki, toda descarga fallaría ahí.
+# rustls with the SYSTEM roots on purpose: many teams work behind their
+# school's proxy, which replaces the certificates with its own. With webpki's
+# embedded roots, every download would fail there.
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "rustls-native-certs", "charset", "http2", "system-proxy"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
-# Dependencias de red y asincronía (NT4)
+# Networking and async dependencies (NT4)
 tokio = { version = "1.36", features = ["full"] }
 tokio-tungstenite = "0.21"
 futures-util = "0.3"
 
-# Serialización y formatos de datos
+# Serialization and data formats
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-rmp-serde = "1.1" # Para leer y escribir MessagePack binario
+rmp-serde = "1.1" # For reading and writing binary MessagePack
 rmpv = { version = "1.3.1", features = ["with-serde"] }

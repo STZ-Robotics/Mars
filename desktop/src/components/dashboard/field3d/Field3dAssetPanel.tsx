@@ -1,19 +1,19 @@
-// Gestor de assets 3D: los modelos de cancha y de robot que dibuja la pestaña.
+// 3D asset manager: the field and robot models the tab draws.
 //
-// Un "asset" es una carpeta con un `config.json` y uno o varios `model*.glb`,
-// exactamente el formato de AdvantageScope. Hay dos clases y hacen cosas
-// distintas, así que el panel las separa en vez de mezclarlas en una lista:
+// An "asset" is a folder with a `config.json` and one or more `model*.glb`,
+// exactly AdvantageScope's format. There are two kinds and they do different
+// things, so the panel separates them instead of mixing them in one list:
 //
-//   CANCHA -> se elige en el selector FIELD de la barra de arriba.
-//   ROBOT  -> se elige en la pestaña SCENE, y cada objeto robot puede usar otro.
+//   FIELD -> chosen in the FIELD selector of the top bar.
+//   ROBOT -> chosen in the SCENE tab, and each robot object can use another.
 //
-// Esa segunda línea es la que faltaba: sin ella, uno instala un robot y no
-// tiene idea de dónde se supone que aparece.
+// That second line is the one that was missing: without it, you install a robot
+// and have no idea where it is supposed to show up.
 //
-// Y una nota que importa: el .step que publica FIRST NO se puede cargar acá ni
-// en AdvantageScope. STEP es un formato de CAD por fronteras (B-rep), sin
-// mallas: hay que convertirlo a glTF antes. El panel lo dice, porque bajarlo y
-// que no funcione es el primer tropiezo de todo el mundo.
+// And a note that matters: the .step FIRST publishes CANNOT be loaded here nor
+// in AdvantageScope. STEP is a boundary-representation CAD format (B-rep), with
+// no meshes: it has to be converted to glTF first. The panel says so, because
+// downloading it and having it not work is everyone's first stumble.
 
 import { memo, useState } from "react"
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener"
@@ -42,17 +42,17 @@ function Field3dAssetPanel({ packs, onChanged }: Props) {
   const robots = packs.filter(isRobotPack)
   const installed = new Set(packs.map(p => p.key))
 
-  // Toda acción que toca el disco pasa por acá: así el panel queda bloqueado
-  // mientras corre (una segunda descarga en paralelo escribiría sobre la
-  // primera) y cualquier fallo aterriza en el mismo cartel.
+  // Every action that touches the disk goes through here: that way the panel is
+  // locked while it runs (a second download in parallel would write over the
+  // first) and any failure lands on the same notice.
   const run = async (label: string, action: () => Promise<unknown>, success?: string) => {
     setBusy(label)
     setError(null)
     setDone(null)
     try {
       const result = await action()
-      // `null` = el usuario cerró el dialog sin elegir nada. No es un error ni
-      // hay nada que celebrar.
+      // `null` = the user closed the dialog without choosing anything. It is not an
+      // error and there is nothing to celebrate either.
       if (result !== null && success) setDone(success)
       onChanged()
     } catch (err) {
@@ -62,9 +62,9 @@ function Field3dAssetPanel({ packs, onChanged }: Props) {
     }
   }
 
-  // `revealItemInDir` y no `openPath`: el primero entra en el permiso
-  // `opener:default` que la app ya declara, y abrir el explorador con la
-  // carpeta seleccionada es exactamente lo que se quiere acá.
+  // `revealItemInDir` and not `openPath`: the first one falls under the
+  // `opener:default` permission the app already declares, and opening the
+  // explorer with the folder selected is exactly what is wanted here.
   const handleReveal = async () => {
     setError(null)
     try {
@@ -238,13 +238,13 @@ function Field3dAssetPanel({ packs, onChanged }: Props) {
 
 // --- Filas -------------------------------------------------------------------
 
-// Las dos filas viven en el MÓDULO y no dentro del panel. Definir un componente
-// dentro del cuerpo de otro crea un tipo nuevo en cada render, y React responde
-// desmontando y volviendo a montar todo el subárbol. Como la página se redibuja
-// a 30 Hz (el poll de NT devuelve un objeto nuevo cada 33 ms), eso hacía dos
-// cosas visibles: los iconos reiniciaban su cadena de respaldo y parpadeaban, y
-// el `mousedown` caía en un botón mientras el `mouseup` caía en otro distinto,
-// así que los clicks nunca llegaban a dispararse.
+// The two rows live in the MODULE and not inside the panel. Defining a component
+// inside another's body creates a new type on every render, and React responds
+// by unmounting and remounting the whole subtree. Since the page redraws at
+// 30 Hz (the NT poll returns a new object every 33 ms), that did two visible
+// things: the icons restarted their fallback chain and flickered, and the
+// `mousedown` landed on one button while the `mouseup` landed on a different
+// one, so clicks never got to fire.
 
 function CatalogueRow({ entry, installed, busy, onDownload }: {
   entry: CatalogEntry
@@ -336,7 +336,7 @@ function PackRow({ pack, busy, onRemove }: {
   )
 }
 
-// El panel no mira ningún dato en vivo, así que no tiene por qué redibujarse
-// con el poll de NT. `memo` lo deja quieto salvo que cambie la lista de
-// paquetes, que es lo único que puede cambiar de afuera.
+// The panel looks at no live data, so it has no reason to redraw with the NT
+// poll. `memo` keeps it still unless the package list changes, which is the
+// only thing that can change from outside.
 export default memo(Field3dAssetPanel)

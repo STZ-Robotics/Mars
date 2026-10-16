@@ -18,9 +18,9 @@ mod simlauncher;
 mod source_map;
 #[cfg(feature = "mars")]
 mod subsystem_gen;
-// Las plantillas viajan dentro del binario y solo las usan create_mars_project
-// y el wizard de features, los dos detras de `mars`: en la edicion Tools ni se
-// compilan ni ocupan los 220 KB.
+// The templates travel inside the binary and are only used by create_mars_project
+// and the feature wizard, both behind `mars`: in the Tools edition they are
+// not even compiled and do not take up the 220 KB.
 #[cfg(feature = "mars")]
 mod templates;
 
@@ -42,16 +42,16 @@ use nt4::client::{NT4Client, NT4State};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-/// Destino del servidor NT4. Determina el puerto al que se conecta la app:
-/// el roboRIO/simulador publica en 5810, la Driver Station reexpone los datos
-/// en 6767 (en localhost) y Systemcore usa 6810.
+/// Target of the NT4 server. It decides the port the app connects to: the
+/// roboRIO/simulator publishes on 5810, the Driver Station re-exposes the data on
+/// 6767 (on localhost) and Systemcore uses 6810.
 pub const NT_PORT_DEFAULT: u16 = 5810;
 pub const NT_PORT_DS: u16 = 6767;
 pub const NT_PORT_SYSTEMCORE: u16 = 6810;
 
-/// Techo para `read_binary_file`. Una malla de robot bien hecha pesa unos
-/// pocos MB; mas alla de esto casi seguro se eligio el archivo equivocado y
-/// cargarlo dejaria la webview sin memoria.
+/// Ceiling for `read_binary_file`. A well-made robot mesh weighs a few MB;
+/// beyond this the wrong file was almost certainly chosen and loading it would
+/// leave the webview out of memory.
 const MAX_MODEL_BYTES: u64 = 256 * 1024 * 1024;
 
 fn default_nt_target() -> String { "default".to_string() }
@@ -65,29 +65,29 @@ pub struct MarsSettings {
     pub tools_path: String,
     pub auto_save_deploy: bool,
 
-    // Los campos de NT4 llevan #[serde(default)] a propósito: sin eso, un
-    // config.json escrito por una versión anterior no deserializa y el
-    // fallback a Default borraría el equipo y las rutas ya guardadas.
+    // The NT4 fields carry #[serde(default)] on purpose: without it, a
+    // config.json written by an earlier version does not deserialize and the
+    // fallback to Default would wipe the team and the paths already saved.
     /// "default" | "ds" | "systemcore" | "custom"
     #[serde(default = "default_nt_target")]
     pub nt_target: String,
-    /// Puerto usado solo cuando nt_target == "custom".
+    /// Port used only when nt_target == "custom".
     #[serde(default = "default_nt_custom_port")]
     pub nt_custom_port: u16,
-    /// Reemplaza la dirección derivada del número de equipo. Vacío = usar el
-    /// equipo. Sirve para USB (172.22.11.2), mDNS o una IP fija de pruebas.
+    /// Replaces the address derived from the team number. Empty = use the team.
+    /// For USB (172.22.11.2), mDNS or a fixed test IP.
     #[serde(default)]
     pub nt_custom_address: String,
-    /// Minutos de historial que guarda el buffer. 0 = sin límite.
+    /// Minutes of history the buffer keeps. 0 = no limit.
     #[serde(default = "default_nt_retention_minutes")]
     pub nt_retention_minutes: u32,
 
-    // Identidad para publicar features. Se guarda acá y no en el wizard para
-    // que el segundo paquete que haga el equipo salga ya prellenado.
-    /// Nombre que va en el campo `author` de MarsFeature.json.
+    // Identity for publishing features. It is stored here and not in the wizard so
+    // the team's second package comes out already prefilled.
+    /// Name that goes in MarsFeature.json's `author` field.
     #[serde(default)]
     pub feature_author: String,
-    /// Usuario u organización de GitHub bajo la que se publican las features.
+    /// GitHub user or organization the features are published under.
     #[serde(default)]
     pub github_user: String,
 }
@@ -111,7 +111,7 @@ impl Default for MarsSettings {
 }
 
 impl MarsSettings {
-    /// Puerto NT4 efectivo según el destino elegido.
+    /// Effective NT4 port for the chosen target.
     pub fn nt_port(&self) -> u16 {
         match self.nt_target.as_str() {
             "ds" => NT_PORT_DS,
@@ -122,9 +122,9 @@ impl MarsSettings {
     }
 }
 
-/// Lectura de la config sin pasar por el comando de Tauri, para que el módulo
-/// NT4 pueda resolver dirección y puerto sin que el front tenga que mandarlos
-/// en cada `connect`.
+/// Reads the config without going through the Tauri command, so the NT4 module
+/// can resolve address and port without the frontend having to send them on
+/// every `connect`.
 pub fn load_mars_settings() -> MarsSettings {
     let path = get_mars_config_path();
     if !path.exists() {
@@ -152,12 +152,12 @@ fn read_mars_settings() -> Result<MarsSettings, String> {
     Ok(load_mars_settings())
 }
 
-// --- Workspace (pestañas + su configuración) --------------------------------
+// --- Workspace (tabs + their configuration) --------------------------------
 //
-// Sin esto todo el estado de la app vive solo en memoria de React: los tabs,
-// los widgets del Display, las fuentes del Swerve y del Mechanism se pierden al
-// cerrar. El layout se guarda como JSON opaco a propósito -- el shape lo define
-// el front (WorkspaceTab), y el backend no tiene por qué conocerlo.
+// Without this all the app's state lives only in React's memory: the tabs, the
+// Display's widgets, the Swerve's and the Mechanism's sources are lost on
+// closing. The layout is saved as opaque JSON on purpose -- the frontend defines
+// the shape (WorkspaceTab), and the backend has no reason to know it.
 
 fn workspace_path(path: Option<String>) -> PathBuf {
     match path {
@@ -183,8 +183,8 @@ fn save_workspace(layout: serde_json::Value, path: Option<String>) -> Result<Str
     Ok(target.display().to_string())
 }
 
-/// `Ok(None)` = todavía no hay layout guardado, que NO es un error: es lo que
-/// pasa la primera vez que se abre la app.
+/// `Ok(None)` = there is no saved layout yet, which is NOT an error: it is what
+/// happens the first time the app is opened.
 #[tauri::command]
 fn load_workspace(path: Option<String>) -> Result<Option<serde_json::Value>, String> {
     let target = workspace_path(path);
@@ -257,15 +257,15 @@ async fn create_mars_project(project_name: String, workspace_path: String, team_
     Ok(format!("Proyect created at {}", workspace_path))
 }
 
-/// Escribe un archivo binario desde base64. Se usa para el PNG del gráfico
-/// (un canvas solo sabe devolver un data URL) y para el JSON de gains. Va en
-/// base64 y no como Vec<u8> porque por IPC eso se convertiría en un array
-/// JSON de cientos de miles de números.
+/// Writes a binary file from base64. It is used for the plot's PNG (a canvas can
+/// only return a data URL) and for the gains JSON. It goes as base64 and not as
+/// a Vec<u8> because over IPC that would turn into a JSON array of hundreds of
+/// thousands of numbers.
 #[tauri::command]
 fn save_base64_file(path: String, base64_data: String) -> Result<String, String> {
     use base64::Engine;
 
-    // El front puede mandar el data URL completo o solo la carga útil.
+    // The frontend may send the whole data URL or only the payload.
     let payload = base64_data
         .split_once(",")
         .map(|(_, rest)| rest)
@@ -279,10 +279,10 @@ fn save_base64_file(path: String, base64_data: String) -> Result<String, String>
     Ok(path)
 }
 
-/// Lee un archivo binario del disco y lo devuelve como bytes crudos.
-/// Se usa para los modelos 3D (.stl/.glb) que el usuario elige con el dialog:
-/// van por `ipc::Response` y no como Vec<u8> porque eso se serializaria a un
-/// array JSON de millones de numeros para una malla de unos pocos MB.
+/// Reads a binary file from disk and returns it as raw bytes.
+/// It is used for the 3D models (.stl/.glb) the user picks with the dialog: they
+/// go through `ipc::Response` and not as a Vec<u8> because that would serialize
+/// to a JSON array of millions of numbers for a mesh of a few MB.
 #[tauri::command]
 fn read_binary_file(path: String) -> Result<tauri::ipc::Response, String> {
     let meta = fs::metadata(&path).map_err(|e| format!("Could not open {}: {}", path, e))?;
@@ -298,9 +298,9 @@ fn read_binary_file(path: String) -> Result<tauri::ipc::Response, String> {
     Ok(tauri::ipc::Response::new(bytes))
 }
 
-/// Escribe un archivo de texto UTF-8. Lo usa el export de configuraciones
-/// (por ahora el del Mechanism 3D), que son JSON legibles y no binarios: pasar
-/// por `save_base64_file` obligaria a codificar y decodificar sin motivo.
+/// Writes a UTF-8 text file. It is used by the configuration export (for now
+/// the Mechanism 3D's), which is readable JSON and not binary: going through
+/// `save_base64_file` would force encoding and decoding for no reason.
 #[tauri::command]
 fn write_text_file(path: String, contents: String) -> Result<String, String> {
     if let Some(parent) = Path::new(&path).parent() {
@@ -353,17 +353,17 @@ fn read_project_units(project_path: String) -> Result<String, String> {
     let path = PathBuf::from(project_path).join("ProjectUnits.json");
     
     if !path.exists() {
-        return Err("ProjectUnits.json no encontrado en la raíz del proyecto.".into());
+        return Err("ProjectUnits.json not found at the project root.".into());
     }
 
-    fs::read_to_string(path).map_err(|e| format!("Error leyendo el archivo de unidades: {}", e))
+    fs::read_to_string(path).map_err(|e| format!("Error reading the units file: {}", e))
 }
 
 #[cfg(feature = "mars")]
 #[tauri::command]
 fn read_manifest_features(project_path: String) -> Result<HashMap<String, bool>, String> {
-    // Construimos la ruta asumiendo la estructura estándar de FRC
-    // Asegúrate de ajustar "frc/robot" si tu paquete se llama distinto
+    // The path is built assuming the standard FRC layout.
+    // Adjust "frc/robot" if your package is named differently.
     let path = PathBuf::from(project_path)
         .join("src")
         .join("main")
@@ -374,20 +374,20 @@ fn read_manifest_features(project_path: String) -> Result<HashMap<String, bool>,
         .join("Manifest.java");
 
     if !path.exists() {
-        return Err("Manifest.java no encontrado en la ruta esperada.".into());
+        return Err("Manifest.java not found at the expected path.".into());
     }
 
     let content = fs::read_to_string(path)
-        .map_err(|e| format!("Error leyendo el Manifest: {}", e))?;
+        .map_err(|e| format!("Error reading the Manifest: {}", e))?;
 
     let mut features = HashMap::new();
     
-    // Esta expresión regular busca exactamente: public static final boolean HAS_ALGO = true/false;
+    // This regular expression matches exactly: public static final boolean HAS_SOMETHING = true/false;
     let re = Regex::new(r"public static final boolean\s+(HAS_[A-Z0-9_]+)\s*=\s*(true|false)\s*;").unwrap();
 
     for cap in re.captures_iter(&content) {
         let name = cap[1].to_string(); // Ej: "HAS_INTAKE"
-        let value = &cap[2] == "true"; // Convierte el texto "true" a un booleano real
+        let value = &cap[2] == "true"; // Converts the text "true" into a real boolean
         features.insert(name, value);
     }
 
@@ -419,11 +419,11 @@ fn get_installed_packages(project_path: String) -> Result<Vec<serde_json::Value>
 #[cfg(feature = "mars")]
 #[tauri::command]
 async fn install_package_from_json(project_path: String, feature_data: String) -> Result<String, String> {
-    // 1. Parsear y extraer el ID
+    // 1. Parse and extract the ID
     let json: serde_json::Value = serde_json::from_str(&feature_data).map_err(|e| format!("Invalid JSON: {}", e))?;
     let feature_id = json["featureId"].as_str().ok_or("Missing featureId in JSON")?;
     
-    // 2. Crear carpetas y guardar
+    // 2. Create the folders and save
     let features_dir = PathBuf::from(&project_path).join("workspace-mars").join("features");
     if !features_dir.exists() {
         fs::create_dir_all(&features_dir).map_err(|e| format!("Failed creating directory: {}", e))?;
@@ -432,8 +432,8 @@ async fn install_package_from_json(project_path: String, feature_data: String) -
     let file_path = features_dir.join(format!("{}.json", feature_id));
     fs::write(file_path, &feature_data).map_err(|e| format!("Failed saving file: {}", e))?;
     
-    // 3. Compilar Gradle de forma ligera
-    // 3. Compilar Gradle de forma ligera (CORREGIDO PARA TERMINAL)
+    // 3. Build with Gradle, lightweight
+    // 3. Build with Gradle, lightweight (FIXED FOR THE TERMINAL)
     let status = if cfg!(target_os = "windows") {
         Command::new("cmd")
             .args(["/C", "gradlew.bat", "build", "-x", "test"])
@@ -522,8 +522,8 @@ fn main() {
         subsystem_gen::generate_mars_subsystem,
         feature_gen::create_mars_feature,
         feature_gen::read_project_vendordeps,
-        simlauncher::sim_app_disponible,
-        simlauncher::abrir_sim_app,
+        simlauncher::sim_app_available,
+        simlauncher::open_sim_app,
         source_map::find_topic_source,
         source_map::open_in_editor,
     );

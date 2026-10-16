@@ -79,8 +79,8 @@ export default function SysIdPage({ topics, connection, logSource }: Props) {
           end: range.endUs!,
         })
 
-        // A segundos: todo el ajuste trabaja en segundos, así que kV sale
-        // directo en V/(unidad/s).
+        // To seconds: the whole fit works in seconds, so kV comes out directly
+        // in V/(unit/s).
         const toPoints = (name: string | null) =>
           !name ? [] : (data[name] ?? [])
             .filter(([, v]) => typeof v?.Number === "number")
@@ -102,8 +102,8 @@ export default function SysIdPage({ topics, connection, logSource }: Props) {
         )
       } else {
         setFit(result)
-        // Las predicciones se calculan una sola vez, acá: recalcularlas en
-        // cada render del canvas sería tirar CPU sobre datos que no cambian.
+        // The predictions are computed only once, here: recomputing them on
+        // every canvas render would throw CPU at data that does not change.
         setDiagnostics(buildDiagnostics(config.mechanism, result.gains, runs))
       }
     } catch (e) {
@@ -188,8 +188,8 @@ export default function SysIdPage({ topics, connection, logSource }: Props) {
                     key={signal.key}
                     label={signal.label}
                     hint={signal.hint}
-                    // La posición es obligatoria SOLO en el modelo de brazo:
-                    // es lo único que usa cos(θ).
+                    // The position is mandatory ONLY in the arm model: it is the only
+                    // thing that uses cos(θ).
                     required={signal.required || (signal.key === "positionTopic" && needsPosition)}
                     dimmed={signal.key === "positionTopic" && !needsPosition}
                     value={config[signal.key]}
@@ -244,8 +244,8 @@ function ResultsPanel({ fit }: { fit: FeedforwardFit }) {
   const [copied, setCopied] = useState(false)
   const g = fit.gains
 
-  // El orden de los argumentos NO es el mismo en las tres clases de WPILib:
-  // SimpleMotorFeedforward(kS, kV, kA) pero Elevator/ArmFeedforward(kS, kG, kV, kA).
+  // The order of the arguments is NOT the same in WPILib's three classes:
+  // SimpleMotorFeedforward(kS, kV, kA) but Elevator/ArmFeedforward(kS, kG, kV, kA).
   const javaSnippet =
     fit.mechanism === "simple"
       ? `new SimpleMotorFeedforward(${g.kS.toFixed(5)}, ${g.kV.toFixed(5)}, ${g.kA.toFixed(5)})`
@@ -271,8 +271,8 @@ function ResultsPanel({ fit }: { fit: FeedforwardFit }) {
         java: javaSnippet,
         generated: new Date().toISOString(),
       }, null, 2)
-      // btoa no soporta caracteres fuera de latin1; el rodeo por encodeURIComponent
-      // convierte el texto a UTF-8 byte a byte antes de codificarlo.
+      // btoa does not support characters outside latin1; the detour through
+      // encodeURIComponent turns the text into UTF-8 byte by byte before encoding it.
       await invoke("save_base64_file", { path, base64Data: btoa(unescape(encodeURIComponent(payload))) })
     } catch (e) {
       alert(`Could not export gains:\n${e}`)
@@ -346,9 +346,9 @@ function ResultsPanel({ fit }: { fit: FeedforwardFit }) {
   )
 }
 
-// Los dos gráficos responden preguntas distintas: el de arriba dice CUÁNTO se
-// equivoca el modelo, el de abajo dice SI el error tiene estructura (o sea, si
-// falta física en el modelo elegido).
+// The two plots answer different questions: the top one says HOW MUCH the model
+// is wrong, the bottom one says WHETHER the error has structure (i.e. whether
+// physics is missing from the chosen model).
 function DiagnosticsPanel({ diagnostics }: { diagnostics: RunDiagnostics[] }) {
   return (
     <BevelPanel
@@ -501,8 +501,8 @@ function TestRangeRow({ test, range, cursorUs, onSetStart, onSetEnd, onClear }: 
             : "not set"}
       </div>
 
-      {/* Los rangos se marcan con el cursor de la timeline: es la única forma
-          de saber exactamente dónde empezó cada corrida del robot. */}
+      {/* The ranges are marked with the timeline's cursor: it is the only way
+          to know exactly where each robot run started. */}
       <ToolButton icon="ti-arrow-bar-to-right" label="Set start" disabled={cursorUs === null} onClick={onSetStart} />
       <ToolButton icon="ti-arrow-bar-to-left" label="Set end" disabled={cursorUs === null} onClick={onSetEnd} />
       <ToolButton icon="ti-x" label="Clear" onClick={onClear} />

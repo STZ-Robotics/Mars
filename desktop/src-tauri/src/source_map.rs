@@ -1,21 +1,21 @@
 // source_map.rs
-// Resuelve un topic de NetworkTables a la línea de Java que lo publica.
+// Resolves a NetworkTables topic to the Java line that publishes it.
 //
-// El truco es que en un proyecto MARS el nombre del topic no es opaco: sale de
-// un puñado de construcciones con literales en el código.
+// The trick is that in a MARS project the topic's name is not opaque: it comes
+// from a handful of constructs with literals in the code.
 //
 //   NetworkIO.set("Arm", "kP", v)         -> /Arm/kP
-//   @Signal(key="velocity") double get()  -> /<tabla>/velocity
-//   @Tunable double kP = 0.5;             -> /<tabla>/kP
-//   setEntry("kP", v)                     -> /<tabla>/kP
+//   @Signal(key="velocity") double get()  -> /<table>/velocity
+//   @Tunable double kP = 0.5;             -> /<table>/kP
+//   setEntry("kP", v)                     -> /<table>/kP
 //
-// donde <tabla> es el string que la clase le pasó a IOSubsystem -- o sea el
-// `.key("Arm")` del SubsystemBuilder, o el `super("Arm")` si extiende
-// IOSubsystem directo.
+// where <table> is the string the class passed to IOSubsystem -- i.e. the
+// SubsystemBuilder's `.key("Arm")`, or the `super("Arm")` if it extends
+// IOSubsystem directly.
 //
-// Es un escaneo con regex, no un parser de Java: no resuelve constantes ni
-// concatenaciones. Por eso cada resultado viene con una confianza y el front
-// muestra varios candidatos en vez de saltar a ciegas.
+// It is a regex scan, not a Java parser: it resolves neither constants nor
+// concatenations. That is why each result comes with a confidence and the
+// frontend shows several candidates instead of jumping blindly.
 
 use serde::Serialize;
 use std::collections::BTreeSet;
@@ -26,15 +26,15 @@ use regex::Regex;
 
 #[derive(Serialize, Debug, Clone)]
 pub struct SourceMatch {
-    /// Ruta relativa a la raíz del proyecto, para mostrar.
+    /// Path relative to the project's root, for display.
     pub file: String,
-    /// Ruta absoluta, para abrir el editor.
+    /// Absolute path, to open the editor.
     pub path: String,
     pub line: usize,
-    /// Qué construcción produjo el match ("@Tunable", "NetworkIO.set"...).
+    /// Which construct produced the match ("@Tunable", "NetworkIO.set"...).
     pub kind: String,
     pub snippet: String,
-    /// 0-100. 100 = tabla y key literales exactas en la misma llamada.
+    /// 0-100. 100 = literal table and key, exact, in the same call.
     pub confidence: u8,
 }
 
@@ -44,7 +44,7 @@ pub struct TopicSourceResult {
     pub table: String,
     pub key: String,
     pub matches: Vec<SourceMatch>,
-    /// Explicación cuando el topic lo publica el framework y no el proyecto.
+    /// Explanation when the framework publishes the topic and not the project.
     pub note: Option<String>,
 }
 
@@ -67,8 +67,8 @@ fn collect_java_files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// Devuelve lo que sigue a una anotación en la línea, saltándose sus
-/// paréntesis, más la key explícita si la trae.
+/// Returns what follows an annotation on the line, skipping its parentheses,
+/// plus the explicit key if it carries one.
 ///
 /// `@Tunable(key = "gainP") double kP = 0.5;` -> (" double kP = 0.5;", Some("gainP"))
 fn after_annotation(line: &str, annotation: &str) -> Option<(String, Option<String>)> {
@@ -104,8 +104,8 @@ fn after_annotation(line: &str, annotation: &str) -> Option<(String, Option<Stri
     Some((rest[close + 1..].to_string(), key))
 }
 
-/// Nombre del miembro que sigue a la anotación: el método para `@Signal`, el
-/// campo para `@Tunable`. Puede estar en la misma línea o en las siguientes.
+/// Name of the member that follows the annotation: the method for `@Signal`,
+/// the field for `@Tunable`. It can be on the same line or on the next ones.
 fn member_name(lines: &[&str], index: usize, rest_of_line: &str, is_method: bool) -> Option<String> {
     let pattern = if is_method {
         Regex::new(r"(\w+)\s*\(").ok()?
@@ -116,7 +116,7 @@ fn member_name(lines: &[&str], index: usize, rest_of_line: &str, is_method: bool
     if let Some(caps) = pattern.captures(rest_of_line) {
         return Some(caps[1].to_string());
     }
-    // La anotación estaba sola en su línea: mirar las siguientes.
+    // The annotation was alone on its line: look at the next ones.
     for candidate in lines.iter().skip(index + 1).take(3) {
         if candidate.trim().is_empty() || candidate.trim_start().starts_with('@') {
             continue;
@@ -138,8 +138,8 @@ fn snippet_of(line: &str) -> String {
     }
 }
 
-/// Topics que publica el jar de MARS, no el proyecto. Sin esto el usuario
-/// aprieta "go to" en `/Arm/Status/Hex` y no entiende por qué no hay nada.
+/// Topics MARS's jar publishes, not the project. Without this the user presses
+/// "go to" on `/Arm/Status/Hex` and does not understand why there is nothing.
 fn framework_note(table: &str, key: &str) -> Option<String> {
     if key.starts_with("Status/") {
         return Some(format!(
@@ -157,7 +157,7 @@ fn framework_note(table: &str, key: &str) -> Option<String> {
 }
 
 // ---------------------------------------------------------------------------
-// Búsqueda
+// Search
 // ---------------------------------------------------------------------------
 
 struct Patterns {
@@ -180,7 +180,7 @@ impl Patterns {
     }
 }
 
-/// Parte `/Arm/Status/Hex` en tabla `Arm` y key `Status/Hex`.
+/// Splits `/Arm/Status/Hex` into table `Arm` and key `Status/Hex`.
 fn split_topic(topic: &str) -> (String, String) {
     let cleaned = topic.trim().trim_start_matches('/');
     match cleaned.split_once('/') {
@@ -222,7 +222,7 @@ pub fn find_topic_source(project_path: String, topic: String) -> Result<TopicSou
             .replace('\\', "/");
         let absolute = path.to_string_lossy().to_string();
 
-        // Paso 1: qué tablas de NT declara este archivo, y en qué línea.
+        // Step 1: which NT tables this file declares, and on which line.
         let mut tables: BTreeSet<String> = BTreeSet::new();
         let mut table_line: Option<usize> = None;
         for (i, line) in lines.iter().enumerate() {
@@ -236,9 +236,9 @@ pub fn find_topic_source(project_path: String, topic: String) -> Result<TopicSou
         }
         let owns_table = tables.contains(&table);
 
-        // Una función y no un closure: más abajo hay que leer `matches` para
-        // saber si este archivo ya aportó algo, y un closure que lo capture
-        // mutable lo dejaría prestado durante todo el bloque.
+        // A function and not a closure: further down `matches` has to be read to
+        // know whether this file already contributed something, and a closure
+        // capturing it mutably would keep it borrowed for the whole block.
         macro_rules! push {
             ($line_no:expr, $kind:expr, $confidence:expr, $text:expr) => {
                 matches.push(SourceMatch {
@@ -268,8 +268,8 @@ pub fn find_topic_source(project_path: String, topic: String) -> Result<TopicSou
                 }
             }
 
-            // NetworkIO.set("WatchDog/ElapsedSeconds", nombreVariable, ...):
-            // la tabla es literal pero la key se arma en runtime.
+            // NetworkIO.set("WatchDog/ElapsedSeconds", variableName, ...):
+            // the table is literal but the key is built at run time.
             if p.networkio_full.captures(line).is_none() {
                 if let Some(caps) = p.networkio_table.captures(line) {
                     let prefix = &caps[1];
@@ -280,8 +280,8 @@ pub fn find_topic_source(project_path: String, topic: String) -> Result<TopicSou
                 }
             }
 
-            // setEntry("Key", ...) dentro de un IOSubsystem: la tabla es la
-            // de la clase.
+            // setEntry("Key", ...) inside an IOSubsystem: the table is the class's
+            // own.
             if let Some(caps) = p.set_entry.captures(line) {
                 let k = &caps[1];
                 if k == key || k == leaf {
@@ -289,8 +289,8 @@ pub fn find_topic_source(project_path: String, topic: String) -> Result<TopicSou
                 }
             }
 
-            // @Signal / @Tunable: la key es la de la anotación o, si no la
-            // trae, el nombre del método/campo.
+            // @Signal / @Tunable: the key is the annotation's or, if it carries
+            // none, the method's/field's name.
             for (annotation, is_method) in [("@Signal", true), ("@Tunable", false)] {
                 if !line.contains(annotation) {
                     continue;
@@ -315,9 +315,9 @@ pub fn find_topic_source(project_path: String, topic: String) -> Result<TopicSou
             }
         }
 
-        // Paso 3: aunque no haya línea que publique esta key, la clase dueña
-        // de la tabla casi siempre es a donde el usuario quiere ir. Para los
-        // Status/* del framework es directamente la única respuesta útil.
+        // Step 3: even if no line publishes this key, the class that owns the table
+        // is almost always where the user wants to go. For the framework's
+        // Status/* it is the only useful answer.
         if let Some(decl_line) = table_line {
             let already_here = matches.iter().any(|m| m.path == absolute && m.confidence >= 50);
             if !already_here {
@@ -347,8 +347,8 @@ pub fn find_topic_source(project_path: String, topic: String) -> Result<TopicSou
     })
 }
 
-/// Abre el archivo en VS Code en la línea exacta. `-g` es lo que hace que
-/// salte a la línea en vez de solo abrir el archivo.
+/// Opens the file in VS Code at the exact line. `-g` is what makes it jump to
+/// the line instead of only opening the file.
 #[tauri::command]
 pub async fn open_in_editor(path: String, line: Option<usize>) -> Result<(), String> {
     let target = match line {
@@ -442,7 +442,7 @@ public class Arm extends ModularSubsystem<ArmData, ArmIO> {
         assert_eq!(by_key.matches[0].line, 5);
         assert_eq!(by_key.matches[0].kind, "@Tunable");
 
-        // El nombre del campo NO es el topic cuando hay key explícita.
+        // The field's name is NOT the topic when there is an explicit key.
         let by_field = find_topic_source(root.to_string_lossy().to_string(), "/Arm/limit".into()).unwrap();
         assert!(by_field.matches.iter().all(|m| m.kind == "owns the NT table"));
         let _ = fs::remove_dir_all(&root);
