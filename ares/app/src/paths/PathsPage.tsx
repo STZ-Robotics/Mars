@@ -144,13 +144,26 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
   }, [fieldCommit])
 
   // --- Stage 1, live ---------------------------------------------------------
-  const timeReq = useRef(0)
+  // One request in flight at a time: while it runs, newer edits only replace
+  // the pending one, so a fast drag never piles up work behind the cursor.
+  const timing = useRef<{ busy: boolean; pending: { robot: RobotConfig; spec: PathSpec } | null }>({ busy: false, pending: null })
+  const requestTiming = useCallback((req: { robot: RobotConfig; spec: PathSpec }) => {
+    const q = timing.current
+    if (q.busy) { q.pending = req; return }
+    q.busy = true
+    invoke<Trajectory>("path_time", req)
+      .then(t => { setSpline(t); setSplineError(null) })
+      .catch(e => { setSpline(null); setSplineError(String(e)) })
+      .finally(() => {
+        q.busy = false
+        const next = q.pending
+        q.pending = null
+        if (next) requestTiming(next)
+      })
+  }, [])
   useEffect(() => {
     if (!spec) { setSpline(null); return }
-    const id = ++timeReq.current
-    invoke<Trajectory>("path_time", { robot, spec })
-      .then(t => { if (id === timeReq.current) { setSpline(t); setSplineError(null) } })
-      .catch(e => { if (id === timeReq.current) { setSpline(null); setSplineError(String(e)) } })
+    requestTiming({ robot, spec })
   }, [specKey, JSON.stringify(robot)])
 
   // --- Stage 2, after each committed edit -----------------------------------

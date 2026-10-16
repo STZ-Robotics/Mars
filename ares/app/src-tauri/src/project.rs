@@ -152,11 +152,28 @@ pub fn field_save(robot_path: String, field: FieldDoc) -> Result<(), String> {
     write(&project_dir(&robot_path).join("field.json"), &(text + "\n"))
 }
 
-/// Stage 1 only: the spline through the waypoints, timed. Milliseconds, so the
-/// editor calls it on every drag.
+/// The most samples the drag preview sends to the UI.
+const PREVIEW_SAMPLES: usize = 250;
+
+/// Stage 1 only: the spline through the waypoints, timed. The editor calls it
+/// on every drag, so it sends a light copy: a few hundred samples, without
+/// the per-module data (a full one is ~300 KB of JSON per mouse move).
 #[tauri::command]
 pub fn path_time(robot: RobotConfig, spec: PathSpec) -> Result<Trajectory, String> {
-    solve(&robot, &spec, &SolverOptions::default()).map_err(|e| e.to_string())
+    let mut t = solve(&robot, &spec, &SolverOptions::default()).map_err(|e| e.to_string())?;
+    let step = t.samples.len().div_ceil(PREVIEW_SAMPLES).max(1);
+    let last = t.samples.len() - 1;
+    t.samples = t
+        .samples
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| i % step == 0 || *i == last)
+        .map(|(_, mut s)| {
+            s.modules.clear();
+            s
+        })
+        .collect();
+    Ok(t)
 }
 
 #[derive(Serialize)]
