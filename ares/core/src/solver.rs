@@ -450,6 +450,8 @@ pub fn solve_between(
         splits: vec![],
         events: vec![],
         pathfind: vec![],
+        start: Default::default(),
+        continues_from: None,
         samples,
     })
 }

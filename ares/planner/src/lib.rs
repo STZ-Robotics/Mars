@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 use ares_core::geometry::{wrap_angle, Vec2};
 use ares_core::path::{ConstraintKind, WaypointKind};
 use ares_core::robot::{GRAVITY, MIN_LOAD_FRACTION};
-use ares_core::trajectory::{ModuleSample, PathfindSpan, Sample, TimedEvent};
+use ares_core::trajectory::{ModuleSample, PathfindSpan, Sample, TimedEvent, TrajectoryStart};
 use ares_core::{AresError, PathSpec, RobotConfig, SolverOptions, Trajectory};
 use serde::{Deserialize, Serialize};
 
@@ -192,7 +192,25 @@ fn drive(robot: &RobotConfig) -> Drive {
 /// Plans a path. Segments marked for pathfinding split it: the parts in
 /// between are planned on their own (stopping at the hand-off), and each
 /// pathfind segment gets Ares' estimate of the route the robot will find.
+/// An unknown start makes the first segment one of them.
 pub fn plan(
+    robot: &RobotConfig,
+    spec: &PathSpec,
+    env: &Environment,
+    options: &PlannerOptions,
+) -> Result<Planned, PlanError> {
+    let mut planned = plan_path(robot, spec, env, options)?;
+    let t = &mut planned.trajectory;
+    t.start = match spec.waypoints[0].kind() {
+        WaypointKind::Unknown => TrajectoryStart::Unknown,
+        WaypointKind::Continue => TrajectoryStart::Previous,
+        _ => TrajectoryStart::Known,
+    };
+    t.continues_from = spec.continues_from.clone();
+    Ok(planned)
+}
+
+fn plan_path(
     robot: &RobotConfig,
     spec: &PathSpec,
     env: &Environment,
@@ -200,7 +218,9 @@ pub fn plan(
 ) -> Result<Planned, PlanError> {
     validate(spec)?;
     let n = spec.waypoints.len();
-    let cuts: Vec<usize> = (0..n - 1).filter(|&j| spec.waypoints[j].pathfind_next.is_some()).collect();
+    let unknown_start = spec.waypoints[0].kind() == WaypointKind::Unknown;
+    let cuts: Vec<usize> =
+        (0..n - 1).filter(|&j| spec.waypoints[j].pathfind_next.is_some() || (j == 0 && unknown_start)).collect();
     if cuts.is_empty() {
         return plan_fixed(robot, spec, env, options);
     }
@@ -293,6 +313,7 @@ pub fn plan(
                 max_acceleration_mps2: opts.max_acceleration_mps2,
                 max_angular_velocity_dps: opts.max_angular_velocity_dps,
                 estimated_s: est.duration_s,
+                from_unknown: j == 0 && unknown_start,
             });
         }
     }
@@ -308,6 +329,8 @@ pub fn plan(
             splits,
             events,
             pathfind,
+            start: Default::default(),
+            continues_from: None,
         },
         spline_duration_s: spline,
         iterations,
@@ -514,7 +537,15 @@ fn plan_fixed(
         let mut f = 0;
         match w.kind() {
             WaypointKind::Pose => f |= ffi::WP_POSITION | ffi::WP_HEADING,
-            WaypointKind::Translation => f |= ffi::WP_POSITION,
+            WaypointKind::Translation | WaypointKind::Unknown => f |= ffi::WP_POSITION,
+            // Where the previous path ended: its pose, heading included when
+            // known.
+            WaypointKind::Continue => {
+                f |= ffi::WP_POSITION;
+                if w.heading_deg.is_some() {
+                    f |= ffi::WP_HEADING;
+                }
+            }
             WaypointKind::Empty => {}
         }
         wp_flags.push(f);
@@ -811,6 +842,8 @@ fn plan_fixed(
         splits,
         events,
         pathfind: vec![],
+        start: Default::default(),
+        continues_from: None,
     };
     if let Err(problem) = check_physics(robot, work, env, &trajectory) {
         if std::env::var("ARES_TRACE").is_ok() {
@@ -838,6 +871,11 @@ fn validate(spec: &PathSpec) -> Result<(), PlanError> {
     for end in [0, n - 1] {
         if spec.waypoints[end].kind() == WaypointKind::Empty {
             return bad(format!("the {} waypoint cannot be empty", if end == 0 { "first" } else { "last" }));
+        }
+    }
+    for (i, w) in spec.waypoints.iter().enumerate().skip(1) {
+        if w.kind().is_start_only() {
+            return bad(format!("waypoint {}: an unknown or continued start can only be the first waypoint", i + 1));
         }
     }
     for c in spec.scoped.iter().filter(|c| c.enabled) {
@@ -922,7 +960,7 @@ pub fn check_physics(robot: &RobotConfig, spec: &PathSpec, env: &Environment, t:
     };
     let n = spec.waypoints.len();
     for (i, w) in spec.waypoints.iter().enumerate() {
-        if w.kind() == WaypointKind::Empty {
+        if matches!(w.kind(), WaypointKind::Empty | WaypointKind::Unknown) {
             continue;
         }
         let d = s.iter().map(|q| (q.x - w.x).hypot(q.y - w.y)).fold(f64::INFINITY, f64::min);

@@ -259,6 +259,12 @@ fn read_binary_file(path: String) -> Result<tauri::ipc::Response, String> {
     Ok(tauri::ipc::Response::new(bytes))
 }
 
+/// The example robot, for tests across the app's modules.
+#[cfg(test)]
+pub(crate) fn tests_robot() -> RobotConfig {
+    RobotConfig::from_json(include_str!("../../../examples/robots/offseason2026.json")).unwrap()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()

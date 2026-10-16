@@ -417,3 +417,31 @@ fn a_path_can_start_moving_where_another_ended() {
     assert!((first.vx - 2.0).abs() < 1e-3 && first.vy.abs() < 1e-3, "{} {}", first.vx, first.vy);
 }
 
+
+#[test]
+fn an_unknown_start_pathfinds_to_the_next_waypoint() {
+    use ares_core::path::WaypointKind;
+    use ares_core::trajectory::TrajectoryStart;
+    let r = robot();
+    let mut w = vec![wp(1.5, 2.0, None), wp(5.0, 4.0, Some(0.0)), wp(8.0, 4.0, Some(0.0))];
+    w[0].kind = Some(WaypointKind::Unknown);
+    let p = run(&r, &spec(w), &Environment { field: Some(FieldSize { length_m: 16.5, width_m: 8.0 }), ..Default::default() });
+    let t = &p.trajectory;
+    assert_eq!(t.start, TrajectoryStart::Unknown);
+    assert_eq!(t.pathfind.len(), 1);
+    assert!(t.pathfind[0].from_unknown && t.pathfind[0].from_waypoint == 0 && t.pathfind[0].start_sample == 0);
+}
+
+#[test]
+fn a_continued_start_is_marked_and_start_only_kinds_stay_first() {
+    use ares_core::path::WaypointKind;
+    use ares_core::trajectory::TrajectoryStart;
+    let r = robot();
+    let mut w = vec![wp(1.0, 1.0, Some(0.0)), wp(5.0, 2.0, Some(0.0))];
+    w[0].kind = Some(WaypointKind::Continue);
+    let p = run(&r, &spec(w.clone()), &Environment::default());
+    assert_eq!(p.trajectory.start, TrajectoryStart::Previous);
+    let mut bad = w;
+    bad[1].kind = Some(WaypointKind::Unknown);
+    assert!(plan(&r, &spec(bad), &Environment::default(), &PlannerOptions::default()).is_err());
+}

@@ -107,6 +107,22 @@ pub enum WaypointKind {
     /// Neither: it only shapes the initial guess (around an obstacle, say),
     /// and scoped constraints can still target it. Not allowed at the ends.
     Empty,
+    /// First waypoint only: the robot may start anywhere and pathfinds to
+    /// the next waypoint. Its position is only the likely start, for the
+    /// estimate.
+    Unknown,
+    /// First waypoint only: start where the previous path ended. Linked to a
+    /// path (`PathSpec::continues_from`), it takes that path's end pose and
+    /// speed; unlinked, its position is a placeholder and the robot starts
+    /// from wherever it is.
+    Continue,
+}
+
+impl WaypointKind {
+    /// Whether this kind may only be the first waypoint.
+    pub fn is_start_only(self) -> bool {
+        matches!(self, WaypointKind::Unknown | WaypointKind::Continue)
+    }
 }
 
 impl Waypoint {
@@ -121,7 +137,7 @@ impl Waypoint {
 
     /// The heading the optimizer must hit, if any.
     pub fn fixed_heading_deg(&self) -> Option<f64> {
-        (self.kind() == WaypointKind::Pose).then_some(self.heading_deg).flatten()
+        matches!(self.kind(), WaypointKind::Pose | WaypointKind::Continue).then_some(self.heading_deg).flatten()
     }
 }
 

@@ -62,6 +62,29 @@ pub struct Trajectory {
     /// The samples inside are Ares' estimate of that route, for the preview.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pathfind: Vec<PathfindSpan>,
+    /// How the robot starts it. Known: at the first sample's pose (reset
+    /// odometry there). Unknown: anywhere, pathfinding first. Previous: where
+    /// the last path left it (do not reset).
+    #[serde(default, skip_serializing_if = "TrajectoryStart::is_known")]
+    pub start: TrajectoryStart,
+    /// The path it continues, when its start is linked to one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continues_from: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum TrajectoryStart {
+    #[default]
+    Known,
+    Unknown,
+    Previous,
+}
+
+impl TrajectoryStart {
+    pub fn is_known(&self) -> bool {
+        *self == TrajectoryStart::Known
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -82,6 +105,10 @@ pub struct PathfindSpan {
     pub max_angular_velocity_dps: Option<f64>,
     /// How long Ares expects it to take.
     pub estimated_s: f64,
+    /// It starts the path from an unknown pose: the estimate's start is only
+    /// the likely one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub from_unknown: bool,
 }
 
 /// An event marker resolved to a time on the trajectory.

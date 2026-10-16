@@ -164,11 +164,37 @@ pub fn field_save(robot_path: String, field: FieldDoc) -> Result<(), String> {
 /// The most samples the drag preview sends to the UI.
 const PREVIEW_SAMPLES: usize = 250;
 
+/// A path whose start continues another one starts where that one's
+/// generated trajectory ends: the first waypoint takes its pose, and the
+/// returned velocity is where the optimizer starts. Unlinked, nothing
+/// changes.
+pub fn link_start(robot_path: &str, spec: &mut PathSpec) -> Result<Option<[f64; 3]>, String> {
+    let Some(prev) = spec.continues_from.clone() else { return Ok(None) };
+    let end = trajectory_open(robot_path.to_string(), prev.clone())
+        .and_then(|t| t.samples.last().cloned())
+        .ok_or_else(|| format!("\"{prev}\" has no generated trajectory to continue from: generate it first"))?;
+    if let Some(w) = spec.waypoints.first_mut() {
+        w.x = end.x;
+        w.y = end.y;
+        w.heading_deg = Some(end.heading.to_degrees());
+        if w.kind() != ares_core::path::WaypointKind::Continue {
+            w.kind = Some(ares_core::path::WaypointKind::Continue);
+        }
+    }
+    Ok(Some([end.vx, end.vy, end.omega]))
+}
+
 /// Stage 1 only: the spline through the waypoints, timed. The editor calls it
 /// on every drag, so it sends a light copy: a few hundred samples, without
 /// the per-module data (a full one is ~300 KB of JSON per mouse move).
 #[tauri::command]
-pub fn path_time(robot: RobotConfig, spec: PathSpec) -> Result<Trajectory, String> {
+pub fn path_time(robot: RobotConfig, spec: PathSpec, robot_path: Option<String>) -> Result<Trajectory, String> {
+    let mut spec = spec;
+    if let Some(rp) = robot_path.as_ref() {
+        // The guess starts where a continued path ends, too. A missing
+        // trajectory is not an error here: the guess just starts at the hint.
+        let _ = link_start(rp, &mut spec);
+    }
     let mut t = solve(&robot, &spec, &SolverOptions::default()).map_err(|e| e.to_string())?;
     let step = t.samples.len().div_ceil(PREVIEW_SAMPLES).max(1);
     let last = t.samples.len() - 1;
@@ -206,22 +232,10 @@ pub async fn path_plan(
 ) -> Result<PlanResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let started = Instant::now();
-        // A path that continues another starts where that one's generated
-        // trajectory ends: its pose and its speed.
         let mut spec = spec;
         let mut options = PlannerOptions::default();
-        if let (Some(prev), Some(rp)) = (spec.continues_from.clone(), robot_path.as_ref()) {
-            let end = trajectory_open(rp.clone(), prev.clone())
-                .and_then(|t| t.samples.last().cloned())
-                .ok_or_else(|| format!("\"{prev}\" has no generated trajectory to continue from: generate it first"))?;
-            if let Some(w) = spec.waypoints.first_mut() {
-                w.x = end.x;
-                w.y = end.y;
-                if w.heading_deg.is_some() || w.kind() == ares_core::path::WaypointKind::Pose {
-                    w.heading_deg = Some(end.heading.to_degrees());
-                }
-            }
-            options.start_state = Some([end.vx, end.vy, end.omega]);
+        if let Some(rp) = robot_path.as_ref() {
+            options.start_state = link_start(rp, &mut spec)?;
         }
         let env = Environment { field: if field.walls { field_size } else { None }, keep_out: field.keep_out, slow_zones: field.slow_zones };
         let planned = plan(&robot, &spec, &env, &options).map_err(|e| e.to_string())?;
@@ -283,6 +297,29 @@ mod tests {
         let list = paths_list(rp);
         assert_eq!(list.len(), 1);
         assert!(list[0].error.is_some() && list[0].spec.is_none());
+    }
+
+    #[test]
+    fn a_continued_path_starts_where_the_other_ended() {
+        let rp = temp_project("chain");
+        let first = PathSpec::new("First", vec![
+            Waypoint { x: 1.0, y: 1.0, heading_deg: Some(0.0), ..Default::default() },
+            Waypoint { x: 4.0, y: 2.0, heading_deg: Some(90.0), ..Default::default() },
+        ]);
+        let traj = solve(&crate::tests_robot(), &first, &SolverOptions::default()).unwrap();
+        write(&traj_file(&rp, "First").unwrap(), &serde_json::to_string(&traj).unwrap()).unwrap();
+        let mut second = spec("Second");
+        second.continues_from = Some("First".into());
+        let v = link_start(&rp, &mut second).unwrap();
+        assert!(v.is_some());
+        let w = &second.waypoints[0];
+        assert!((w.x - 4.0).abs() < 1e-6 && (w.y - 2.0).abs() < 1e-6);
+        assert!((w.heading_deg.unwrap() - 90.0).abs() < 1e-6);
+        assert_eq!(w.kind(), ares_core::path::WaypointKind::Continue);
+        // Nothing to continue from: a clear error, not a silent start.
+        let mut orphan = spec("Orphan");
+        orphan.continues_from = Some("Missing".into());
+        assert!(link_start(&rp, &mut orphan).is_err());
     }
 
     #[test]
