@@ -86,3 +86,7 @@ published.json
 # Packages produced by scripts/package-release.mjs: build artifacts that live
 # in the GitHub releases, not in the repository.
 release/
+
+# Ares: PathPlanner and Choreo cloned for study, not part of this repository.
+# They keep their own licenses (MIT and BSD-3); see ares/README.md.
+ares/reference/
