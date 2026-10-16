@@ -91,12 +91,12 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
 
   // The robot's STL from above, as the 2D robot.
   const [topView, setTopView] = useState<TopView | null>(null)
-  const modelKey = JSON.stringify([robot.model, robot.bumper])
+  const modelKey = JSON.stringify([robot.model, robot.bumper, view.robotColor])
   useEffect(() => {
     if (!robot.model) { setTopView(null); return }
     let alive = true
     invoke<string>("resolve_model_path", { robotPath, modelPath: robot.model.path })
-      .then(path => renderTopView(robot, path))
+      .then(path => renderTopView(robot, path, view.robotColor))
       .then(v => { if (alive) setTopView(v) })
       .catch(() => { if (alive) setTopView(null) })
     return () => { alive = false }
@@ -664,6 +664,25 @@ function ViewPanel({ view, onChange, onClose }: { view: ViewOptions; onChange: (
         <span style={{ fontSize: 11.5, fontWeight: 600 }}>View</span>
         <span style={{ marginLeft: "auto" }}><IconButton icon="ti-x" title="Close" onClick={onClose} /></span>
       </div>
+      <div title="Plan: a dark technical drawing of the field. Photo: the field image.">
+        <PropertyRow label="Field">
+          <select style={propertyInputStyle} value={view.fieldStyle} onChange={e => onChange({ ...view, fieldStyle: e.target.value as ViewOptions["fieldStyle"] })}>
+            <option value="blueprint">Plan (drawing)</option>
+            <option value="photo">Photo</option>
+          </select>
+        </PropertyRow>
+      </div>
+      <div title="The 2D robot's color. Its STL is painted with it so it stands out on the field.">
+        <PropertyRow label="Robot color">
+          <input type="color" value={view.robotColor} onChange={e => onChange({ ...view, robotColor: e.target.value })} style={{ width: 40, height: 20, border: "none", padding: 0, background: "none" }} />
+          <span style={{ display: "flex", gap: 4, marginLeft: 8 }}>
+            {["#22d3ee", "#e95420", "#facc15", "#4ade80", "#f472b6", "#ffffff"].map(c => (
+              <span key={c} onClick={() => onChange({ ...view, robotColor: c })} title={c}
+                style={{ width: 14, height: 14, background: c, border: view.robotColor === c ? "2px solid var(--text-primary)" : "1px solid var(--border-dark)", cursor: "pointer" }} />
+            ))}
+          </span>
+        </PropertyRow>
+      </div>
       <PropertyRow label="Path gradient">
         <select style={propertyInputStyle} value={view.gradient} title={GRADIENTS.find(g => g.id === view.gradient)?.hint}
           onChange={e => onChange({ ...view, gradient: e.target.value as ViewOptions["gradient"] })}>
@@ -671,7 +690,7 @@ function ViewPanel({ view, onChange, onClose }: { view: ViewOptions; onChange: (
         </select>
       </PropertyRow>
       {([
-        ["field", "Field image"], ["grid", "Grid (1 m)"], ["guess", "Guess (spline)"], ["trajectory", "Trajectory"],
+        ["field", "Field"], ["grid", "Grid (1 m)"], ["guess", "Guess (spline)"], ["trajectory", "Trajectory"],
         ["samples", "Samples"], ["waypoints", "Waypoints & constraints"], ["flipped", "Other alliance (mirror)"],
       ] as [keyof ViewOptions, string][]).map(([key, label]) => (
         <div key={key} title={VIEW_HELP[key]}>
@@ -700,7 +719,7 @@ function ConstraintMenu({ active, onPick }: { active: ConstraintType | null; onP
                 onMouseEnter={e => (e.currentTarget.style.background = "var(--tree-hover-bg)")}
                 onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
                 style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 12px", fontSize: 12, cursor: "pointer" }}>
-                {c.type === "stopPoint" ? <StopIcon size={13} /> : <i className={`ti ${c.icon}`} style={{ color: "#7c3aed" }} />}
+                {c.type === "stopPoint" ? <StopIcon size={13} /> : <i className={`ti ${c.icon}`} style={{ color: "#e95420" }} />}
                 <span>{c.label}</span>
                 <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--text-muted)" }}>{c.scope === "both" ? "point or segment" : c.scope}</span>
               </div>

@@ -3,7 +3,7 @@
 // places it in the 3D preview, into a transparent image the field draws at
 // every pose.
 
-import { AmbientLight, DirectionalLight, OrthographicCamera, Scene, WebGLRenderer } from "three"
+import { AmbientLight, DirectionalLight, Mesh, MeshStandardMaterial, OrthographicCamera, Scene, WebGLRenderer } from "three"
 import { disposeInstance, instantiateModel, loadModel } from "@desktop/utils/field/robotModel"
 import { placeModel } from "./RobotTurntable"
 import type { RobotConfig } from "./types"
@@ -16,7 +16,9 @@ export interface TopView {
 
 const PIXELS = 512
 
-export async function renderTopView(robot: RobotConfig, modelPath: string): Promise<TopView> {
+/** `color` repaints the whole model in one color: an STL is grey and gets
+ *  lost on a field; null keeps its own materials. */
+export async function renderTopView(robot: RobotConfig, modelPath: string, color: string | null): Promise<TopView> {
   const model = robot.model
   if (!model) throw new Error("the robot has no 3D model")
   const loaded = await loadModel(modelPath)
@@ -30,6 +32,10 @@ export async function renderTopView(robot: RobotConfig, modelPath: string): Prom
   scene.add(sun)
   const instance = instantiateModel(loaded, "origin")
   placeModel(instance, model)
+  if (color) {
+    const paint = new MeshStandardMaterial({ color, roughness: 0.55, metalness: 0.05 })
+    instance.traverse(o => { const m = o as Mesh; if (m.isMesh) m.material = paint })
+  }
   scene.add(instance)
 
   // Looking down -Z with +Y up the image: +X (forward) is to the right.

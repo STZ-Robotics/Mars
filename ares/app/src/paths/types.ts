@@ -102,6 +102,10 @@ export type Tool =
 export type Gradient = "none" | "velocity" | "progress" | "acceleration" | "interval" | "angular" | "splits"
 
 export interface ViewOptions {
+  /** A dark technical drawing of the field, or the photo. */
+  fieldStyle: "blueprint" | "photo"
+  /** The 2D robot's color (its STL is tinted with it). */
+  robotColor: string
   field: boolean
   grid: boolean
   guess: boolean
@@ -113,6 +117,7 @@ export interface ViewOptions {
 }
 
 export const DEFAULT_VIEW: ViewOptions = {
+  fieldStyle: "blueprint", robotColor: "#22d3ee",
   field: true, grid: false, guess: true, trajectory: true, samples: false, waypoints: true, flipped: false, gradient: "velocity",
 }
 

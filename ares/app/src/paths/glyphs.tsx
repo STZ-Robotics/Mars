@@ -15,7 +15,7 @@ import type { WaypointKind } from "./types"
 export const GLYPH = {
   start: "#1f7a1f",
   end: "#c21c1c",
-  mid: "#7c3aed",
+  mid: "#3b82f6",
   selected: "#d4a514",
   stop: "#c21c1c",
   ink: "#1c1c1f",

@@ -126,7 +126,7 @@ export default function Sidebar(p: Props) {
                 <Item key={i} active={sel} dim={!on} title={`${meta.label}: ${meta.hint}`}
                   onClick={() => p.onSelect({ kind: "constraint", index: i })}
                   onMouseEnter={() => p.onHover({ kind: "constraint", index: i })}>
-                  {c.type === "stopPoint" ? <StopIcon /> : <i className={`ti ${meta.icon}`} style={{ fontSize: 14, color: sel ? "#ffffff" : "#7c3aed" }} />}
+                  {c.type === "stopPoint" ? <StopIcon /> : <i className={`ti ${meta.icon}`} style={{ fontSize: 14, color: sel ? "#ffffff" : "#e95420" }} />}
                   <Label>
                     {meta.label}
                     {c.type !== "stopPoint" && <Dim sel={sel}> {constraintChip(c).replace(/^≤ /, "≤")}</Dim>}

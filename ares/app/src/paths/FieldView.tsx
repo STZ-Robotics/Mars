@@ -64,7 +64,7 @@ export const COLORS = {
   keepout: "rgba(194, 28, 28, 0.16)",
   keepoutEdge: "#c21c1c",
   keepin: "#1f7a1f",
-  constraint: "#7c3aed",
+  constraint: "#e95420",
   event: "#a1690a",
 }
 
@@ -92,7 +92,7 @@ export function rampColor(f: number): string {
 
 export const RAMP_CSS = `linear-gradient(90deg, ${RAMP.map(([f]) => `${rampColor(f)} ${f * 100}%`).join(", ")})`
 
-const SPLIT_COLORS = ["#2f6fdb", "#c2410c", "#1f7a1f", "#7c3aed", "#0e7490", "#a1690a"]
+const SPLIT_COLORS = ["#2f6fdb", "#c2410c", "#1f7a1f", "#e95420", "#0e7490", "#a1690a"]
 
 // The field from above, in WPILib's frame (origin at the blue corner, X along
 // the field, Y up the screen). It draws the photo, the keep-outs and the
@@ -157,10 +157,13 @@ export default function FieldView(props: Props) {
     canvas.height = size.h * dpr
     const ctx = canvas.getContext("2d")!
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    ctx.fillStyle = "#e4e4e7"
+    const plan = opts.fieldStyle === "blueprint"
+    ctx.fillStyle = plan ? BLUEPRINT.background : "#e4e4e7"
     ctx.fillRect(0, 0, size.w, size.h)
 
-    if (image && opts.field) {
+    if (opts.field && plan) {
+      drawBlueprint(ctx, toScreen, view.k, L, W)
+    } else if (image && opts.field) {
       // The photo, placed by its calibration: field (0, 0) is the playing
       // area's bottom-left corner in pixels.
       const kImg = (field.bottomRight[0] - field.topLeft[0]) / L
@@ -169,13 +172,13 @@ export default function FieldView(props: Props) {
       ctx.drawImage(image, ix, iy, image.width * view.k / kImg, image.height * view.k / kImg)
       ctx.globalAlpha = 1
     }
-    if (opts.grid) {
+    if (opts.grid && !plan) {
       ctx.strokeStyle = "rgba(255,255,255,0.35)"
       ctx.lineWidth = 1
       for (let x = 0; x <= L; x += 1) line(ctx, toScreen(x, 0), toScreen(x, W))
       for (let y = 0; y <= W; y += 1) line(ctx, toScreen(0, y), toScreen(L, y))
     }
-    {
+    if (!plan) {
       const [x0, y0] = toScreen(0, W)
       ctx.strokeStyle = "rgba(28,28,31,0.6)"
       ctx.lineWidth = 1
@@ -204,7 +207,7 @@ export default function FieldView(props: Props) {
     // The guess, thin and dashed.
     if (guess && opts.guess) {
       ctx.setLineDash([6, 5])
-      polyline(ctx, guess.samples.map(s => toScreen(s.x, s.y)), COLORS.guess, 1.3)
+      polyline(ctx, guess.samples.map(s => toScreen(s.x, s.y)), plan ? "rgba(214,217,222,0.6)" : COLORS.guess, 1.3)
       ctx.setLineDash([])
     }
 
@@ -300,7 +303,7 @@ export default function FieldView(props: Props) {
           ctx.setLineDash([])
         }
         if (topView && kind !== "empty") {
-          drawRobot(ctx, toScreen, view.k, w.x, w.y, headingOf(i), robot, topView, null, 0.45)
+          drawRobot(ctx, toScreen, view.k, w.x, w.y, headingOf(i), robot, topView, null, 0.45, opts.robotColor)
         }
         if (kind === "pose") {
           const heading = headingOf(i)
@@ -374,7 +377,7 @@ export default function FieldView(props: Props) {
     const traj = generated ?? guess
     if (traj && playhead !== null) {
       const s = sampleAt(traj, playhead)
-      drawRobot(ctx, toScreen, view.k, s.x, s.y, s.heading, robot, topView, PLAYBACK, 1)
+      drawRobot(ctx, toScreen, view.k, s.x, s.y, s.heading, robot, topView, opts.robotColor, 1)
       moduleVectors(ctx, toScreen, s, robot)
     }
   }, [view, size, image, spec, guess, generated, stale, keepOut, selected, hovered, playhead, robot, field, opts, topSpeed, tool, hoverWp, topView])
@@ -810,8 +813,6 @@ function bumper(
   ctx.stroke()
 }
 
-const PLAYBACK = "#ff8c1a"
-
 /**
  * The robot at a pose: its STL from above when there is one, otherwise a
  * drawing (bumper, wheels, an arrow to the front) in colors that stand out
@@ -819,7 +820,7 @@ const PLAYBACK = "#ff8c1a"
  */
 function drawRobot(
   ctx: CanvasRenderingContext2D, toScreen: ToScreen, k: number, x: number, y: number, heading: number,
-  robot: RobotConfig, top: TopView | null, outline: string | null, alpha: number,
+  robot: RobotConfig, top: TopView | null, outline: string | null, alpha: number, tint: string = outline ?? "#22d3ee",
 ) {
   const [sx, sy] = toScreen(x, y)
   ctx.save()
@@ -828,12 +829,18 @@ function drawRobot(
   ctx.rotate(-heading)
   const hl = robot.bumper.lengthM / 2 * k, hw = robot.bumper.widthM / 2 * k
   if (top) {
+    // A light halo around the model's silhouette, so it reads on any field.
     const e = top.halfExtentM * k
+    ctx.shadowColor = "rgba(255,255,255,0.85)"
+    ctx.shadowBlur = 6
     ctx.drawImage(top.image, -e, -e, 2 * e, 2 * e)
+    ctx.shadowBlur = 0
   } else {
     // Bumper, frame, wheels, front arrow. Canvas Y is down: robot +Y is -y.
-    ctx.fillStyle = "rgba(255,140,26,0.35)"
+    ctx.globalAlpha = alpha * 0.45
+    ctx.fillStyle = tint
     ctx.fillRect(-hl, -hw, 2 * hl, 2 * hw)
+    ctx.globalAlpha = alpha
     ctx.fillStyle = "rgba(240,240,242,0.9)"
     const inset = Math.min(hl, hw) * 0.18
     ctx.fillRect(-hl + inset, -hw + inset, 2 * (hl - inset), 2 * (hw - inset))
@@ -847,7 +854,7 @@ function drawRobot(
     ctx.lineTo(hl * 0.15, -hw * 0.35)
     ctx.lineTo(hl * 0.15, hw * 0.35)
     ctx.closePath()
-    ctx.fillStyle = "#ff8c1a"
+    ctx.fillStyle = tint
     ctx.fill()
   }
   if (outline) {
@@ -985,4 +992,136 @@ function constraintLine(c: ScopedConstraint, n: number): string {
     case "keepOutCircle": return `The bumper stays out of r = ${c.radiusM} m, ${scope}.`
     default: return `${constraintChip(c)}, ${scope}.`
   }
+}
+
+// --- The plan view -------------------------------------------------------------
+
+export const BLUEPRINT = {
+  background: "#07090c",
+  field: "#0d1116",
+  minor: "#151b23",
+  major: "#202834",
+  edge: "#d6d9de",
+  label: "#8b93a1",
+  blue: "#3b82f6",
+  red: "#ef4444",
+}
+
+/**
+ * The field as a technical drawing: a 0.5 m grid with meter lines, the
+ * walls, the center line, each alliance's wall in its color, the axes from
+ * the origin, and the field's dimensions.
+ */
+function drawBlueprint(ctx: CanvasRenderingContext2D, toScreen: ToScreen, k: number, L: number, W: number) {
+  const [x0, y0] = toScreen(0, W)
+  const [x1, y1] = toScreen(L, 0)
+  ctx.fillStyle = BLUEPRINT.field
+  ctx.fillRect(x0, y0, x1 - x0, y1 - y0)
+
+  ctx.lineWidth = 1
+  for (let x = 0; x <= L + 1e-9; x += 0.5) {
+    ctx.strokeStyle = Math.abs(x - Math.round(x)) < 1e-9 ? BLUEPRINT.major : BLUEPRINT.minor
+    line(ctx, toScreen(x, 0), toScreen(x, W))
+  }
+  for (let y = 0; y <= W + 1e-9; y += 0.5) {
+    ctx.strokeStyle = Math.abs(y - Math.round(y)) < 1e-9 ? BLUEPRINT.major : BLUEPRINT.minor
+    line(ctx, toScreen(0, y), toScreen(L, y))
+  }
+
+  // Alliance zones, faint, and their walls, bold.
+  const zone = Math.min(4, L / 4)
+  ctx.fillStyle = "rgba(59,130,246,0.06)"
+  ctx.fillRect(x0, y0, zone * k, y1 - y0)
+  ctx.fillStyle = "rgba(239,68,68,0.06)"
+  ctx.fillRect(x1 - zone * k, y0, zone * k, y1 - y0)
+  ctx.lineWidth = 3
+  ctx.strokeStyle = BLUEPRINT.blue
+  line(ctx, toScreen(0, 0), toScreen(0, W))
+  ctx.strokeStyle = BLUEPRINT.red
+  line(ctx, toScreen(L, 0), toScreen(L, W))
+
+  // Side walls and the center line.
+  ctx.lineWidth = 1.5
+  ctx.strokeStyle = BLUEPRINT.edge
+  line(ctx, toScreen(0, 0), toScreen(L, 0))
+  line(ctx, toScreen(0, W), toScreen(L, W))
+  ctx.setLineDash([10, 6])
+  ctx.lineWidth = 1
+  ctx.strokeStyle = "rgba(214,217,222,0.5)"
+  line(ctx, toScreen(L / 2, 0), toScreen(L / 2, W))
+  ctx.setLineDash([])
+
+  // Meter ticks along the bottom and left.
+  ctx.fillStyle = BLUEPRINT.label
+  ctx.font = "9.5px Consolas, 'Cascadia Mono', monospace"
+  ctx.textAlign = "center"
+  ctx.textBaseline = "top"
+  for (let x = 0; x <= L + 1e-9; x += 1) {
+    const [sx, sy] = toScreen(x, 0)
+    ctx.fillText(String(x), sx, sy + 5)
+  }
+  ctx.textAlign = "right"
+  ctx.textBaseline = "middle"
+  for (let y = 0; y <= W + 1e-9; y += 1) {
+    const [sx, sy] = toScreen(0, y)
+    ctx.fillText(String(y), sx - 7, sy)
+  }
+
+  // Axes from the origin (WPILib: X along the field, Y to the left of the
+  // blue driver station).
+  const [ox, oy] = toScreen(0, 0)
+  const axis = Math.min(1.2 * k, 70)
+  arrow(ctx, ox, oy, ox + axis, oy, BLUEPRINT.red, "X")
+  arrow(ctx, ox, oy, ox, oy - axis, BLUEPRINT.blue, "Y")
+
+  // The field's dimensions, outside it.
+  dimensionLine(ctx, x0, y0 - 18, x1, y0 - 18, `${L.toFixed(3)} m`)
+  dimensionLine(ctx, x1 + 22, y0, x1 + 22, y1, `${W.toFixed(3)} m`)
+}
+
+function arrow(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number, color: string, label: string) {
+  const a = Math.atan2(y1 - y0, x1 - x0)
+  ctx.strokeStyle = color
+  ctx.fillStyle = color
+  ctx.lineWidth = 2
+  line(ctx, [x0, y0], [x1, y1])
+  ctx.beginPath()
+  ctx.moveTo(x1 + Math.cos(a) * 8, y1 + Math.sin(a) * 8)
+  ctx.lineTo(x1 + Math.cos(a + 2.6) * 7, y1 + Math.sin(a + 2.6) * 7)
+  ctx.lineTo(x1 + Math.cos(a - 2.6) * 7, y1 + Math.sin(a - 2.6) * 7)
+  ctx.closePath()
+  ctx.fill()
+  ctx.font = "700 10px 'Segoe UI', Arial, sans-serif"
+  ctx.textAlign = "center"
+  ctx.textBaseline = "middle"
+  ctx.fillText(label, x1 + Math.cos(a) * 18, y1 + Math.sin(a) * 18)
+}
+
+function dimensionLine(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number, text: string) {
+  ctx.strokeStyle = BLUEPRINT.label
+  ctx.fillStyle = BLUEPRINT.label
+  ctx.lineWidth = 1
+  line(ctx, [x0, y0], [x1, y1])
+  const a = Math.atan2(y1 - y0, x1 - x0)
+  for (const [px, py, dir] of [[x0, y0, a + Math.PI], [x1, y1, a]] as [number, number, number][]) {
+    ctx.beginPath()
+    ctx.moveTo(px, py)
+    ctx.lineTo(px - Math.cos(dir) * 7 + Math.cos(dir + Math.PI / 2) * 3, py - Math.sin(dir) * 7 + Math.sin(dir + Math.PI / 2) * 3)
+    ctx.lineTo(px - Math.cos(dir) * 7 - Math.cos(dir + Math.PI / 2) * 3, py - Math.sin(dir) * 7 - Math.sin(dir + Math.PI / 2) * 3)
+    ctx.closePath()
+    ctx.fill()
+  }
+  const mx = (x0 + x1) / 2, my = (y0 + y1) / 2
+  ctx.save()
+  ctx.translate(mx, my)
+  if (Math.abs(a) > Math.PI / 4) ctx.rotate(-Math.PI / 2)
+  ctx.font = "10px Consolas, 'Cascadia Mono', monospace"
+  const w = ctx.measureText(text).width + 8
+  ctx.fillStyle = BLUEPRINT.background
+  ctx.fillRect(-w / 2, -7, w, 14)
+  ctx.fillStyle = BLUEPRINT.label
+  ctx.textAlign = "center"
+  ctx.textBaseline = "middle"
+  ctx.fillText(text, 0, 0)
+  ctx.restore()
 }

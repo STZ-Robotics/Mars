@@ -111,7 +111,7 @@ export default function ConfigPanel(p: Props) {
     if (!c) return null
     const meta = constraintMeta(c.type)
     title = meta.label
-    icon = c.type === "stopPoint" ? <StopIcon /> : <i className={`ti ${meta.icon}`} style={{ fontSize: 15, color: "#7c3aed" }} />
+    icon = c.type === "stopPoint" ? <StopIcon /> : <i className={`ti ${meta.icon}`} style={{ fontSize: 15, color: "#e95420" }} />
     body = <ConstraintFields c={c} n={n} onChange={patch => p.onConstraint(selected.index, patch)} />
   } else if (selected.kind === "event") {
     const e = (spec.events ?? [])[selected.index]
