@@ -144,6 +144,144 @@
           "auto": "Loop"
         }
       ]
+    },
+    {
+      "name": "Together",
+      "steps": [
+        {
+          "type": "parallel",
+          "mode": "deadline",
+          "branches": [
+            [
+              {
+                "type": "path",
+                "path": "Main"
+              }
+            ],
+            [
+              {
+                "type": "command",
+                "name": "hold"
+              }
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Race",
+      "steps": [
+        {
+          "type": "parallel",
+          "mode": "race",
+          "branches": [
+            [
+              {
+                "type": "wait",
+                "seconds": 0.5
+              }
+            ],
+            [
+              {
+                "type": "command",
+                "name": "hold"
+              }
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "WhenTime",
+      "steps": [
+        {
+          "type": "when",
+          "trigger": {
+            "kind": "time",
+            "atS": 0.3
+          },
+          "steps": [
+            {
+              "type": "command",
+              "name": "mark"
+            }
+          ]
+        },
+        {
+          "type": "path",
+          "path": "Main"
+        }
+      ]
+    },
+    {
+      "name": "WhenZone",
+      "steps": [
+        {
+          "type": "when",
+          "trigger": {
+            "kind": "zone",
+            "x": 6.5,
+            "y": 1.5,
+            "widthM": 1.0,
+            "heightM": 1.0
+          },
+          "steps": [
+            {
+              "type": "command",
+              "name": "mark"
+            }
+          ]
+        },
+        {
+          "type": "path",
+          "path": "Main"
+        }
+      ]
+    },
+    {
+      "name": "WhenCondition",
+      "steps": [
+        {
+          "type": "when",
+          "trigger": {
+            "kind": "condition",
+            "name": "go"
+          },
+          "steps": [
+            {
+              "type": "command",
+              "name": "mark"
+            }
+          ]
+        },
+        {
+          "type": "wait",
+          "seconds": 1.0
+        }
+      ]
+    },
+    {
+      "name": "Clash",
+      "steps": [
+        {
+          "type": "parallel",
+          "mode": "all",
+          "branches": [
+            [
+              {
+                "type": "path",
+                "path": "Main"
+              }
+            ],
+            [
+              {
+                "type": "path",
+                "path": "Alt"
+              }
+            ]
+          ]
+        }
+      ]
     }
   ]
 }

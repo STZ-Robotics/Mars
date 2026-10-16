@@ -52,6 +52,23 @@ public final class AresIndex {
     record If(String condition, List<Step> then, List<Step> otherwise) implements Step {}
 
     record RunAuto(String auto) implements Step {}
+
+    /** Lists at once: until all end ("all"), the first ends ("race"), or list 1 ends ("deadline"). */
+    record Parallel(String mode, List<List<Step>> branches) implements Step {}
+
+    /** Once the trigger fires, the steps run alongside the rest of the auto. */
+    record When(Trigger trigger, List<Step> steps) implements Step {}
+  }
+
+  /** What a when step waits for. */
+  public sealed interface Trigger {
+    /** Seconds since the auto started. */
+    record Time(double atS) implements Trigger {}
+
+    /** The robot's center inside a rectangle, blue coordinates (flipped on red). */
+    record Zone(double x, double y, double widthM, double heightM) implements Trigger {}
+
+    record Condition(String name) implements Trigger {}
   }
 
   private static final ObjectMapper JSON = new ObjectMapper();
@@ -129,6 +146,20 @@ public final class AresIndex {
             s.path("name").asText(), s.path("estimateS").asDouble(0), s.path("alongside").asBoolean(false)));
         case "if" -> out.add(new Step.If(s.path("condition").asText(), steps(s.path("then")), steps(s.path("else"))));
         case "auto" -> out.add(new Step.RunAuto(s.path("auto").asText()));
+        case "parallel" -> {
+          var branches = new ArrayList<List<Step>>();
+          for (var b : s.path("branches")) branches.add(steps(b));
+          out.add(new Step.Parallel(s.path("mode").asText("all"), List.copyOf(branches)));
+        }
+        case "when" -> {
+          var t = s.path("trigger");
+          Trigger trigger = switch (t.path("kind").asText()) {
+            case "zone" -> new Trigger.Zone(t.path("x").asDouble(), t.path("y").asDouble(), t.path("widthM").asDouble(), t.path("heightM").asDouble());
+            case "condition" -> new Trigger.Condition(t.path("name").asText());
+            default -> new Trigger.Time(t.path("atS").asDouble());
+          };
+          out.add(new Step.When(trigger, steps(s.path("steps"))));
+        }
         default -> {
           // A step from a newer Ares: skipping it is safer than guessing.
         }

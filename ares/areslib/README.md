@@ -85,8 +85,18 @@ modules take it.
   - or anything you plug in with `withPathfinder` (PathPlanner's AD*, see
     `AresPathfinder`). `navgrid.json` is PathPlanner's format, so the same
     file works for its pathfinder if copied to `deploy/pathplanner/`.
+- **Knocked off the trajectory** (more than 0.5 m for 0.2 s: a hit, a stall),
+  the pathfinder takes the robot to where the trajectory will be a second
+  later and the path goes on from there, at most 3 times per path; it never
+  rejoins past a "?" stretch or a branch point. `withReplan(...)` tunes it, a
+  tolerance of 0 turns it off. `/Ares/Replans` counts them.
 - **Autos**: path, wait, command (and "alongside", which runs with everything
-  after it), if/else on a condition, nested autos. An auto that starts at a
+  after it), if/else on a condition, nested autos, **together** (lists at once:
+  until all end, the first ends, or list 1 ends: WPILib's parallel, race and
+  deadline), and **when** (armed where it sits; once a time since the auto
+  started comes, the robot enters a zone, or a condition holds, its steps run
+  alongside the rest). Two things that need the same subsystem at once (two
+  paths together) are an alert and only the first runs, not a crash. An auto that starts at a
   known pose resets odometry there (`withResetPoseAtAutoStart(false)` to not).
   `ares.startPose(auto)` gives that pose for placing the robot before a match.
 - **Telemetry** under `/Ares` on NetworkTables: the active path, where the

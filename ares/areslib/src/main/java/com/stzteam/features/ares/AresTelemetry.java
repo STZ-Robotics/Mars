@@ -23,6 +23,7 @@ public final class AresTelemetry {
   private static StringPublisher active;
   private static DoublePublisher time;
   private static StringArrayPublisher events;
+  private static edu.wpi.first.networktables.IntegerPublisher replans;
 
   private AresTelemetry() {}
 
@@ -36,6 +37,7 @@ public final class AresTelemetry {
     active = t.getStringTopic("Active").publish();
     time = t.getDoubleTopic("TimeS").publish();
     events = t.getStringArrayTopic("Events").publish();
+    replans = t.getIntegerTopic("Replans").publish();
   }
 
   static void path(String name, Pose2d[] poses) {
@@ -55,6 +57,13 @@ public final class AresTelemetry {
     open();
     time.set(t);
     events.set(activeEvents.toArray(String[]::new));
+  }
+
+  static void replanned(int count, double offM) {
+    open();
+    replans.set(count);
+    edu.wpi.first.wpilibj.DriverStation.reportWarning(
+        String.format("Ares: %.2f m off the trajectory, finding the way back (%d)", offM, count), false);
   }
 
   static void idle() {

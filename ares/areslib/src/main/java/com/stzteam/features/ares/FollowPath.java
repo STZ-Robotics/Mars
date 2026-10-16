@@ -84,6 +84,8 @@ public final class FollowPath extends Command {
   private final Map<Command, Double> running = new LinkedHashMap<>(); // command -> when it ends (NaN: by itself)
   private final Set<String> pulse = new HashSet<>();
   private boolean failed;
+  private double offSince = Double.NaN;
+  private int replans;
 
   FollowPath(Ares ares, String key, UnaryOperator<AresTrajectory> crop, int untilWaypoint, boolean branches) {
     this.ares = ares;
@@ -107,6 +109,7 @@ public final class FollowPath extends Command {
     running.clear();
     pulse.clear();
     inner = null;
+    replans = 0;
     red = ares.config().flip.getAsBoolean();
     var blue = ares.trajectory(key);
     failed = blue == null;
@@ -124,6 +127,7 @@ public final class FollowPath extends Command {
 
   private void start(Leg next) {
     leg = next;
+    offSince = Double.NaN;
     t = leg.traj.startTime();
     trajT0 = t;
     clockT0 = timer.get();
@@ -152,6 +156,7 @@ public final class FollowPath extends Command {
       t = innerEndT;
       trajT0 = t;
       clockT0 = timer.get();
+      AresTelemetry.path(leg.name, leg.traj.poses());
     }
 
     t = Math.min(trajT0 + timer.get() - clockT0, leg.endT);
@@ -200,6 +205,35 @@ public final class FollowPath extends Command {
     events();
     var target = leg.traj.sample(t);
     var pose = ares.drive().pose();
+
+    // Knocked well off the trajectory (a hit, a stall, a wheel off the
+    // carpet): feedback alone would chase it at full error. Find the way back
+    // to where the trajectory will be a moment from now, and pick it up there.
+    var cfg = ares.config();
+    double off = pose.getTranslation().getDistance(target.pose().getTranslation());
+    if (cfg.replanToleranceM > 0 && off > cfg.replanToleranceM && replans < cfg.maxReplans) {
+      if (Double.isNaN(offSince)) offSince = timer.get();
+      if (timer.get() - offSince >= cfg.replanDelayS) {
+        double rejoin = Math.min(t + cfg.rejoinAheadS, leg.endT);
+        // Never past what must happen on the trajectory itself: a "?"
+        // stretch, or a branch point.
+        if (nextSpan < leg.spans.size()) rejoin = Math.min(rejoin, leg.spans.get(nextSpan)[0]);
+        if (nextBranch < leg.branchTimes.size()) rejoin = Math.min(rejoin, leg.branchTimes.get(nextBranch));
+        if (rejoin > t + 0.1) {
+          var to = leg.traj.sample(rejoin);
+          inner = ares.pathfinder().toPose(to.pose(), to.fieldSpeeds(), cfg.pathfindConstraints);
+          innerEndT = rejoin;
+          replans++;
+          offSince = Double.NaN;
+          AresTelemetry.replanned(replans, off);
+          inner.initialize();
+          inner.execute();
+          return;
+        }
+      }
+    } else {
+      offSince = Double.NaN;
+    }
     var speeds = controller.calculate(pose, target);
     ares.drive().drive(ares.forDrive(AresSetpoint.of(target, speeds, pose.getRotation())));
     AresTelemetry.target(target.pose(), pose, controller.errorM());
@@ -285,6 +319,11 @@ public final class FollowPath extends Command {
     if (interrupted || Math.hypot(last.vx(), last.vy()) < 0.1 && Math.abs(last.omega()) < 0.1) {
       ares.drive().stop();
     }
+  }
+
+  /** How many times it found its way back to the trajectory since it started. */
+  public int replans() {
+    return replans;
   }
 
   /** The trajectory this command is driving now (flipped if it is), or null before it starts. */

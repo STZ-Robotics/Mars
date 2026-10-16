@@ -10,6 +10,7 @@ import edu.wpi.first.wpilibj.Alert.AlertType;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj.Filesystem;
+import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
@@ -66,6 +67,10 @@ public final class Ares {
     double arriveToleranceM = 0.05;
     double arriveToleranceRad = Math.toRadians(3);
     boolean resetPoseAtAutoStart = true;
+    double replanToleranceM = 0.5;
+    double replanDelayS = 0.2;
+    double rejoinAheadS = 1.0;
+    int maxReplans = 3;
     double periodS = 0.02;
 
     /** The Ares project folder; {@code deploy/ares} by default. */
@@ -123,6 +128,20 @@ public final class Ares {
     /** Whether an auto resets odometry to its first path's start (when that start is known). */
     public Config withResetPoseAtAutoStart(boolean reset) {
       this.resetPoseAtAutoStart = reset;
+      return this;
+    }
+
+    /**
+     * When the robot is more than {@code toleranceM} off the trajectory for a
+     * moment, the pathfinder takes it to where the trajectory will be {@code
+     * rejoinAheadS} later, and the path goes on from there (at most {@code
+     * maxReplans} times per path). 0.5 m, 1 s and 3 by default; a tolerance of
+     * 0 turns it off.
+     */
+    public Config withReplan(double toleranceM, double rejoinAheadS, int maxReplans) {
+      this.replanToleranceM = toleranceM;
+      this.rejoinAheadS = rejoinAheadS;
+      this.maxReplans = maxReplans;
       return this;
     }
 
@@ -421,7 +440,9 @@ public final class Ares {
       return Commands.none().withName(name + " (missing)");
     }
     var steps = auto.get().steps();
-    var body = build(steps, new ArrayList<>(List.of(name)));
+    // When the auto started, for the when steps that wait for a time.
+    double[] started = {Double.NaN};
+    var body = build(steps, new ArrayList<>(List.of(name)), started);
     if (config.resetPoseAtAutoStart) {
       var first = firstPath(steps, new HashSet<>());
       var traj = first == null ? null : blue.get(first);
@@ -430,7 +451,7 @@ public final class Ares {
             .andThen(body);
       }
     }
-    return body.withName(name);
+    return Commands.runOnce(() -> started[0] = Timer.getFPGATimestamp()).andThen(body).withName(name);
   }
 
   /** Where an auto starts, on the alliance the robot is on now: for placing it before the match. */
@@ -457,6 +478,14 @@ public final class Ares {
     for (var s : steps) {
       if (s instanceof Step.Path p) return p.variant() == null ? p.path() : p.path() + "@" + p.variant();
       if (s instanceof Step.If) return null;
+      if (s instanceof Step.When) continue;
+      if (s instanceof Step.Parallel g) {
+        for (var b : g.branches()) {
+          var found = firstPath(b, seen);
+          if (found != null) return found;
+        }
+        continue;
+      }
       if (s instanceof Step.RunAuto r) {
         if (!seen.add(r.auto())) return null;
         var inner = index.auto(r.auto());
@@ -468,23 +497,67 @@ public final class Ares {
     return null;
   }
 
-  private Command build(List<Step> steps, List<String> stack) {
+  private Command build(List<Step> steps, List<String> stack, double[] started) {
     var out = new ArrayList<Command>();
     for (int i = 0; i < steps.size(); i++) {
       var s = steps.get(i);
+      var rest = steps.subList(i + 1, steps.size());
       if (s instanceof Step.Command c && c.alongside()) {
         // It runs with everything after it, and stops when that is done.
-        out.add(Commands.deadline(build(steps.subList(i + 1, steps.size()), stack), command(c.name())));
+        out.add(Commands.deadline(build(rest, stack, started), command(c.name())));
+        break;
+      }
+      if (s instanceof Step.When w) {
+        // Armed here; when it fires, its steps run alongside the rest (and
+        // stop with it). Last in its list, it is all there is to wait for.
+        var fired = Commands.waitUntil(trigger(w.trigger(), started)).andThen(build(w.steps(), stack, started));
+        if (rest.isEmpty()) {
+          out.add(fired);
+        } else {
+          out.add(compose(stack, "a when step",
+              () -> Commands.deadline(build(rest, stack, started), fired),
+              () -> build(rest, stack, started)));
+        }
         break;
       }
       var next = i + 1 < steps.size() ? steps.get(i + 1) : null;
-      out.add(step(s, next, stack));
+      out.add(step(s, next, stack, started));
     }
     if (out.isEmpty()) return Commands.none();
     return out.size() == 1 ? out.get(0) : Commands.sequence(out.toArray(Command[]::new));
   }
 
-  private Command step(Step s, Step next, List<String> stack) {
+  // WPILib refuses a group whose members share a subsystem (two paths at once,
+  // a when that drives during a path): an alert and what can run, instead of a
+  // robot that does not boot.
+  // The fallback is built fresh: WPILib marks the members of a group as
+  // composed before it finds the clash, and those can go nowhere else.
+  private Command compose(List<String> stack, String what, Supplier<Command> group, Supplier<Command> fallback) {
+    try {
+      return group.get();
+    } catch (IllegalArgumentException e) {
+      warnMissing("auto \"" + stack.get(0) + "\": " + what + " has two things using the same subsystem (" + e.getMessage() + "); only the first runs");
+      return fallback.get();
+    }
+  }
+
+  private BooleanSupplier trigger(AresIndex.Trigger t, double[] started) {
+    if (t instanceof AresIndex.Trigger.Time time) {
+      return () -> !Double.isNaN(started[0]) && Timer.getFPGATimestamp() - started[0] >= time.atS();
+    }
+    if (t instanceof AresIndex.Trigger.Zone z) {
+      return () -> {
+        var p = drive.pose().getTranslation();
+        // The zone is drawn for blue: bring the robot into blue's frame.
+        if (config.flip.getAsBoolean()) p = config.symmetry.flip(p, config.fieldLengthM, config.fieldWidthM);
+        return p.getX() >= z.x() && p.getX() <= z.x() + z.widthM() && p.getY() >= z.y() && p.getY() <= z.y() + z.heightM();
+      };
+    }
+    var c = (AresIndex.Trigger.Condition) t;
+    return () -> condition(c.name());
+  }
+
+  private Command step(Step s, Step next, List<String> stack, double[] started) {
     if (s instanceof Step.Path p) {
       var key = p.variant() == null ? p.path() : p.path() + "@" + p.variant();
       // Followed by a branch of itself: drive only up to where it leaves.
@@ -501,9 +574,23 @@ public final class Ares {
     if (s instanceof Step.Wait w) return Commands.waitSeconds(w.seconds());
     if (s instanceof Step.Command c) return command(c.name());
     if (s instanceof Step.If f) {
-      var then = build(f.then(), stack);
-      var otherwise = build(f.otherwise(), stack);
+      var then = build(f.then(), stack, started);
+      var otherwise = build(f.otherwise(), stack, started);
       return Commands.either(then, otherwise, () -> condition(f.condition()));
+    }
+    if (s instanceof Step.Parallel g) {
+      var branches = g.branches();
+      if (branches.isEmpty()) return Commands.none();
+      if (branches.size() == 1) return build(branches.get(0), stack, started);
+      return compose(stack, "a together step", () -> {
+        var lists = branches.stream().map(b -> build(b, stack, started)).toArray(Command[]::new);
+        var others = java.util.Arrays.copyOfRange(lists, 1, lists.length);
+        return switch (g.mode()) {
+          case "race" -> Commands.race(lists);
+          case "deadline" -> Commands.deadline(lists[0], others);
+          default -> Commands.parallel(lists);
+        };
+      }, () -> build(branches.get(0), stack, started));
     }
     if (s instanceof Step.RunAuto r) {
       var inner = index.auto(r.auto());
@@ -517,7 +604,7 @@ public final class Ares {
       }
       var deeper = new ArrayList<>(stack);
       deeper.add(r.auto());
-      return build(inner.get().steps(), deeper);
+      return build(inner.get().steps(), deeper, started);
     }
     throw new IllegalArgumentException("Unknown step " + s);
   }

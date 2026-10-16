@@ -287,6 +287,46 @@ class FollowPathTest {
     assertEquals(traj.last().y(), drive.pose.getY(), 0.05);
   }
 
+  /** Drives Main, knocking the robot {@code byM} sideways at 0.6 s; returns the command. */
+  FollowPath knocked(double byM) throws Exception {
+    var c = (FollowPath) ares.path("Main");
+    drive.pose = TrajectoryTest.main().initial().pose();
+    CommandScheduler.getInstance().schedule(c);
+    boolean hit = false;
+    for (double t = 0; t < 10 && CommandScheduler.getInstance().isScheduled(c); t += 0.02) {
+      if (!hit && t >= 0.6) {
+        drive.pose = new Pose2d(drive.pose.getX(), drive.pose.getY() + byM, drive.pose.getRotation());
+        hit = true;
+      }
+      CommandScheduler.getInstance().run();
+      SimHooks.stepTiming(0.02);
+      drive.step(0.02);
+    }
+    return c;
+  }
+
+  @Test
+  void knockedFarOffItFindsItsWayBackAndFinishesThePath() throws Exception {
+    var calls = new AtomicInteger();
+    ares = counting(calls);
+    // A perfect drive pulls 0.9 m back by feedback in ~0.15 s; 1.6 m stays off long enough.
+    var c = knocked(1.6);
+    assertEquals(1, calls.get());
+    assertEquals(1, c.replans());
+    var main = TrajectoryTest.main();
+    assertEquals(main.last().x(), drive.pose.getX(), 0.05);
+    assertEquals(main.last().y(), drive.pose.getY(), 0.05);
+  }
+
+  @Test
+  void aSmallKnockIsLeftToTheFeedback() throws Exception {
+    var calls = new AtomicInteger();
+    ares = counting(calls);
+    var c = knocked(0.25);
+    assertEquals(0, calls.get());
+    assertEquals(0, c.replans());
+  }
+
   @Test
   void anUngeneratedPathEndsAtOnce() {
     assertEquals(0, run(ares.path("Never"), 1), 0.03);

@@ -3,6 +3,7 @@
 //! settings page shows is what the planner will assume.
 
 mod project;
+mod robot_code;
 
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -284,6 +285,7 @@ pub fn run() {
             project::field_save,
             project::navgrid_import,
             project::navgrid_export,
+            robot_code::robot_names,
             project::path_time,
             project::path_plan,
             project::trajectory_open,
