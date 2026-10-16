@@ -6,6 +6,7 @@ import {
 } from "./types"
 import { GLYPH, drawChip, drawHeadingTriangle, drawStop, positionColor } from "./glyphs"
 import type { TopView } from "../robot/topView"
+import { fieldSketch } from "./fieldSketch"
 
 interface Props {
   field: FieldConfig
@@ -39,6 +40,8 @@ interface Props {
   onMoveKeepOut: (i: number, x: number, y: number, final: boolean) => void
   onResizeKeepOut: (i: number, r: number, final: boolean) => void
   onEditConstraint: (i: number, patch: Partial<ScopedConstraint>, final: boolean) => void
+  /** A manual segment's control point dragged; `free` (Alt) breaks the tangent. */
+  onMoveControl: (i: number, side: "prev" | "next", x: number, y: number, final: boolean, free: boolean) => void
 }
 
 interface View { k: number; ox: number; oy: number }
@@ -51,6 +54,7 @@ type Drag =
   | { kind: "radius"; index: number }
   | { kind: "shape"; index: number; handle: "move" | "radius" | "corner"; dx: number; dy: number }
   | { kind: "event"; index: number }
+  | { kind: "control"; index: number; side: "prev" | "next" }
 
 const HANDLE_R = 8
 const HEADING_HANDLE_R = 5.5
@@ -106,6 +110,7 @@ export default function FieldView(props: Props) {
   const [view, setView] = useState<View>({ k: 50, ox: 0, oy: 0 })
   const [size, setSize] = useState({ w: 0, h: 0 })
   const [image, setImage] = useState<HTMLImageElement | null>(null)
+  const [sketch, setSketch] = useState<HTMLCanvasElement | null>(null)
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null)
   const [hoverWp, setHoverWp] = useState<number | null>(null)
   const [tip, setTip] = useState<{ sx: number; sy: number; title: string; lines: string[]; hint?: string } | null>(null)
@@ -117,7 +122,10 @@ export default function FieldView(props: Props) {
 
   useEffect(() => {
     const img = new Image()
-    img.onload = () => setImage(img)
+    img.onload = () => {
+      setImage(img)
+      fieldSketch(img).then(setSketch)
+    }
     img.src = field.imageUrl
   }, [field.imageUrl])
 
@@ -161,17 +169,21 @@ export default function FieldView(props: Props) {
     ctx.fillStyle = plan ? BLUEPRINT.background : "#e4e4e7"
     ctx.fillRect(0, 0, size.w, size.h)
 
-    if (opts.field && plan) {
-      drawBlueprint(ctx, toScreen, view.k, L, W)
-    } else if (image && opts.field) {
-      // The photo, placed by its calibration: field (0, 0) is the playing
-      // area's bottom-left corner in pixels.
+    // The photo (or its sketch), placed by its calibration: field (0, 0) is
+    // the playing area's bottom-left corner in pixels.
+    if (image && opts.field) {
       const kImg = (field.bottomRight[0] - field.topLeft[0]) / L
       const [ix, iy] = toScreen(-field.topLeft[0] / kImg, field.bottomRight[1] / kImg)
-      ctx.globalAlpha = 0.9
-      ctx.drawImage(image, ix, iy, image.width * view.k / kImg, image.height * view.k / kImg)
-      ctx.globalAlpha = 1
+      const [iw, ih] = [image.width * view.k / kImg, image.height * view.k / kImg]
+      if (plan) {
+        if (sketch) ctx.drawImage(sketch, ix, iy, iw, ih)
+      } else {
+        ctx.globalAlpha = 0.9
+        ctx.drawImage(image, ix, iy, iw, ih)
+        ctx.globalAlpha = 1
+      }
     }
+    if (plan) drawPlanOverlay(ctx, toScreen, view.k, L, W, opts.grid)
     if (opts.grid && !plan) {
       ctx.strokeStyle = "rgba(255,255,255,0.35)"
       ctx.lineWidth = 1
@@ -207,7 +219,7 @@ export default function FieldView(props: Props) {
     // The guess, thin and dashed.
     if (guess && opts.guess) {
       ctx.setLineDash([6, 5])
-      polyline(ctx, guess.samples.map(s => toScreen(s.x, s.y)), plan ? "rgba(214,217,222,0.6)" : COLORS.guess, 1.3)
+      polyline(ctx, guess.samples.map(s => toScreen(s.x, s.y)), COLORS.guess, 1.3)
       ctx.setLineDash([])
     }
 
@@ -281,6 +293,33 @@ export default function FieldView(props: Props) {
         const [sx, sy] = toScreen(x, y)
         const sel = (selected?.kind === "constraint" && selected.index === i) || (hovered?.kind === "constraint" && hovered.index === i)
         drawChip(ctx, sx, sy - 18 - k * 18, constraintChip(c), COLORS.constraint, sel)
+      })
+    }
+
+    // Manual segments: the user's Bézier, its control handles and a label.
+    if (spec && opts.waypoints) {
+      spec.waypoints.forEach((w, j) => {
+        const next = spec.waypoints[j + 1]
+        if (!w.manualNext || !next || !w.nextControl || !next.prevControl) return
+        const p0 = toScreen(w.x, w.y), p1 = toScreen(...w.nextControl), p2 = toScreen(...next.prevControl), p3 = toScreen(next.x, next.y)
+        ctx.beginPath()
+        ctx.moveTo(...p0)
+        ctx.bezierCurveTo(...p1, ...p2, ...p3)
+        ctx.strokeStyle = COLORS.constraint
+        ctx.lineWidth = 2
+        ctx.stroke()
+        ctx.lineWidth = 1.2
+        line(ctx, p0, p1)
+        line(ctx, p3, p2)
+        for (const c of [p1, p2]) {
+          ctx.fillStyle = "#ffffff"
+          ctx.fillRect(c[0] - 5, c[1] - 5, 10, 10)
+          ctx.strokeStyle = COLORS.constraint
+          ctx.lineWidth = 2
+          ctx.strokeRect(c[0] - 5, c[1] - 5, 10, 10)
+        }
+        const mx = 0.125 * (p0[0] + 3 * p1[0] + 3 * p2[0] + p3[0]), my = 0.125 * (p0[1] + 3 * p1[1] + 3 * p2[1] + p3[1])
+        drawChip(ctx, mx, my + 16, "✎ manual", COLORS.constraint, true)
       })
     }
 
@@ -380,7 +419,7 @@ export default function FieldView(props: Props) {
       drawRobot(ctx, toScreen, view.k, s.x, s.y, s.heading, robot, topView, opts.robotColor, 1)
       moduleVectors(ctx, toScreen, s, robot)
     }
-  }, [view, size, image, spec, guess, generated, stale, keepOut, selected, hovered, playhead, robot, field, opts, topSpeed, tool, hoverWp, topView])
+  }, [view, size, image, sketch, spec, guess, generated, stale, keepOut, selected, hovered, playhead, robot, field, opts, topSpeed, tool, hoverWp, topView])
 
   // --- Interaction -----------------------------------------------------------
   const waypointAt = (sx: number, sy: number): number | null => {
@@ -412,6 +451,12 @@ export default function FieldView(props: Props) {
       }
     }
     if (p.spec && p.view.waypoints) {
+      const ws = p.spec.waypoints
+      for (let i = ws.length - 1; i >= 0; i--) {
+        const w = ws[i]
+        if (w.nextControl && w.manualNext && near(...w.nextControl, 8)) return { kind: "control", index: i, side: "next" }
+        if (w.prevControl && ws[i - 1]?.manualNext && near(...w.prevControl, 8)) return { kind: "control", index: i, side: "prev" }
+      }
       for (let i = p.spec.waypoints.length - 1; i >= 0; i--) {
         const w = p.spec.waypoints[i]
         if (kindOf(w) !== "pose") continue
@@ -467,7 +512,7 @@ export default function FieldView(props: Props) {
     const h = hit(sx, sy)
     if (h) {
       drag.current = h
-      if (h.kind === "waypoint" || h.kind === "heading") p.onSelect({ kind: "waypoint", index: h.index })
+      if (h.kind === "waypoint" || h.kind === "heading" || h.kind === "control") p.onSelect({ kind: "waypoint", index: h.index })
       else if (h.kind === "keepout" || h.kind === "radius") p.onSelect({ kind: "keepout", index: h.index })
       else if (h.kind === "event") p.onSelect({ kind: "event", index: h.index })
       return
@@ -503,6 +548,12 @@ export default function FieldView(props: Props) {
         return at(`Heading of waypoint ${h.index + 1}`, [`${(w.headingDeg ?? 0).toFixed(1)}° (0° faces +X, away from the blue wall)`], "Drag to turn the robot here. Hold Shift to snap to 15°.")
       }
       if (h.kind === "waypoint") return at(...waypointWords(p.spec, h.index, p.generated))
+      if (h.kind === "control") {
+        const seg = h.side === "next" ? `${h.index + 1} → ${h.index + 2}` : `${h.index} → ${h.index + 1}`
+        return at(`Curve handle (manual segment ${seg})`, [
+          "Shapes the curve you drew by hand. The optimizer keeps the robot on it and only decides how fast it goes.",
+        ], "Drag to bend the curve. The opposite handle turns with it to keep it smooth; hold Alt to break the tangent.")
+      }
       if (h.kind === "shape") {
         const c = p.spec.scoped[h.index]
         const what = h.handle === "radius" ? "Drag to change the radius." : h.handle === "corner" ? "Drag to resize." : "Drag to move."
@@ -572,8 +623,9 @@ export default function FieldView(props: Props) {
   }
 
   const shiftDown = useRef(false)
+  const altDown = useRef(false)
   useEffect(() => {
-    const on = (e: KeyboardEvent) => { shiftDown.current = e.shiftKey }
+    const on = (e: KeyboardEvent) => { shiftDown.current = e.shiftKey; altDown.current = e.altKey }
     window.addEventListener("keydown", on)
     window.addEventListener("keyup", on)
     return () => { window.removeEventListener("keydown", on); window.removeEventListener("keyup", on) }
@@ -614,6 +666,9 @@ export default function FieldView(props: Props) {
         break
       }
       case "event":
+        break
+      case "control":
+        p.onMoveControl(d.index, d.side, snap(wx), snap(wy), final, altDown.current)
         break
     }
   }
@@ -997,74 +1052,47 @@ function constraintLine(c: ScopedConstraint, n: number): string {
 // --- The plan view -------------------------------------------------------------
 
 export const BLUEPRINT = {
-  background: "#07090c",
-  field: "#0d1116",
-  minor: "#151b23",
-  major: "#202834",
-  edge: "#d6d9de",
-  label: "#8b93a1",
-  blue: "#3b82f6",
-  red: "#ef4444",
+  background: "#ffffff",
+  grid: "rgba(0,0,0,0.07)",
+  edge: "#111114",
+  label: "#55565c",
+  blue: "#1642a0",
+  red: "#a81818",
 }
 
 /**
- * The field as a technical drawing: a 0.5 m grid with meter lines, the
- * walls, the center line, each alliance's wall in its color, the axes from
- * the origin, and the field's dimensions.
+ * Over the field's sketch: the playing area outlined in black, an optional
+ * meter grid, meter ticks along two sides, the axes from the origin and the
+ * field's dimensions.
  */
-function drawBlueprint(ctx: CanvasRenderingContext2D, toScreen: ToScreen, k: number, L: number, W: number) {
+function drawPlanOverlay(ctx: CanvasRenderingContext2D, toScreen: ToScreen, k: number, L: number, W: number, grid: boolean) {
   const [x0, y0] = toScreen(0, W)
   const [x1, y1] = toScreen(L, 0)
-  ctx.fillStyle = BLUEPRINT.field
-  ctx.fillRect(x0, y0, x1 - x0, y1 - y0)
-
-  ctx.lineWidth = 1
-  for (let x = 0; x <= L + 1e-9; x += 0.5) {
-    ctx.strokeStyle = Math.abs(x - Math.round(x)) < 1e-9 ? BLUEPRINT.major : BLUEPRINT.minor
-    line(ctx, toScreen(x, 0), toScreen(x, W))
+  if (grid) {
+    ctx.strokeStyle = BLUEPRINT.grid
+    ctx.lineWidth = 1
+    for (let x = 0; x <= L + 1e-9; x += 1) line(ctx, toScreen(x, 0), toScreen(x, W))
+    for (let y = 0; y <= W + 1e-9; y += 1) line(ctx, toScreen(0, y), toScreen(L, y))
   }
-  for (let y = 0; y <= W + 1e-9; y += 0.5) {
-    ctx.strokeStyle = Math.abs(y - Math.round(y)) < 1e-9 ? BLUEPRINT.major : BLUEPRINT.minor
-    line(ctx, toScreen(0, y), toScreen(L, y))
-  }
-
-  // Alliance zones, faint, and their walls, bold.
-  const zone = Math.min(4, L / 4)
-  ctx.fillStyle = "rgba(59,130,246,0.06)"
-  ctx.fillRect(x0, y0, zone * k, y1 - y0)
-  ctx.fillStyle = "rgba(239,68,68,0.06)"
-  ctx.fillRect(x1 - zone * k, y0, zone * k, y1 - y0)
-  ctx.lineWidth = 3
-  ctx.strokeStyle = BLUEPRINT.blue
-  line(ctx, toScreen(0, 0), toScreen(0, W))
-  ctx.strokeStyle = BLUEPRINT.red
-  line(ctx, toScreen(L, 0), toScreen(L, W))
-
-  // Side walls and the center line.
-  ctx.lineWidth = 1.5
   ctx.strokeStyle = BLUEPRINT.edge
-  line(ctx, toScreen(0, 0), toScreen(L, 0))
-  line(ctx, toScreen(0, W), toScreen(L, W))
-  ctx.setLineDash([10, 6])
-  ctx.lineWidth = 1
-  ctx.strokeStyle = "rgba(214,217,222,0.5)"
-  line(ctx, toScreen(L / 2, 0), toScreen(L / 2, W))
-  ctx.setLineDash([])
+  ctx.lineWidth = 3
+  ctx.strokeRect(x0, y0, x1 - x0, y1 - y0)
 
-  // Meter ticks along the bottom and left.
   ctx.fillStyle = BLUEPRINT.label
   ctx.font = "9.5px Consolas, 'Cascadia Mono', monospace"
   ctx.textAlign = "center"
   ctx.textBaseline = "top"
   for (let x = 0; x <= L + 1e-9; x += 1) {
     const [sx, sy] = toScreen(x, 0)
-    ctx.fillText(String(x), sx, sy + 5)
+    ctx.fillRect(sx - 0.5, sy, 1, 5)
+    ctx.fillText(String(x), sx, sy + 7)
   }
   ctx.textAlign = "right"
   ctx.textBaseline = "middle"
   for (let y = 0; y <= W + 1e-9; y += 1) {
     const [sx, sy] = toScreen(0, y)
-    ctx.fillText(String(y), sx - 7, sy)
+    ctx.fillRect(sx - 5, sy - 0.5, 5, 1)
+    ctx.fillText(String(y), sx - 8, sy)
   }
 
   // Axes from the origin (WPILib: X along the field, Y to the left of the
@@ -1074,9 +1102,8 @@ function drawBlueprint(ctx: CanvasRenderingContext2D, toScreen: ToScreen, k: num
   arrow(ctx, ox, oy, ox + axis, oy, BLUEPRINT.red, "X")
   arrow(ctx, ox, oy, ox, oy - axis, BLUEPRINT.blue, "Y")
 
-  // The field's dimensions, outside it.
-  dimensionLine(ctx, x0, y0 - 18, x1, y0 - 18, `${L.toFixed(3)} m`)
-  dimensionLine(ctx, x1 + 22, y0, x1 + 22, y1, `${W.toFixed(3)} m`)
+  dimensionLine(ctx, x0, y0 - 22, x1, y0 - 22, `${L.toFixed(3)} m`)
+  dimensionLine(ctx, x1 + 26, y0, x1 + 26, y1, `${W.toFixed(3)} m`)
 }
 
 function arrow(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1: number, y1: number, color: string, label: string) {

@@ -21,6 +21,7 @@ interface Props {
   stopOn: (i: number) => boolean
   waitOn: (i: number) => number
   onSetWait: (i: number, s: number) => void
+  onSetManual: (i: number, on: boolean) => void
   onConstraint: (i: number, patch: Partial<ScopedConstraint>) => void
   onEvent: (i: number, patch: Partial<EventMarker>) => void
   onKeepOut: (i: number, patch: Partial<KeepOut>) => void
@@ -83,6 +84,16 @@ export default function ConfigPanel(p: Props) {
         {p.stopOn(i) && (
           <Q label="Wait here" dim="plain" unit="s" value={p.waitOn(i)} onChange={v => p.onSetWait(i, Math.max(0, v))}
             hint="How long the robot stays stopped before moving on (to score, to intake). Everything after it happens that much later." />
+        )}
+        {i < n - 1 && (
+          <div title="Optimized: the optimizer shapes the curve to the next waypoint. Manual: you draw it with two handles (PathPlanner style) and the optimizer only decides how fast the robot drives it.">
+            <PropertyRow label="Curve to next">
+              <select style={propertyInputStyle} value={w.manualNext ? "manual" : "auto"} onChange={e => p.onSetManual(i, e.target.value === "manual")}>
+                <option value="auto">Optimized (free shape)</option>
+                <option value="manual">Manual (I draw it) ✎</option>
+              </select>
+            </PropertyRow>
+          </div>
         )}
         {i < n - 1 && (
           <PropertyRow label="Samples to next">

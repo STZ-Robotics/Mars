@@ -13,7 +13,7 @@ import { StopIcon, WaypointIcon, GLYPH } from "./glyphs"
 import {
   CONSTRAINTS, ConstraintType, DEFAULT_VIEW, EventMarker, FieldDoc, GRADIENTS, KeepOut, PathEntry, PathSpec, PlanResult,
   ScopedConstraint, Selection, Target, Tool, Trajectory, ViewOptions, Waypoint, WaypointKind, afterInsert, afterMove,
-  afterRemove, constraintMeta, kindOf, newConstraint, newPathSpec, setWait, stopAt, toggleStop, waitAt,
+  afterRemove, constraintMeta, kindOf, moveControl, newConstraint, newPathSpec, setManual, setWait, shiftControls, stopAt, toggleStop, waitAt,
 } from "./types"
 
 interface Props {
@@ -472,6 +472,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
           onHover={setHovered}
           onSetKind={setKind}
           onToggleStop={i => editSpec(s => toggleStop(s, i), true)}
+          onToggleManual={i => editSpec(s => setManual(s, i, !s.waypoints[i].manualNext), true)}
           onMoveWaypoint={moveWaypoint}
           onDeleteWaypoint={deleteWaypoint}
           onToggleConstraint={i => editSpec(s => ({ ...s, scoped: s.scoped.map((c, j) => (j === i ? { ...c, enabled: c.enabled === false ? undefined : false } : c)) }), true)}
@@ -534,7 +535,8 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
             fitSignal={fitSignal}
             topView={topView}
             onSelect={setSelected}
-            onMoveWaypoint={(i, x, y, final) => editWaypoint(i, { x, y }, final)}
+            onMoveWaypoint={(i, x, y, final) => editWaypoint(i, w => ({ ...shiftControls(w, x - w.x, y - w.y), x, y }), final)}
+            onMoveControl={(i, side, x, y, final, free) => editSpec(s => moveControl(s, i, side, x, y, free), final)}
             onRotateWaypoint={(i, hd, final) => editWaypoint(i, { headingDeg: hd }, final)}
             onFieldClick={(x, y) => {
               if (tool.kind === "waypoint") addWaypoint(x, y, tool.type)
@@ -573,6 +575,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
               stopOn={i => stopAt(spec, i) >= 0}
               waitOn={i => waitAt(spec, i)}
               onSetWait={(i, w) => editSpec(s => setWait(s, i, w), true)}
+              onSetManual={(i, on) => editSpec(s => setManual(s, i, on), true)}
               onConstraint={(i, patch) => editConstraint(i, patch, true)}
               onEvent={editEvent}
               onKeepOut={(i, patch) => editKeepOut(i, patch, true)}
@@ -637,6 +640,7 @@ function Legend() {
           <WaypointIcon kind="translation" color={GLYPH.mid} size={13} /><span>Translation: position</span>
           <WaypointIcon kind="empty" color={GLYPH.mid} size={13} /><span>Empty: shapes the guess</span>
           <StopIcon size={13} /><span>Stops here</span>
+          <i className="ti ti-pencil" style={{ color: "#e95420", fontSize: 13 }} /><span>Manual curve (drag its square handles)</span>
           <span style={{ width: 12, height: 12, borderRadius: 6, background: GLYPH.start }} /><span>Start</span>
           <span style={{ width: 12, height: 12, borderRadius: 6, background: GLYPH.end }} /><span>End</span>
         </div>

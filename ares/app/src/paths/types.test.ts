@@ -49,3 +49,21 @@ describe("moving and stopping", () => {
     expect(toggleStop(s, 0).scoped[0].from).toBe("first")
   })
 })
+
+import { moveControl, setManual } from "./types"
+
+describe("manual segments", () => {
+  it("start with controls along the tangent and stay smooth when one moves", () => {
+    let s = setManual(newPathSpec("t"), 0, true)
+    s = setManual(s, 1, true)
+    const w1 = s.waypoints[1]
+    expect(w1.prevControl).toBeDefined()
+    expect(w1.nextControl).toBeDefined()
+    s = moveControl(s, 1, "next", w1.x + 1, w1.y + 1, false)
+    const m = s.waypoints[1]
+    // prev is on the opposite side of the same line.
+    const a = Math.atan2(m.nextControl![1] - m.y, m.nextControl![0] - m.x)
+    const b = Math.atan2(m.prevControl![1] - m.y, m.prevControl![0] - m.x)
+    expect(Math.abs(Math.abs(a - b) - Math.PI)).toBeLessThan(1e-9)
+  })
+})

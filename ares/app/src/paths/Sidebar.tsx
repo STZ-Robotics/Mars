@@ -18,6 +18,7 @@ interface Props {
   onHover: (s: Selection) => void
   onSetKind: (i: number, kind: WaypointKind) => void
   onToggleStop: (i: number) => void
+  onToggleManual: (i: number) => void
   onMoveWaypoint: (from: number, to: number) => void
   onDeleteWaypoint: (i: number) => void
   onToggleConstraint: (i: number) => void
@@ -100,9 +101,17 @@ export default function Sidebar(p: Props) {
                     {kind === "pose" && w.headingDeg !== undefined && <Dim sel={sel}> {Math.round(w.headingDeg)}°</Dim>}
                     {waitAt(spec, i) > 0 && <Dim sel={sel}> · waits {waitAt(spec, i)} s</Dim>}
                     {w.split && <Dim sel={sel}> · split</Dim>}
+                    {w.manualNext && <Dim sel={sel}> · ✎ manual →</Dim>}
                     {w.intervals !== undefined && <Dim sel={sel}> · {w.intervals} samples</Dim>}
                   </Label>
                   <span style={{ fontSize: 10.5, fontWeight: 600, width: 18, textAlign: "right", color: sel ? "#ffffff" : color }}>{i + 1}</span>
+                  {i < n - 1 ? (
+                    <RowButton
+                      title={w.manualNext ? "The curve to the next waypoint is yours (manual). Click to let the optimizer shape it" : "The optimizer shapes the curve to the next waypoint. Click to draw it yourself (PathPlanner style)"}
+                      onClick={() => p.onToggleManual(i)}>
+                      <i className="ti ti-pencil" style={{ fontSize: 13, color: w.manualNext ? (sel ? "#ffffff" : "#e95420") : "var(--text-light)", opacity: w.manualNext ? 1 : 0.6 }} />
+                    </RowButton>
+                  ) : <span style={{ width: 22 }} />}
                   <RowButton title={stop ? "Stops here. Click to keep moving" : "Does not stop. Click to stop here"} onClick={() => p.onToggleStop(i)}>
                     <StopIcon on={stop} />
                   </RowButton>
