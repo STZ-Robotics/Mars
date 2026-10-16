@@ -448,7 +448,15 @@ pub fn index_write(robot_path: String) -> Result<(), String> {
             })
         })
         .collect();
-    let index = serde_json::json!({ "format": 1, "paths": paths, "autos": autos_list(robot_path.clone()) });
+    // The robot side mirrors paths for the red alliance, and a mirror trades
+    // the left modules for the right ones: it needs to know where they are.
+    let robot = RobotConfig::load(Path::new(&robot_path)).ok().map(|r| {
+        serde_json::json!({
+            "name": r.name,
+            "modules": r.swerve().modules.iter().map(|m| serde_json::json!({ "name": m.name, "xM": m.x_m, "yM": m.y_m })).collect::<Vec<_>>(),
+        })
+    });
+    let index = serde_json::json!({ "format": 1, "robot": robot, "paths": paths, "autos": autos_list(robot_path.clone()) });
     let text = serde_json::to_string_pretty(&index).map_err(|e| e.to_string())?;
     write(&project_dir(&robot_path).join("ares-index.json"), &(text + "\n"))
 }
@@ -556,11 +564,15 @@ mod tests {
         path_save(rp.clone(), b, None).unwrap();
         auto_save(rp.clone(), serde_json::json!({ "name": "Four piece", "steps": [{ "type": "path", "path": "Out" }] }), None).unwrap();
         assert_eq!(autos_list(rp.clone()).len(), 1);
+        fs::write(&rp, serde_json::to_string(&crate::tests_robot()).unwrap()).unwrap();
         index_write(rp.clone()).unwrap();
         let index: serde_json::Value = serde_json::from_str(&fs::read_to_string(project_dir(&rp).join("ares-index.json")).unwrap()).unwrap();
         let out = index["paths"].as_array().unwrap().iter().find(|p| p["name"] == "Out").unwrap();
         assert_eq!(out["branches"][0]["condition"], "hasNote");
         assert_eq!(index["autos"][0]["name"], "Four piece");
+        // The robot side needs the modules to mirror the wheel forces.
+        assert_eq!(index["robot"]["modules"].as_array().unwrap().len(), 4);
+        assert!(index["robot"]["modules"][0]["xM"].is_number());
         auto_delete(rp.clone(), "Four piece".into()).unwrap();
         assert!(autos_list(rp).is_empty());
     }

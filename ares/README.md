@@ -51,7 +51,10 @@ What both stages model that PathPlanner and Choreo do not:
 - **Every sample says what each module does**: speed, angle, force, load,
   the grip in use and the current the motor draws. Not just how fast, but why.
 
-App: not started. Gazebo stage: not started.
+The app (`app/`) edits robots, paths and autos and generates the trajectories.
+The robot side is **AresLib** (`areslib/`), a MARS Feature that follows them
+and runs the autos; see [its README](areslib/README.md). Gazebo stage: not
+started.
 
 ## Reference
 
@@ -83,8 +86,8 @@ ares/
   refiner/    stage 2 — Gazebo in the loop: runs the trajectory in lockstep
               against the real robot code and optimizes what the analytic
               model cannot see (slip, terrain, collisions, tracking, timing)
-  lib/        the robot side, inside the MARS library: follower, events,
-              mechanism hooks
+  areslib/    the robot side, as a MARS Feature (not a vendordep): follower
+              with the wheel forces as feedforward, events, branches, autos
 ```
 
 The two stages are the point. Stage 1 is fast and always available; stage 2

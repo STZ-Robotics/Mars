@@ -6,7 +6,8 @@
       "https://raw.githubusercontent.com/STZ-Robotics/UnitProcessor/main/MarsFeature.json",
       "https://raw.githubusercontent.com/STZ-Robotics/MarsProcessor/main/MarsFeature.json",
       "https://raw.githubusercontent.com/STZ-Robotics/DictionaryFeature/main/MarsFeature.json",
-      "https://raw.githubusercontent.com/STZ-Robotics/AdvantageKitBridge/main/MarsFeature.json"
+      "https://raw.githubusercontent.com/STZ-Robotics/AdvantageKitBridge/main/MarsFeature.json",
+      "https://raw.githubusercontent.com/STZ-Robotics/Mars/main/ares/areslib/MarsFeature.json"
       
     ]
   }

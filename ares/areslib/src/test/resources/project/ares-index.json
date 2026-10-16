@@ -1,0 +1,149 @@
+{
+  "format": 1,
+  "robot": {
+    "name": "Offseason2026",
+    "modules": [
+      {
+        "name": "fl",
+        "xM": 0.276225,
+        "yM": 0.276225
+      },
+      {
+        "name": "fr",
+        "xM": 0.276225,
+        "yM": -0.276225
+      },
+      {
+        "name": "bl",
+        "xM": -0.276225,
+        "yM": 0.276225
+      },
+      {
+        "name": "br",
+        "xM": -0.276225,
+        "yM": -0.276225
+      }
+    ]
+  },
+  "paths": [
+    {
+      "name": "Alt",
+      "trajectory": "trajectories/Alt.traj.json",
+      "generated": true,
+      "sections": null,
+      "variants": [],
+      "continuesFrom": "Main",
+      "continuesAt": 1,
+      "condition": "goAlt",
+      "branches": []
+    },
+    {
+      "name": "Main",
+      "trajectory": "trajectories/Main.traj.json",
+      "generated": true,
+      "sections": null,
+      "variants": [],
+      "continuesFrom": null,
+      "continuesAt": null,
+      "condition": null,
+      "branches": [
+        {
+          "atWaypoint": 1,
+          "atTime": 0.9874337060735158,
+          "condition": "goAlt",
+          "path": "Alt"
+        }
+      ]
+    },
+    {
+      "name": "Never",
+      "trajectory": "trajectories/Never.traj.json",
+      "generated": false,
+      "variants": [],
+      "branches": []
+    },
+    {
+      "name": "Find",
+      "trajectory": "trajectories/Find.traj.json",
+      "generated": true,
+      "variants": [],
+      "branches": []
+    }
+  ],
+  "autos": [
+    {
+      "name": "Branchy",
+      "steps": [
+        {
+          "type": "path",
+          "path": "Main"
+        },
+        {
+          "type": "path",
+          "path": "Alt"
+        }
+      ]
+    },
+    {
+      "name": "Full",
+      "budgetS": 15,
+      "steps": [
+        {
+          "type": "command",
+          "name": "spinUp",
+          "alongside": true
+        },
+        {
+          "type": "path",
+          "path": "Main"
+        },
+        {
+          "type": "wait",
+          "seconds": 0.2
+        },
+        {
+          "type": "command",
+          "name": "shoot",
+          "estimateS": 0.5
+        },
+        {
+          "type": "if",
+          "condition": "hasPiece",
+          "then": [
+            {
+              "type": "auto",
+              "auto": "Nested"
+            }
+          ],
+          "else": [
+            {
+              "type": "wait",
+              "seconds": 0.1
+            }
+          ]
+        },
+        {
+          "type": "futureStep"
+        }
+      ]
+    },
+    {
+      "name": "Nested",
+      "steps": [
+        {
+          "type": "command",
+          "name": "shoot"
+        }
+      ]
+    },
+    {
+      "name": "Loop",
+      "steps": [
+        {
+          "type": "auto",
+          "auto": "Loop"
+        }
+      ]
+    }
+  ]
+}

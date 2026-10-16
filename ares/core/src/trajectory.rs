@@ -16,6 +16,12 @@ pub struct ModuleSample {
     pub angle_rad: f64,
     /// The force the wheel puts on the carpet.
     pub force_n: f64,
+    /// That force's components in the field frame: what a follower feeds
+    /// forward (it is not always along the wheel: some of it is grip sideways).
+    #[serde(default)]
+    pub fx_n: f64,
+    #[serde(default)]
+    pub fy_n: f64,
     /// Fraction of the available grip in use: 1.0 is the edge of slipping.
     pub grip_used: f64,
     /// The weight on this wheel, in newtons. It moves between the wheels as

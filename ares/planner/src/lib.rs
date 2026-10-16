@@ -797,6 +797,8 @@ fn plan_fixed(
                     speed_mps: speed,
                     angle_rad: if dir == Vec2::ZERO { 0.0 } else { wrap_angle(dir.y.atan2(dir.x) - heading) },
                     force_n: f.norm(),
+                    fx_n: f.x,
+                    fy_n: f.y,
                     grip_used: f.norm() / (sw.wheel_cof * load.max(1e-9)),
                     load_n: load,
                     current_a: along / d.n_per_amp,
@@ -856,6 +858,8 @@ fn plan_fixed(
                 arrive.alpha = 0.0;
                 for m in &mut arrive.modules {
                     m.force_n = 0.0;
+                    m.fx_n = 0.0;
+                    m.fy_n = 0.0;
                     m.grip_used = 0.0;
                     m.current_a = 0.0;
                 }

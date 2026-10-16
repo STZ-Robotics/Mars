@@ -420,6 +420,8 @@ pub fn solve_between(
                         speed_mps: speed,
                         angle_rad: if dir == Vec2::ZERO { 0.0 } else { wrap_angle(dir.y.atan2(dir.x) - p.theta) },
                         force_n: f.norm(),
+                        fx_n: f.x,
+                        fy_n: f.y,
                         grip_used: f.norm() / (model.mu * load.max(1e-9)),
                         load_n: load,
                         current_a: model.current_for(along),

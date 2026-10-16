@@ -1,0 +1,29 @@
+{
+  "name": "Alt",
+  "waypoints": [
+    {
+      "x": 4.5,
+      "y": 3.0,
+      "kind": "translation"
+    },
+    {
+      "x": 5.0,
+      "y": 6.0,
+      "headingDeg": 180.0,
+      "kind": "pose"
+    }
+  ],
+  "constraints": {},
+  "scoped": [
+    {
+      "from": "last",
+      "type": "stopPoint"
+    }
+  ],
+  "events": [
+    {
+      "name": "score",
+      "target": "last"
+    }
+  ]
+}

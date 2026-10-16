@@ -1,0 +1,21 @@
+{
+  "featureId": "AresLib",
+  "name": "Ares",
+  "version": "0.1.0",
+  "groupId": "com.stzteam.features.ares",
+  "author": "STZ-Robotics",
+  "description": "Runs what Ares plans: follows its trajectories with the wheel forces as feedforward, and builds its autos from the robot's named commands and conditions.",
+  "marsCoreRequired": ">=1.6.0",
+  "forgeMiniRequired": ">=1.1.0",
+  "mavenUrls": [
+    "https://stz-robotics.github.io/Mars/ares/maven/"
+  ],
+  "javaDependencies": [
+    {
+      "groupId": "com.stzteam.features.ares",
+      "artifactId": "AresLib",
+      "version": "0.1.0",
+      "isProcessor": false
+    }
+  ]
+}

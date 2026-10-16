@@ -28,6 +28,7 @@ on:
     paths:
       - "docs/**"
       - "lib/**"
+      - "ares/areslib/**"
       - "scripts/check-vendordep.mjs"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
@@ -90,6 +91,11 @@ jobs:
           cp -r lib/build/docs/javadoc/. _site/api/
           cp -r lib/maven _site/maven
           cp lib/Mars.json _site/Mars.json
+          # AresLib, the MARS Feature that runs Ares's paths: its maven and the
+          # descriptor MARS Desktop installs it from.
+          mkdir -p _site/ares
+          cp -r ares/areslib/maven _site/ares/maven
+          cp ares/areslib/MarsFeature.json _site/ares/MarsFeature.json
           # Belt and braces: the artifact deploy does not run Jekyll, but a
           # branch-based deploy would, and Jekyll drops paths that start with an
           # underscore -- which Javadoc does produce.
@@ -106,6 +112,9 @@ jobs:
           test -f "$JAR" || { echo "::error::$JAR is missing"; exit 1; }
           test -f "_site/index.html" || { echo "::error::the documentation did not build"; exit 1; }
           test -f "_site/api/index.html" || { echo "::error::the Javadoc did not build"; exit 1; }
+          ARES=$(node -p "require('./ares/areslib/MarsFeature.json').version")
+          ARES_JAR="_site/ares/maven/com/stzteam/features/ares/AresLib/$ARES/AresLib-$ARES.jar"
+          test -f "$ARES_JAR" || { echo "::error::$ARES_JAR is missing: run ./gradlew publish in ares/areslib"; exit 1; }
           echo "Mars $VERSION, $(du -sh _site/maven | cut -f1) of maven, docs and Javadoc."
 
       - uses: actions/upload-pages-artifact@v3

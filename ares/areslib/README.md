@@ -1,0 +1,115 @@
+# AresLib
+
+The robot side of Ares, as a **MARS Feature**: it reads the Ares project
+deployed with the robot code, follows its trajectories and builds its autos
+out of the robot's own commands.
+
+It is a Feature and not a vendordep on purpose. It installs the way the rest
+of MARS does (MARS Desktop, `workspace-mars/features/`), it can lean on MARS,
+and it lives next to the planner, so the file format and the code that reads
+it change in the same commit.
+
+## Install
+
+In MARS Desktop, **Project > Packages > Manual Install**, paste
+
+```
+https://stz-robotics.github.io/Mars/ares/MarsFeature.json
+```
+
+and press **INSTALL FROM URL**. (It is also in the verified catalog.) The
+robot project needs WPILib's command framework, which every MARS project has;
+`CtreSwerve` also needs the Phoenix 6 vendordep, which a CTRE swerve already has.
+
+## The project goes in the deploy folder
+
+Keep the Ares project (the `.robot.json` and its `paths/`, `trajectories/`,
+`autos/`, `ares-index.json`) in **`src/main/deploy/ares/`** and open that
+`.robot.json` in Ares. A deploy then carries what you generated, and AresLib
+reads it from `/home/lvuser/deploy/ares` (or the same folder in simulation).
+`ares-index.json` is rewritten by the app on every save: it is how the robot
+knows the branches, variants and autos without listing folders.
+
+## Wiring it (CTRE swerve)
+
+```java
+Ares ares = new Ares(
+    CtreSwerve.of(drivetrain),        // the Tuner X CommandSwerveDrivetrain
+    new Ares.Config()                 // defaults are fine to start
+        .withGains(new AresController.Gains(3, 0, 0), new AresController.Gains(3, 0, 0)));
+
+// Register BEFORE building autos: they look these up as they are built.
+ares.registerCommand("shoot", superstructure.shoot());
+ares.registerCommand("intake", intake.deploy());          // also an event marker's name
+ares.registerCondition("hasPiece", indexer::hasPiece);    // if steps and branches
+
+SendableChooser<Command> autos = ares.autoChooser();     // every auto, plus None
+SmartDashboard.putData("Auto", autos);
+```
+
+Not CTRE? `AresDrive.of(pose, robotSpeeds, resetPose, setpoint -> ..., subsystem)`
+takes four lambdas. The setpoint has the speeds (field and robot frame) and
+each wheel's force (field and robot frame) to feed forward however your
+modules take it.
+
+## What it does
+
+- **Follows with the forces.** Every sample says what force each wheel puts on
+  the carpet; `CtreSwerve` passes them as `WheelForceFeedforwardsX/Y`, so the
+  PID only corrects what the forces missed. The gains can be lower than
+  PathPlanner's 5.
+- **Modules matched by position.** It pairs the `.robot.json`'s modules with
+  the drivetrain's by where they are, so the order does not have to match,
+  and raises an alert when they are not the same robot (a stale
+  `TunerConstants` or `.robot.json`).
+- **Alliance flip** on red, decided when each path starts: `ROTATIONAL`
+  (2026) by default, `MIRRORED` with `withSymmetry`. A mirror trades the
+  left wheels' forces for the right ones'.
+- **Event markers** run the command registered under their name, inside the
+  path command (like PathPlanner), and a zone's command is cut when the zone
+  ends. Or react to them with `ares.event("intake").whileTrue(...)`.
+- **Branches.** At the waypoint where a branch leaves, if its condition holds,
+  the robot carries on along the branch, without stopping. In an auto, a path
+  followed by one of its own branches is driven only up to where the branch
+  leaves.
+- **"?" stretches (pathfinding).** If the robot is where Ares expected, it
+  follows Ares's estimate, which is a real trajectory. If not, it hands over
+  to the pathfinder: by default a straight, profiled drive that avoids nothing;
+  plug in PathPlanner's AD* with `withPathfinder` (see `AresPathfinder`).
+- **Autos**: path, wait, command (and "alongside", which runs with everything
+  after it), if/else on a condition, nested autos. An auto that starts at a
+  known pose resets odometry there (`withResetPoseAtAutoStart(false)` to not).
+  `ares.startPose(auto)` gives that pose for placing the robot before a match.
+- **Telemetry** under `/Ares` on NetworkTables: the active path, where the
+  trajectory is, where the robot is, the error, the active events.
+- **Never stops the robot from booting.** A missing or broken project, an
+  ungenerated path, a command or condition nobody registered: an alert on the
+  dashboard and a message in the Driver Station, not an exception.
+
+Also: `ares.path("Hub run")`, `ares.path("Hub run", "wide")` (a variant),
+`ares.section("Hub run", "intake")`, `ares.split("Hub run", 1)`.
+
+## Building and testing
+
+```bash
+./gradlew test          # trajectories, flips, and the commands on the real scheduler
+./gradlew publish       # writes maven/, which is committed
+```
+
+The tests drive a perfect simulated drivetrain through the fixture project in
+`src/test/resources/project/` (made with `ares plan`): ending where the path
+ends, the feedback pulling it back, the red alliance, markers and zones,
+branches taken and not, an auto that leaves at a branch point, the
+pathfinder taking over when the robot is knocked off the estimate, and the
+forces handed over in the drivetrain's order.
+
+## Releasing
+
+The version is in `MarsFeature.json` (both `version` and the dependency's).
+Bump it, `./gradlew publish`, commit `maven/`. The `pages` workflow copies
+`maven/` and `MarsFeature.json` to `https://stz-robotics.github.io/Mars/ares/`
+when it reaches `main`, and checks the jar is there.
+
+`ares-index.json` carries `"format": 1`. A change the old AresLib cannot read
+bumps it; AresLib refuses a format it does not know with a message, rather
+than half-reading it.
