@@ -892,6 +892,15 @@ function ViewPanel({ view, onChange, onClose }: { view: ViewOptions; onChange: (
           </select>
         </PropertyRow>
       </div>
+      <div title="WPILib puts the blue alliance at x = 0. Mirror (or turn) the field picture so its blue side is there. Coordinates do not change.">
+        <PropertyRow label="Blue alliance at x = 0">
+          <select style={propertyInputStyle} value={view.fieldFlip} onChange={e => onChange({ ...view, fieldFlip: e.target.value as ViewOptions["fieldFlip"] })}>
+            <option value="mirror">Mirror the picture</option>
+            <option value="rotate">Turn the picture 180°</option>
+            <option value="none">Picture as is</option>
+          </select>
+        </PropertyRow>
+      </div>
       <div title="The 2D robot's color. Its STL is painted with it so it stands out on the field.">
         <PropertyRow label="Robot color">
           <input type="color" value={view.robotColor} onChange={e => onChange({ ...view, robotColor: e.target.value })} style={{ width: 40, height: 20, border: "none", padding: 0, background: "none" }} />

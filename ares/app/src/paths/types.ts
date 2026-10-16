@@ -172,6 +172,12 @@ export interface ViewOptions {
   fieldStyle: "blueprint" | "photo"
   /** The 2D robot's color (its STL is tinted with it). */
   robotColor: string
+  /**
+   * How the field image is drawn so the blue alliance is at x = 0, where
+   * WPILib puts the origin: as is, mirrored left-right, or turned 180°.
+   * Only the picture changes; coordinates are always WPILib's.
+   */
+  fieldFlip: "none" | "mirror" | "rotate"
   field: boolean
   grid: boolean
   guess: boolean
@@ -191,7 +197,7 @@ export interface ViewOptions {
 }
 
 export const DEFAULT_VIEW: ViewOptions = {
-  fieldStyle: "blueprint", robotColor: "#22d3ee",
+  fieldStyle: "blueprint", robotColor: "#22d3ee", fieldFlip: "mirror",
   field: true, grid: false, guess: true, trajectory: true, samples: false, waypoints: true, flipped: false, corridor: true, charts: true, snap: 0, guides: true, gradient: "velocity",
 }
 

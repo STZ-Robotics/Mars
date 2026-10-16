@@ -200,6 +200,12 @@ export default function FieldView(props: Props) {
       const kImg = (field.bottomRight[0] - field.topLeft[0]) / L
       const [ix, iy] = toScreen(-field.topLeft[0] / kImg, field.bottomRight[1] / kImg)
       const [iw, ih] = [image.width * view.k / kImg, image.height * view.k / kImg]
+      // Blue at x = 0: the picture is mirrored (or turned) about the field's
+      // center when the image has red there.
+      const [fcx, fcy] = toScreen(L / 2, W / 2)
+      ctx.save()
+      if (opts.fieldFlip === "mirror") { ctx.translate(2 * fcx, 0); ctx.scale(-1, 1) }
+      else if (opts.fieldFlip === "rotate") { ctx.translate(2 * fcx, 2 * fcy); ctx.scale(-1, -1) }
       if (plan) {
         if (sketch) ctx.drawImage(sketch, ix, iy, iw, ih)
       } else {
@@ -207,6 +213,7 @@ export default function FieldView(props: Props) {
         ctx.drawImage(image, ix, iy, iw, ih)
         ctx.globalAlpha = 1
       }
+      ctx.restore()
     }
     if (plan) drawPlanOverlay(ctx, toScreen, view.k, L, W, opts.grid)
     if (opts.grid && !plan) {
