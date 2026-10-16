@@ -18,6 +18,10 @@ pub struct ModuleSample {
     pub force_n: f64,
     /// Fraction of the available grip in use: 1.0 is the edge of slipping.
     pub grip_used: f64,
+    /// The weight on this wheel, in newtons. It moves between the wheels as
+    /// the robot accelerates when the center of mass height is known.
+    #[serde(default)]
+    pub load_n: f64,
     /// What the drive motor draws to produce that force. Signed: negative is
     /// braking.
     pub current_a: f64,

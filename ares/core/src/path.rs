@@ -73,6 +73,8 @@ pub struct GeometricPath {
     /// The step between points.
     pub ds: f64,
     pub length: f64,
+    /// Where each waypoint falls, in the same generalized arc length as `s`.
+    pub waypoint_s: Vec<f64>,
 }
 
 struct Segment {
@@ -201,6 +203,7 @@ impl GeometricPath {
         let mut total = 0.0;
         let (mut last_pos, mut last_th) = segments[0].eval(0.0);
         table.push((0.0, 0, 0.0));
+        let mut waypoint_s = vec![0.0];
         for (j, seg) in segments.iter().enumerate() {
             for i in 1..=PER_SEGMENT {
                 let u = i as f64 / PER_SEGMENT as f64;
@@ -211,6 +214,7 @@ impl GeometricPath {
                 last_pos = pos;
                 last_th = th;
             }
+            waypoint_s.push(total);
         }
         if total < 1e-6 {
             return Err(AresError::Path("the waypoints neither move nor turn the robot".into()));
@@ -271,7 +275,7 @@ impl GeometricPath {
                 dd_theta,
             });
         }
-        Ok(GeometricPath { points, ds, length: total })
+        Ok(GeometricPath { points, ds, length: total, waypoint_s })
     }
 }
 

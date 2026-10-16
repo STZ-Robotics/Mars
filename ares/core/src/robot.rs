@@ -63,6 +63,11 @@ pub struct RobotConfig {
     pub mass_kg: f64,
     /// About the vertical axis through the center of the robot.
     pub moi_kg_m2: f64,
+    /// Height of the center of mass above the carpet. With it, the optimizer
+    /// moves load between the wheels as the robot accelerates (and refuses to
+    /// tip it over); without it, every wheel carries the same weight.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cog_height_m: Option<f64>,
     pub bumper: Bumper,
     pub drivetrain: Drivetrain,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -172,6 +177,11 @@ impl RobotConfig {
         }
         positive(&mut p, "massKg", self.mass_kg);
         positive(&mut p, "moiKgM2", self.moi_kg_m2);
+        if let Some(h) = self.cog_height_m {
+            if !(h.is_finite() && h >= 0.0) {
+                p.push(format!("cogHeightM cannot be negative, it is {h}"));
+            }
+        }
         positive(&mut p, "bumper.lengthM", self.bumper.length_m);
         positive(&mut p, "bumper.widthM", self.bumper.width_m);
 
@@ -222,6 +232,24 @@ impl RobotConfig {
         s.drive_motor.motor().free_speed / s.drive_gear_ratio * s.wheel_radius_m
     }
 
+    /// qᵢ = S⁻¹pᵢ, with S = Σ pᵢpᵢᵀ over the module positions: accelerating at
+    /// `a` (robot frame) moves −m·h·(a · qᵢ) of load onto wheel i. That is the
+    /// least-squares split of the pitch and roll moments, exact for any
+    /// symmetric layout.
+    pub fn load_vectors(&self) -> Vec<Vec2> {
+        let ms = &self.swerve().modules;
+        let (mut sxx, mut sxy, mut syy) = (0.0, 0.0, 0.0);
+        for m in ms {
+            sxx += m.x_m * m.x_m;
+            sxy += m.x_m * m.y_m;
+            syy += m.y_m * m.y_m;
+        }
+        let det = sxx * syy - sxy * sxy;
+        ms.iter()
+            .map(|m| Vec2::new((syy * m.x_m - sxy * m.y_m) / det, (-sxy * m.x_m + sxx * m.y_m) / det))
+            .collect()
+    }
+
     /// The farthest module from the center: the lever arm of a rotation.
     pub fn drive_radius(&self) -> f64 {
         self.swerve()
@@ -257,6 +285,7 @@ pub(crate) mod tests {
             name: "Offseason2026".into(),
             mass_kg: 58.0,
             moi_kg_m2: 7.0,
+            cog_height_m: None,
             bumper: Bumper { length_m: 0.851, width_m: 0.851 },
             drivetrain: Drivetrain::Swerve(SwerveConfig {
                 modules: vec![module("fl", p, p), module("fr", p, -p), module("bl", -p, p), module("br", -p, -p)],

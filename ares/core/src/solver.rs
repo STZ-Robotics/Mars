@@ -10,7 +10,9 @@
 //!
 //! - **Grip.** The force the wheel puts on the carpet, `|f_i| <= μ·N_i`.
 //!   Translation, rotation and the centripetal force of a curve all draw from
-//!   the same budget, which is what a swerve's wheels really have.
+//!   the same budget, which is what a swerve's wheels really have. With the
+//!   center of mass height, `N_i` moves between wheels as the robot
+//!   accelerates, and no wheel is ever asked to carry negative load (tipping).
 //! - **The motor.** Along the wheel, the force cannot exceed what the drive
 //!   motor gives at that speed with its current limit: lots at low speed,
 //!   fading to nothing at free speed (back-EMF), and stronger braking than
@@ -57,8 +59,14 @@ impl Default for SolverOptions {
 struct Model {
     mass: f64,
     moi: f64,
-    /// The most force one wheel can put on the carpet.
-    grip: f64,
+    mu: f64,
+    /// The weight on each wheel at rest.
+    static_load: f64,
+    /// Mass times center of mass height: 0 means no load transfer.
+    mh: f64,
+    /// qᵢ = S⁻¹pᵢ with S = Σ pᵢpᵢᵀ: the load on wheel i moves by
+    /// −m·h·(a_robot · qᵢ) when the robot accelerates.
+    load_q: Vec<Vec2>,
     modules: Vec<Vec2>,
     motor: Motor,
     motors: f64,
@@ -78,9 +86,10 @@ impl Model {
         Model {
             mass: robot.mass_kg,
             moi: robot.moi_kg_m2,
-            // Even load on every wheel. Weight transfer under acceleration is
-            // the next refinement; the Gazebo stage sees it anyway.
-            grip: s.wheel_cof * robot.mass_kg * GRAVITY / n,
+            mu: s.wheel_cof,
+            static_load: robot.mass_kg * GRAVITY / n,
+            mh: robot.mass_kg * robot.cog_height_m.unwrap_or(0.0),
+            load_q: robot.load_vectors(),
             modules: s.modules.iter().map(|m| m.position()).collect(),
             motor: s.motor(),
             motors: s.drive_motors_per_module as f64,
@@ -108,11 +117,14 @@ impl Model {
 }
 
 /// One point of the path, linearized: module `i` pushes `a[i]·s̈ + b[i]·ṡ²`
-/// on the carpet and moves at `c[i]·ṡ`.
+/// on the carpet, carries `n0 + na[i]·s̈ + nb[i]·ṡ²` of weight and moves at
+/// `c[i]·ṡ`.
 struct Point {
     a: Vec<Vec2>,
     b: Vec<Vec2>,
     c: Vec<Vec2>,
+    na: Vec<f64>,
+    nb: Vec<f64>,
     /// The most `ṡ²` the velocity limits allow, before any force is considered.
     x_cap: f64,
 }
@@ -150,6 +162,9 @@ fn linearize(model: &Model, p: &PathPoint) -> Point {
     let c: Vec<Vec2> = r.iter().map(|ri| p.d_pos + ri.perp() * p.d_theta).collect();
     let a = distribute(&r, [model.mass * p.d_pos.x, model.mass * p.d_pos.y, model.moi * p.d_theta]);
     let b = distribute(&r, [model.mass * p.dd_pos.x, model.mass * p.dd_pos.y, model.moi * p.dd_theta]);
+    let q: Vec<Vec2> = model.load_q.iter().map(|q| q.rotate(p.theta)).collect();
+    let na = q.iter().map(|q| -model.mh * p.d_pos.dot(*q)).collect();
+    let nb = q.iter().map(|q| -model.mh * p.dd_pos.dot(*q)).collect();
 
     let mut x_cap = f64::INFINITY;
     for ci in &c {
@@ -173,7 +188,7 @@ fn linearize(model: &Model, p: &PathPoint) -> Point {
     if !x_cap.is_finite() {
         x_cap = 1e6;
     }
-    Point { a, b, c, x_cap }
+    Point { a, b, c, na, nb, x_cap }
 }
 
 /// `[lo, hi]` intersected with `|A·s + B| <= radius`, or None if empty.
@@ -192,6 +207,49 @@ fn clip_disc(lo: &mut f64, hi: &mut f64, a: Vec2, b: Vec2, radius: f64) -> bool 
     let root = disc.sqrt();
     *lo = lo.max((-qb - root) / (2.0 * qa));
     *hi = hi.min((-qb + root) / (2.0 * qa));
+    true
+}
+
+/// `[lo, hi]` intersected with the cone `|A·s + B| <= C·s + D`: the grip of a
+/// wheel whose load depends on `s̈`. The set is convex, so an interval.
+fn clip_cone(lo: &mut f64, hi: &mut f64, a: Vec2, b: Vec2, c: f64, d: f64) -> bool {
+    if c.abs() < 1e-12 {
+        return d >= 0.0 && clip_disc(lo, hi, a, b, d);
+    }
+    // The load cannot be negative: C·s + D >= 0.
+    if !clip_linear(lo, hi, c, d, 0.0, f64::INFINITY) {
+        return false;
+    }
+    let qa = a.norm2() - c * c;
+    let qb = 2.0 * (a.dot(b) - c * d);
+    let qc = b.norm2() - d * d;
+    if qa.abs() < 1e-12 {
+        // qb·s + qc <= 0
+        return clip_linear(lo, hi, qb, qc, f64::NEG_INFINITY, 0.0);
+    }
+    let disc = qb * qb - 4.0 * qa * qc;
+    if qa > 0.0 {
+        if disc < 0.0 {
+            return false;
+        }
+        let root = disc.sqrt();
+        *lo = lo.max((-qb - root) / (2.0 * qa));
+        *hi = hi.min((-qb + root) / (2.0 * qa));
+        return true;
+    }
+    // qa < 0: the load grows faster than the force; the feasible branch is the
+    // one where the load is positive.
+    if disc < 0.0 {
+        return true;
+    }
+    let root = disc.sqrt();
+    let (r1, r2) = ((-qb + root) / (2.0 * qa), (-qb - root) / (2.0 * qa));
+    let (r_lo, r_hi) = (r1.min(r2), r1.max(r2));
+    if c > 0.0 {
+        *lo = lo.max(r_hi);
+    } else {
+        *hi = hi.min(r_lo);
+    }
     true
 }
 
@@ -215,7 +273,8 @@ fn interval(model: &Model, pt: &Point, x: f64) -> Option<(f64, f64)> {
     let (mut lo, mut hi) = (f64::NEG_INFINITY, f64::INFINITY);
     for i in 0..pt.a.len() {
         let (a, b) = (pt.a[i], pt.b[i] * x);
-        if !clip_disc(&mut lo, &mut hi, a, b, model.grip) {
+        let (c, d) = (model.mu * pt.na[i], model.mu * (model.static_load + pt.nb[i] * x));
+        if !clip_cone(&mut lo, &mut hi, a, b, c, d) {
             return None;
         }
         let cn = pt.c[i].norm();
@@ -325,11 +384,13 @@ pub fn solve(robot: &RobotConfig, spec: &PathSpec, options: &SolverOptions) -> R
                     let speed = v.norm();
                     let dir = if speed > 1e-6 { v * (1.0 / speed) } else { pt.c[i].normalized() };
                     let along = if dir == Vec2::ZERO { f.norm() } else { f.dot(dir) };
+                    let load = model.static_load + pt.na[i] * sdd + pt.nb[i] * x;
                     ModuleSample {
                         speed_mps: speed,
                         angle_rad: if dir == Vec2::ZERO { 0.0 } else { wrap_angle(dir.y.atan2(dir.x) - p.theta) },
                         force_n: f.norm(),
-                        grip_used: f.norm() / model.grip,
+                        grip_used: f.norm() / (model.mu * load.max(1e-9)),
+                        load_n: load,
                         current_a: model.current_for(along),
                     }
                 })
@@ -454,6 +515,25 @@ mod tests {
         let (tf, ts) = (run(&fast, &s), run(&slow, &s));
         assert!(ts.duration_s > tf.duration_s * 1.1, "{} vs {}", ts.duration_s, tf.duration_s);
         assert_physical(&slow, &ts);
+    }
+
+    #[test]
+    fn a_high_center_of_mass_moves_load_backward_and_never_tips() {
+        let low = offseason2026();
+        let mut high = offseason2026();
+        high.cog_height_m = Some(0.6);
+        let s = spec(vec![wp(0.0, 0.0, Some(0.0)), wp(4.0, 0.0, Some(0.0))]);
+        let (tl, th) = (run(&low, &s), run(&high, &s));
+        assert!(th.duration_s > tl.duration_s, "{} vs {}", th.duration_s, tl.duration_s);
+        let launch = &th.samples[1];
+        // Accelerating forward: the rear wheels (bl, br) carry more.
+        assert!(launch.modules[2].load_n > launch.modules[0].load_n);
+        for smp in &th.samples {
+            assert!(smp.modules.iter().all(|m| m.load_n >= -1e-6));
+            let total: f64 = smp.modules.iter().map(|m| m.load_n).sum();
+            assert!((total - high.mass_kg * GRAVITY).abs() < 1e-6 * total);
+        }
+        assert_physical(&high, &th);
     }
 
     #[test]

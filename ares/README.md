@@ -17,26 +17,39 @@ compatible with anyone's files.
 
 ## Status
 
-`core/` exists: `robot.json`, the path, Ares' own time-optimal solver and the
-trajectory, with tests. There is a terminal entry point until the app exists:
+`core/` and `planner/` exist, with tests. There is a terminal entry point
+until the app exists:
 
-    cargo run --release --bin ares -- solve examples/robots/offseason2026.json examples/paths/hub-run.json -o hub-run.traj.json
+    cargo run --release --bin ares -- time examples/robots/offseason2026.json examples/paths/hub-run.json
+    cargo run --release --bin ares -- plan examples/robots/offseason2026.json examples/paths/hub-run.json -o hub-run.traj.json
 
-What the core already does that PathPlanner and Choreo do not:
+Planning is two stages:
+
+1. **`ares time`** (core): Ares' own time-optimal solver follows the spline
+   through the waypoints as fast as the robot can. Milliseconds; the best
+   timing for that exact curve.
+2. **`ares plan`** (planner): stage 1 warm-starts a full nonlinear program on
+   [Sleipnir](https://github.com/SleipnirGroup/Sleipnir) (the solver under
+   Choreo, built from source by CMake). The curve is free; waypoints are
+   constraints. On `hub-run` it is 14% faster than the spline, in ~150 ms.
+
+What both stages model that PathPlanner and Choreo do not:
 
 - **One `robot.json` per robot**, shared by every project, with the physics a
-  model needs (mass, inertia, the motors from MarsLink's table, their current
-  limit, the battery, the wheels' grip) and the 3D model the app draws.
-- **Per-module physics in the solver.** Every wheel's grip and every drive
-  motor's torque curve (current limit and back-EMF) bound the trajectory, and
-  translation, rotation and curve all draw from the same grip.
-- **Rotation is part of the path.** The arc length counts it, so a turn in
-  place is a trajectory like any other and spinning while driving costs the
-  time it really costs.
-- **C2 paths.** Quintic segments: the force the wheels are asked for never
-  jumps at a waypoint.
-- **Every sample says what each module does**: speed, angle, force, the grip
-  in use and the current the motor draws. Not just how fast, but why.
+  model needs (mass, inertia, center of mass height, the motors from
+  MarsLink's table, their current limit, the battery, the wheels' grip) and
+  the 3D model the app draws.
+- **The motor as it is**: current limit and back-EMF along each wheel, so
+  pushing fades toward free speed and braking does not. Choreo caps torque
+  only; PathPlanner caps one acceleration for the whole robot.
+- **Load transfer.** With the center of mass height, accelerating moves
+  weight to the trailing wheels, their grip follows, and no wheel is asked to
+  carry negative load: the robot never tips.
+- **Rotation is part of the path.** Translation, rotation and the curve all
+  draw from the same grip.
+- **The bumper**, not a point, against the field walls and keep-out circles.
+- **Every sample says what each module does**: speed, angle, force, load,
+  the grip in use and the current the motor draws. Not just how fast, but why.
 
 App: not started. Gazebo stage: not started.
 
@@ -65,8 +78,8 @@ Open for discussion; nothing here is decided.
 ares/
   app/        Tauri + React: the editor, on the MARS 3D field (Field 3D's assets)
   core/       Rust: the file format, the robot model, the field, constraints
-  planner/    stage 1 — the analytic optimizer: a time-optimal trajectory in
-              seconds, from the robot model (the role Choreo plays today)
+  planner/    the analytic optimizer: core's timing warm-starts the full NLP
+              on Sleipnir (the role Choreo plays today)
   refiner/    stage 2 — Gazebo in the loop: runs the trajectory in lockstep
               against the real robot code and optimizes what the analytic
               model cannot see (slip, terrain, collisions, tracking, timing)

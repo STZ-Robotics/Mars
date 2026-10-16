@@ -1,0 +1,18 @@
+[package]
+name = "ares-planner"
+version = "0.1.0"
+description = "Ares' trajectory optimizer: the full nonlinear program on Sleipnir, warm-started by the core's time-optimal solver"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ares-core = { path = "../core" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[build-dependencies]
+cmake = "0.1"
+
+[[bin]]
+name = "ares"
+path = "src/bin/ares.rs"
