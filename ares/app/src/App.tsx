@@ -10,12 +10,17 @@ import { newRobot, RobotConfig } from "./robot/types"
 type Page = "robot" | "paths" | "field"
 
 const LAST_ROBOT_KEY = "ares.lastRobot"
+const LAST_PAGE_KEY = "ares.lastPage"
 
 // The shell: MARS Desktop's chrome (dark menu bar, docked panels, status bar)
 // around Ares' pages. One robot is open at a time; its robot.json is the
 // document the File menu opens and saves.
 export default function App() {
-  const [page, setPage] = useState<Page>("robot")
+  const [page, setPage] = useState<Page>(() => {
+    try { const p = localStorage.getItem(LAST_PAGE_KEY); if (p === "robot" || p === "paths" || p === "field") return p } catch { /* first run */ }
+    return "robot"
+  })
+  useEffect(() => { try { localStorage.setItem(LAST_PAGE_KEY, page) } catch { /* nothing to remember */ } }, [page])
   const [robot, setRobot] = useState<RobotConfig>(newRobot)
   const [robotPath, setRobotPath] = useState<string | null>(null)
   const [saved, setSaved] = useState<string>(() => JSON.stringify(newRobot()))
