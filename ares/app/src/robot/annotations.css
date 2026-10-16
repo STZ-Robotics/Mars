@@ -122,3 +122,9 @@
 .ares-cog-height {
   margin-left: 16px;
 }
+
+/* The robot page's sidebar: its panels keep their full height and the column
+   scrolls, instead of flex squeezing them until their content is cut. */
+.ares-scroll > * {
+  flex-shrink: 0;
+}

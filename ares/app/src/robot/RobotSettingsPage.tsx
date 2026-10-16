@@ -76,13 +76,13 @@ export default function RobotSettingsPage({ robot, onChange, robotPath }: Props)
 
   return (
     <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
-      <div style={{ width: SIDEBAR_WIDTH, flexShrink: 0, display: "flex", flexDirection: "column", borderRight: "1px solid var(--border-main)", background: "var(--bg-panel)" }}>
+      <div style={{ width: SIDEBAR_WIDTH, flexShrink: 0, minHeight: 0, display: "flex", flexDirection: "column", borderRight: "1px solid var(--border-main)", background: "var(--bg-panel)" }}>
         <PageHeader
           eyebrow="Robot"
           title={robot.name || "Unnamed robot"}
           subtitle={robotPath ? fileNameOf(robotPath) : "Not saved yet"}
         />
-        <div style={{ flex: 1, overflowY: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 12 }}>
+        <div className="ares-scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 12 }}>
           <Panel title="Chassis" icon="ti-box">
             <PropertyRow label="Name">
               <input style={propertyInputStyle} value={robot.name} onChange={e => set({ name: e.target.value })} />
