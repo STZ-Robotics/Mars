@@ -40,6 +40,43 @@ pub struct Environment {
     pub field: Option<FieldSize>,
     #[serde(default)]
     pub keep_out: Vec<KeepOutCircle>,
+    /// Areas every path drives slower through.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub slow_zones: Vec<SlowZone>,
+}
+
+/// An area of the field with its own speed and acceleration caps: every
+/// path that passes through it obeys them there, wherever its waypoints are.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SlowZone {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(flatten)]
+    pub shape: ZoneShape,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_velocity_mps: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_acceleration_mps2: Option<f64>,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub exprs: ares_core::path::Exprs,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "shape", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ZoneShape {
+    Circle { x: f64, y: f64, radius_m: f64 },
+    /// x, y is the bottom-left corner.
+    Rectangle { x: f64, y: f64, width_m: f64, height_m: f64 },
+}
+
+impl ZoneShape {
+    pub fn contains(&self, px: f64, py: f64) -> bool {
+        match *self {
+            ZoneShape::Circle { x, y, radius_m } => (px - x).hypot(py - y) <= radius_m,
+            ZoneShape::Rectangle { x, y, width_m, height_m } => px >= x && px <= x + width_m && py >= y && py <= y + height_m,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -49,12 +86,14 @@ pub struct FieldSize {
     pub width_m: f64,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct KeepOutCircle {
     pub x: f64,
     pub y: f64,
     pub radius_m: f64,
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub exprs: ares_core::path::Exprs,
 }
 
 #[derive(Clone, Debug)]
@@ -65,6 +104,9 @@ pub struct PlannerOptions {
     pub tolerance: f64,
     pub max_iterations: u32,
     pub timeout: Duration,
+    /// Start moving at (vx, vy, omega) instead of at rest: a path that
+    /// continues another one. A stop on the first waypoint is then ignored.
+    pub start_state: Option<[f64; 3]>,
 }
 
 impl Default for PlannerOptions {
@@ -74,6 +116,7 @@ impl Default for PlannerOptions {
             tolerance: 1e-7,
             max_iterations: 3000,
             timeout: Duration::from_secs(60),
+            start_state: None,
         }
     }
 }
@@ -173,7 +216,10 @@ pub fn plan(
     groups.push((a, n - 1));
     let parts: Vec<Option<Planned>> = groups
         .iter()
-        .map(|&(a, b)| (b > a).then(|| plan_fixed(robot, &sub_spec(spec, a, b, &cuts), env, options)).transpose())
+        .map(|&(a, b)| {
+            let first = PlannerOptions { start_state: if a == 0 { options.start_state } else { None }, ..options.clone() };
+            (b > a).then(|| plan_fixed(robot, &sub_spec(spec, a, b, &cuts), env, &first)).transpose()
+        })
         .collect::<Result<_, _>>()?;
 
     // Stitch: part, pathfind estimate, part, ...
@@ -200,7 +246,7 @@ pub fn plan(
                     waypoint_times[a + k] = wt + offset;
                 }
                 splits.extend(t.splits.iter().map(|&k| k + start));
-                events.extend(t.events.iter().map(|e| TimedEvent { name: e.name.clone(), t: e.t + offset }));
+                events.extend(t.events.iter().map(|e| TimedEvent { name: e.name.clone(), t: e.t + offset, end_t: e.end_t.map(|x| x + offset) }));
                 spline += p.spline_duration_s;
                 iterations += p.iterations;
             }
@@ -227,7 +273,7 @@ pub fn plan(
                 }
             };
             let opts = spec.waypoints[j].pathfind_next.clone().unwrap_or_default();
-            let est = pathfind_estimate(robot, spec, env, &from, &to, &opts).map_err(|e| match e {
+            let est = pathfind_estimate(robot, spec, env, &from, &to, &opts, options.target_dt_s).map_err(|e| match e {
                 PlanError::Core(AresError::Path(msg)) => {
                     PlanError::Core(AresError::Path(format!("pathfinding from waypoint {} to {}: {msg}", j + 1, j + 2)))
                 }
@@ -301,14 +347,17 @@ fn sub_spec(spec: &PathSpec, a: usize, b: usize, cuts: &[usize]) -> PathSpec {
             Some(ScopedConstraint { from: local(lo), to: c.to.map(|_| local(hi)), ..c.clone() })
         })
         .collect();
-    let stop = |t: Target| ScopedConstraint { from: t, to: None, enabled: true, kind: ConstraintKind::StopPoint { wait_s: 0.0 } };
+    let stop = |t: Target| ScopedConstraint { from: t, to: None, enabled: true, kind: ConstraintKind::StopPoint { wait_s: 0.0 }, exprs: Default::default() };
     let has_stop = |s: &[ScopedConstraint], t: Target| {
         s.iter().any(|c| c.enabled && matches!(c.kind, ConstraintKind::StopPoint { .. }) && c.from == t && c.to.is_none())
     };
-    if a > 0 && cuts.contains(&(a - 1)) && !has_stop(&scoped, Target::First) {
+    // Hand-offs to a pathfind segment stop, unless it says to keep moving.
+    let moving_out = |j: usize| spec.waypoints[j].pathfind_next.as_ref().is_some_and(|p| p.keep_moving_out);
+    let moving_in = |j: usize| spec.waypoints[j].pathfind_next.as_ref().is_some_and(|p| p.keep_moving_in);
+    if a > 0 && cuts.contains(&(a - 1)) && !moving_out(a - 1) && !has_stop(&scoped, Target::First) {
         scoped.push(stop(Target::First));
     }
-    if cuts.contains(&b) && !has_stop(&scoped, Target::Last) {
+    if cuts.contains(&b) && !moving_in(b) && !has_stop(&scoped, Target::Last) {
         scoped.push(stop(Target::Last));
     }
     let events = spec
@@ -317,7 +366,21 @@ fn sub_spec(spec: &PathSpec, a: usize, b: usize, cuts: &[usize]) -> PathSpec {
         .filter(|e| (a..=b).contains(&e.target.resolve(n)))
         .map(|e| ares_core::path::EventMarker { target: local(e.target.resolve(n)), ..e.clone() })
         .collect();
-    PathSpec { name: spec.name.clone(), waypoints, constraints: spec.constraints.clone(), scoped, events }
+    let rotation_targets = spec
+        .rotation_targets
+        .iter()
+        .filter(|r| r.segment >= a && r.segment < b)
+        .map(|r| ares_core::path::RotationTarget { segment: r.segment - a, ..r.clone() })
+        .collect();
+    PathSpec {
+        name: spec.name.clone(),
+        waypoints,
+        constraints: spec.constraints.clone(),
+        scoped,
+        events,
+        rotation_targets,
+        continues_from: if a == 0 { spec.continues_from.clone() } else { None },
+    }
 }
 
 /// What the robot will probably do when it pathfinds from `from` to `to`:
@@ -331,6 +394,7 @@ fn pathfind_estimate(
     from: &Sample,
     to: &Sample,
     opts: &ares_core::path::PathfindOptions,
+    _dt: f64,
 ) -> Result<Trajectory, PlanError> {
     use ares_core::path::{ScopedConstraint, Target, Waypoint};
     let reach = 0.5 * robot.bumper.length_m.hypot(robot.bumper.width_m);
@@ -342,6 +406,8 @@ fn pathfind_estimate(
     waypoints.extend(corners.iter().map(|c| Waypoint { x: c.x, y: c.y, ..Default::default() }));
     waypoints.push(Waypoint { x: b.x, y: b.y, heading_deg: Some(to.heading.to_degrees()), ..Default::default() });
     let mut s = PathSpec::new("pathfind", waypoints);
+    // Its ends move or stop as the hand-offs say, not by default.
+    s.scoped.clear();
     s.constraints.max_velocity_mps = opts.max_velocity_mps;
     s.constraints.max_angular_velocity_dps = opts.max_angular_velocity_dps;
     if let Some(a) = opts.max_acceleration_mps2 {
@@ -350,9 +416,11 @@ fn pathfind_estimate(
             to: Some(Target::Last),
             enabled: true,
             kind: ConstraintKind::MaxAcceleration { mps2: a },
-        });
+       exprs: Default::default() });
     }
-    Ok(ares_core::solve(robot, &s, &SolverOptions::default())?)
+    // Moving hand-offs: in and out at the speed the parts around it have.
+    let (v0, v1) = (from.vx.hypot(from.vy), to.vx.hypot(to.vy));
+    Ok(ares_core::solve_between(robot, &s, &SolverOptions::default(), v0, v1)?)
 }
 
 fn plan_fixed(
@@ -363,6 +431,18 @@ fn plan_fixed(
 ) -> Result<Planned, PlanError> {
     let started = Instant::now();
     validate(spec)?;
+    // Continuing another path, it starts moving: a stop on the first
+    // waypoint (every path has one by default) does not apply.
+    let without_first_stop;
+    let spec = if options.start_state.is_some() {
+        let n = spec.waypoints.len();
+        let mut s = spec.clone();
+        s.scoped.retain(|c| !(matches!(c.kind, ConstraintKind::StopPoint { .. }) && c.range(n) == (0, 0)));
+        without_first_stop = s;
+        &without_first_stop
+    } else {
+        spec
+    };
     let sw = robot.swerve();
     let reach = 0.5 * robot.bumper.length_m.hypot(robot.bumper.width_m);
 
@@ -402,7 +482,25 @@ fn plan_fixed(
         }
         start.push(times.len() - 1);
     }
-    let guess: Vec<Sample> = times.iter().map(|&t| warm.sample_at(t)).collect();
+    let mut guess: Vec<Sample> = times.iter().map(|&t| warm.sample_at(t)).collect();
+    // Rotation targets in the warm start too: the heading bends toward each
+    // target over its segment, so the solver starts near it instead of a
+    // half turn away.
+    for r in &spec.rotation_targets {
+        if r.segment + 1 >= routed.index_of.len() {
+            continue;
+        }
+        let (s0, s1) = (start[routed.index_of[r.segment]], start[routed.index_of[r.segment + 1]]);
+        if s1 <= s0 {
+            continue;
+        }
+        let k = (s0 as f64 + r.fraction.clamp(0.0, 1.0) * (s1 - s0) as f64).round() as usize;
+        let delta = wrap_angle(r.heading_deg.to_radians() - guess[k].heading);
+        for (i, q) in guess.iter_mut().enumerate().take(s1 + 1).skip(s0) {
+            let w = if i <= k { (i - s0) as f64 / (k - s0).max(1) as f64 } else { (s1 - i) as f64 / (s1 - k).max(1) as f64 };
+            q.heading += delta * w;
+        }
+    }
     let col = |f: fn(&Sample) -> f64| guess.iter().map(f).collect::<Vec<f64>>();
     let (gx, gy, gth) = (col(|s| s.x), col(|s| s.y), col(|s| s.heading));
     let (gvx, gvy, gw) = (col(|s| s.vx), col(|s| s.vy), col(|s| s.omega));
@@ -454,6 +552,23 @@ fn plan_fixed(
         }
     }
 
+    // Continuing another path: its end speed is this one's start, and a stop
+    // on the first waypoint would contradict it.
+    if let Some([vx, vy, w]) = options.start_state {
+        wp_flags[0] &= !ffi::WP_STOP;
+        constraints.push(ffi::Constraint { kind: ffi::C_VELOCITY, from: 0, to: 0, p: [vx, vy, w, 0.0, 0.0, 0.0, 0.0, 0.0] });
+    }
+
+    // Rotation targets: a heading at a fraction of a segment's samples.
+    for r in &spec.rotation_targets {
+        if r.segment + 1 >= routed.index_of.len() {
+            continue;
+        }
+        let (s0, s1) = (start[routed.index_of[r.segment]], start[routed.index_of[r.segment + 1]]);
+        let k = (s0 as f64 + r.fraction.clamp(0.0, 1.0) * (s1 - s0) as f64).round() as i32;
+        constraints.push(ffi::Constraint { kind: ffi::C_HEADING, from: k, to: k, p: [r.heading_deg.to_radians(), 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] });
+    }
+
     // Manual segments: the robot stays on the user's curve.
     for (j, pts) in work.manual_curves() {
         constraints.push(ffi::Constraint {
@@ -469,42 +584,93 @@ fn plan_fixed(
     let circles: Vec<f64> = env.keep_out.iter().flat_map(|c| [c.x, c.y, c.radius_m]).collect();
     let field = env.field.unwrap_or(FieldSize { length_m: 0.0, width_m: 0.0 });
 
-    let problem = ffi::Problem {
-        mass_kg: robot.mass_kg,
-        moi_kg_m2: robot.moi_kg_m2,
-        gravity: GRAVITY,
-        cog_height_m: robot.cog_height_m.unwrap_or(0.0),
-        min_load_n: MIN_LOAD_FRACTION * robot.mass_kg * GRAVITY / sw.modules.len() as f64,
-        wheel_cof: sw.wheel_cof,
-        module_xy: &module_xy,
-        wheel_free_speed_mps: robot.max_module_speed(),
-        f_current_n: d.f_current,
-        f_volt_n: d.f_volt,
-        f_emf_n_per_mps: d.f_emf,
-        bumper_length_m: robot.bumper.length_m,
-        bumper_width_m: robot.bumper.width_m,
-        intervals: &intervals,
-        wp_flags: &wp_flags,
-        wp_values: &wp_values,
-        max_velocity_mps: spec.constraints.max_velocity_mps.unwrap_or(0.0),
-        max_omega_radps: spec.constraints.max_angular_velocity_dps.map_or(0.0, f64::to_radians),
-        field_length_m: field.length_m,
-        field_width_m: field.width_m,
-        circle_xyr: &circles,
-        constraints: &constraints,
-        guess: [&gx, &gy, &gth, &gvx, &gvy, &gw, &gax, &gay, &gal],
-        guess_dt: &guess_dt,
-        tolerance: options.tolerance,
-        max_iterations: options.max_iterations as i32,
-        timeout_s: options.timeout.as_secs_f64(),
+    // Slow zones act on the samples inside them. Which those are depends on
+    // the answer, so: guess from the warm start, solve, and if the solution
+    // went through other parts of a zone, add them and solve again.
+    let zone_caps = |flags: &[Vec<bool>]| -> Vec<ffi::Constraint> {
+        let mut out = Vec::new();
+        for (z, inside) in env.slow_zones.iter().zip(flags) {
+            let mut k = 0;
+            while k < inside.len() {
+                if !inside[k] {
+                    k += 1;
+                    continue;
+                }
+                let a = k.saturating_sub(1);
+                while k < inside.len() && inside[k] {
+                    k += 1;
+                }
+                let b = k.min(inside.len() - 1);
+                let rec = |kind, v: f64| ffi::Constraint { kind, from: a as i32, to: b as i32, p: [v, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] };
+                if let Some(v) = z.max_velocity_mps {
+                    out.push(rec(ffi::C_MAX_VELOCITY, v));
+                }
+                if let Some(acc) = z.max_acceleration_mps2 {
+                    out.push(rec(ffi::C_MAX_ACCELERATION, acc));
+                }
+            }
+        }
+        out
     };
-    let sol = ffi::solve(&problem);
-    // 1 is the stall stop and -9 the iteration cap: both leave an iterate
-    // that may well be the answer, which the physics check below decides.
-    let maybe_done = sol.status == 0 || sol.status == 1 || sol.status == -9;
-    if !maybe_done {
-        return Err(PlanError::Solver { status: sol.status, reason: status_reason(sol.status) });
-    }
+    let mut zone_flags: Vec<Vec<bool>> = env
+        .slow_zones
+        .iter()
+        .map(|z| (0..gx.len()).map(|k| z.shape.contains(gx[k], gy[k])).collect())
+        .collect();
+    let mut pass = 0;
+    let sol = loop {
+        let mut all = constraints.clone();
+        all.extend(zone_caps(&zone_flags));
+        let problem = ffi::Problem {
+            mass_kg: robot.mass_kg,
+            moi_kg_m2: robot.moi_kg_m2,
+            gravity: GRAVITY,
+            cog_height_m: robot.cog_height_m.unwrap_or(0.0),
+            min_load_n: MIN_LOAD_FRACTION * robot.mass_kg * GRAVITY / sw.modules.len() as f64,
+            wheel_cof: sw.wheel_cof,
+            module_xy: &module_xy,
+            wheel_free_speed_mps: robot.max_module_speed(),
+            f_current_n: d.f_current,
+            f_volt_n: d.f_volt,
+            f_emf_n_per_mps: d.f_emf,
+            bumper_length_m: robot.bumper.length_m,
+            bumper_width_m: robot.bumper.width_m,
+            intervals: &intervals,
+            wp_flags: &wp_flags,
+            wp_values: &wp_values,
+            max_velocity_mps: spec.constraints.max_velocity_mps.unwrap_or(0.0),
+            max_omega_radps: spec.constraints.max_angular_velocity_dps.map_or(0.0, f64::to_radians),
+            field_length_m: field.length_m,
+            field_width_m: field.width_m,
+            circle_xyr: &circles,
+            constraints: &all,
+            guess: [&gx, &gy, &gth, &gvx, &gvy, &gw, &gax, &gay, &gal],
+            guess_dt: &guess_dt,
+            tolerance: options.tolerance,
+            max_iterations: options.max_iterations as i32,
+            timeout_s: options.timeout.as_secs_f64(),
+        };
+        let sol = ffi::solve(&problem);
+        // 1 is the stall stop and -9 the iteration cap: both leave an iterate
+        // that may well be the answer, which the physics check below decides.
+        let maybe_done = sol.status == 0 || sol.status == 1 || sol.status == -9;
+        if !maybe_done {
+            return Err(PlanError::Solver { status: sol.status, reason: status_reason(sol.status) });
+        }
+        let mut grew = false;
+        for (z, flags) in env.slow_zones.iter().zip(zone_flags.iter_mut()) {
+            for k in 0..flags.len() {
+                if !flags[k] && z.shape.contains(sol.x[k], sol.y[k]) {
+                    flags[k] = true;
+                    grew = true;
+                }
+            }
+        }
+        pass += 1;
+        if !grew || pass >= 3 {
+            break sol;
+        }
+    };
 
     // Back to a Trajectory, with what every module does.
     let m = sw.modules.len();
@@ -630,9 +796,9 @@ fn plan_fixed(
     let events = spec
         .events
         .iter()
-        .map(|e| TimedEvent {
-            name: e.name.clone(),
-            t: (waypoint_times[e.target.resolve(spec.waypoints.len())] + e.offset_s).clamp(0.0, t),
+        .map(|e| {
+            let start = (waypoint_times[e.target.resolve(spec.waypoints.len())] + e.offset_s).clamp(0.0, t);
+            TimedEvent { name: e.name.clone(), t: start, end_t: e.duration_s.map(|d| (start + d.max(0.0)).min(t)) }
         })
         .collect();
 
@@ -812,6 +978,13 @@ pub fn check_physics(robot: &RobotConfig, spec: &PathSpec, env: &Environment, t:
                 let (x, y) = (q.x + c * bx - sn * by, q.y + sn * bx + c * by);
                 if x < -POS_TOL || y < -POS_TOL || x > f.length_m + POS_TOL || y > f.width_m + POS_TOL {
                     return Err(format!("the bumper leaves the field at t = {:.3}", q.t));
+                }
+            }
+        }
+        for z in &env.slow_zones {
+            if z.shape.contains(q.x, q.y) {
+                if z.max_velocity_mps.is_some_and(|v| q.vx.hypot(q.vy) > v * LIMIT_TOL) {
+                    return Err(format!("goes too fast through a slow zone at t = {:.3}", q.t));
                 }
             }
         }

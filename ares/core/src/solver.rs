@@ -322,6 +322,18 @@ fn max_velocity_curve(model: &Model, pt: &Point) -> f64 {
 }
 
 pub fn solve(robot: &RobotConfig, spec: &PathSpec, options: &SolverOptions) -> Result<Trajectory, AresError> {
+    solve_between(robot, spec, options, 0.0, 0.0)
+}
+
+/// `solve`, starting at `v_start` and ending at `v_end` m/s along the path
+/// instead of at rest (capped by what the robot can do there).
+pub fn solve_between(
+    robot: &RobotConfig,
+    spec: &PathSpec,
+    options: &SolverOptions,
+    v_start: f64,
+    v_end: f64,
+) -> Result<Trajectory, AresError> {
     robot.validate()?;
     for (name, v) in [
         ("maxVelocityMps", spec.constraints.max_velocity_mps),
@@ -347,6 +359,11 @@ pub fn solve(robot: &RobotConfig, spec: &PathSpec, options: &SolverOptions) -> R
     // point and still brake for everything ahead. The step is implicit in x_k,
     // so it is iterated to a fixed point; it converges in two or three.
     let mut beta = vec![0.0_f64; n + 1];
+    let speed2 = |v: f64, k: usize| {
+        let d = path.points[k].d_pos.norm2();
+        if d > 1e-12 { v * v / d } else { 0.0 }
+    };
+    beta[n] = speed2(v_end, n).min(mvc[n]);
     for k in (0..n).rev() {
         let mut xk = mvc[k].min(beta[k + 1]);
         for _ in 0..4 {
@@ -357,6 +374,7 @@ pub fn solve(robot: &RobotConfig, spec: &PathSpec, options: &SolverOptions) -> R
 
     // Forward: from rest, as hard as the robot can, never above `beta`.
     let mut alpha = vec![0.0_f64; n + 1];
+    alpha[0] = speed2(v_start, 0).min(mvc[0]).min(beta[0]);
     for k in 0..n {
         let x = alpha[k].min(mvc[k]);
         let Some((_, hi)) = interval(&model, &pts[k], x) else {
@@ -559,10 +577,10 @@ mod tests {
         use crate::path::{ConstraintKind, ScopedConstraint, Target};
         let robot = offseason2026();
         let mut s = spec(vec![wp(0.0, 0.0, Some(0.0)), wp(4.0, 0.0, None), wp(8.0, 0.0, Some(0.0))]);
-        s.scoped.push(ScopedConstraint { from: Target::Index(1), to: None, enabled: true, kind: ConstraintKind::StopPoint { wait_s: 0.0 } });
+        s.scoped.push(ScopedConstraint { from: Target::Index(1), to: None, enabled: true, kind: ConstraintKind::StopPoint { wait_s: 0.0 }, exprs: Default::default() });
         s.scoped.push(ScopedConstraint {
             from: Target::Index(1), to: Some(Target::Last), enabled: true, kind: ConstraintKind::MaxVelocity { mps: 1.5 },
-        });
+       exprs: Default::default() });
         let t = run(&robot, &s);
         let mid = t.samples.iter().min_by(|a, b| (a.x - 4.0).abs().total_cmp(&(b.x - 4.0).abs())).unwrap();
         assert!(mid.vx.abs() < 1e-6, "{}", mid.vx);

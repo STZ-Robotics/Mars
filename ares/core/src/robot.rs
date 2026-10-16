@@ -78,6 +78,10 @@ pub struct RobotConfig {
     pub drivetrain: Drivetrain,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<ModelRef>,
+    /// Expressions behind numeric fields, by dotted path
+    /// (`"drivetrain.wheelRadiusM"`); see `path::Exprs`.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub exprs: crate::path::Exprs,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -321,6 +325,7 @@ pub(crate) mod tests {
                 max_speed_fraction: None,
             }),
             model: None,
+            exprs: Default::default(),
         }
     }
 

@@ -18,10 +18,18 @@
 //!   sees translation and rotation competing for the same wheels, which they
 //!   do.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::error::AresError;
 use crate::geometry::{wrap_angle, Vec2};
+
+/// Expressions behind numeric fields, by field name (`"x"`, `"maxVelocityMps"`),
+/// as the user typed them in the app (`hub.x - 0.5`). The app evaluates them
+/// against the project's variables and writes the number into the field;
+/// Ares' Rust side only ever reads the number and keeps these as they are.
+pub type Exprs = BTreeMap<String, String>;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -62,6 +70,8 @@ pub struct Waypoint {
     /// actually is. Ares shows the likely route and its time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pathfind_next: Option<PathfindOptions>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub exprs: Exprs,
 }
 
 /// The limits the robot pathfinds with (PathPlanner's PathConstraints).
@@ -75,6 +85,15 @@ pub struct PathfindOptions {
     pub max_acceleration_mps2: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_angular_velocity_dps: Option<f64>,
+    /// Enter the pathfind segment moving: the part before does not stop at
+    /// the hand-off.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub keep_moving_in: bool,
+    /// Leave it moving: the part after starts at speed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub keep_moving_out: bool,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub exprs: Exprs,
 }
 
 /// Choreo's three waypoint types.
@@ -138,6 +157,8 @@ pub struct ScopedConstraint {
     pub enabled: bool,
     #[serde(flatten)]
     pub kind: ConstraintKind,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub exprs: Exprs,
 }
 
 fn yes() -> bool {
@@ -192,13 +213,37 @@ pub struct EventMarker {
     /// Seconds after (positive) or before (negative) the waypoint.
     #[serde(default)]
     pub offset_s: f64,
+    /// A zone instead of a moment: the event lasts this long (PathPlanner's
+    /// zoned events), from start to end.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_s: Option<f64>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub exprs: Exprs,
+}
+
+impl Default for EventMarker {
+    fn default() -> Self {
+        EventMarker { name: String::new(), target: Target::First, offset_s: 0.0, duration_s: None, exprs: Exprs::new() }
+    }
+}
+
+/// A heading to hit partway along a segment (PathPlanner's rotation
+/// targets): at `fraction` of the way from waypoint `segment` to the next.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RotationTarget {
+    pub segment: usize,
+    pub fraction: f64,
+    pub heading_deg: f64,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub exprs: Exprs,
 }
 
 /// Files from before scoped constraints stopped at both ends implicitly.
 pub fn default_scoped() -> Vec<ScopedConstraint> {
     vec![
-        ScopedConstraint { from: Target::First, to: None, enabled: true, kind: ConstraintKind::StopPoint { wait_s: 0.0 } },
-        ScopedConstraint { from: Target::Last, to: None, enabled: true, kind: ConstraintKind::StopPoint { wait_s: 0.0 } },
+        ScopedConstraint { from: Target::First, to: None, enabled: true, kind: ConstraintKind::StopPoint { wait_s: 0.0 }, exprs: Exprs::new() },
+        ScopedConstraint { from: Target::Last, to: None, enabled: true, kind: ConstraintKind::StopPoint { wait_s: 0.0 }, exprs: Exprs::new() },
     ]
 }
 
@@ -210,6 +255,8 @@ pub struct PathConstraints {
     pub max_velocity_mps: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_angular_velocity_dps: Option<f64>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub exprs: Exprs,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -225,12 +272,26 @@ pub struct PathSpec {
     pub scoped: Vec<ScopedConstraint>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub events: Vec<EventMarker>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rotation_targets: Vec<RotationTarget>,
+    /// Starts where another path of the project ends, at its speed: the two
+    /// run back to back without stopping. The start pose comes from it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub continues_from: Option<String>,
 }
 
 impl PathSpec {
     /// A path with the given waypoints, stopping at both ends.
     pub fn new(name: impl Into<String>, waypoints: Vec<Waypoint>) -> Self {
-        PathSpec { name: name.into(), waypoints, constraints: PathConstraints::default(), scoped: default_scoped(), events: vec![] }
+        PathSpec {
+            name: name.into(),
+            waypoints,
+            constraints: PathConstraints::default(),
+            scoped: default_scoped(),
+            events: vec![],
+            rotation_targets: vec![],
+            continues_from: None,
+        }
     }
 }
 

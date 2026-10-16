@@ -77,7 +77,7 @@ fn turning_in_place_works() {
 #[test]
 fn it_goes_around_a_keep_out_circle() {
     let r = robot();
-    let env = Environment { field: None, keep_out: vec![KeepOutCircle { x: 3.0, y: 0.0, radius_m: 0.5 }] };
+    let env = Environment { field: None, keep_out: vec![KeepOutCircle { x: 3.0, y: 0.0, radius_m: 0.5, ..Default::default() }], ..Default::default() };
     let p = run(&r, &spec(vec![wp(0.0, 0.0, Some(0.0)), wp(6.0, 0.0, Some(0.0))]), &env);
     // The bumper's center stays at least the circle plus half the bumper away.
     let clearance = p.trajectory.samples.iter().map(|s| (s.x - 3.0).hypot(s.y)).fold(f64::MAX, f64::min);
@@ -88,7 +88,7 @@ fn it_goes_around_a_keep_out_circle() {
 #[test]
 fn the_walls_keep_the_bumper_in() {
     let r = robot();
-    let env = Environment { field: Some(FieldSize { length_m: 16.54, width_m: 8.07 }), keep_out: vec![] };
+    let env = Environment { field: Some(FieldSize { length_m: 16.54, width_m: 8.07 }), ..Default::default() };
     // A start against the wall and a curve that would like to swing out.
     let p = run(&r, &spec(vec![wp(0.5, 0.5, Some(0.0)), wp(4.0, 0.6, None), wp(4.0, 4.0, Some(0.0))]), &env);
     let (hl, hw) = (r.bumper.length_m / 2.0, r.bumper.width_m / 2.0);
@@ -151,7 +151,7 @@ fn load_transfer_off_an_axis_converges() {
 
 fn scoped(from: usize, to: Option<usize>, kind: ares_core::path::ConstraintKind) -> ares_core::path::ScopedConstraint {
     use ares_core::path::Target;
-    ares_core::path::ScopedConstraint { from: Target::Index(from), to: to.map(Target::Index), enabled: true, kind }
+    ares_core::path::ScopedConstraint { from: Target::Index(from), to: to.map(Target::Index), enabled: true, kind, exprs: Default::default() }
 }
 
 #[test]
@@ -162,9 +162,10 @@ fn a_keep_out_across_the_straight_line_is_skirted_not_looped() {
     let env = Environment {
         field: Some(FieldSize { length_m: 16.535, width_m: 8.069 }),
         keep_out: vec![
-            KeepOutCircle { x: 4.707, y: 4.008, radius_m: 0.916 },
-            KeepOutCircle { x: 8.264, y: 6.515, radius_m: 0.951 },
+            KeepOutCircle { x: 4.707, y: 4.008, radius_m: 0.916, ..Default::default() },
+            KeepOutCircle { x: 8.264, y: 6.515, radius_m: 0.951, ..Default::default() },
         ],
+        ..Default::default()
     };
     let s = spec(vec![wp(2.449, 6.846, Some(0.0)), wp(15.108, 6.181, None)]);
     let p = run(&r, &s, &env);
@@ -251,7 +252,7 @@ fn events_and_splits_land_on_the_trajectory() {
     let mut w = vec![wp(1.0, 1.0, Some(0.0)), wp(4.0, 2.0, None), wp(7.0, 1.0, Some(0.0))];
     w[1].split = true;
     let mut s = spec(w);
-    s.events.push(EventMarker { name: "intake".into(), target: Target::Index(1), offset_s: -0.2 });
+    s.events.push(EventMarker { name: "intake".into(), target: Target::Index(1), offset_s: -0.2, ..Default::default() });
     let p = run(&r, &s, &Environment::default());
     let t = &p.trajectory;
     assert_eq!(t.waypoint_times.len(), 3);
@@ -276,7 +277,7 @@ fn a_wait_at_a_stop_holds_still_and_shifts_the_rest() {
     let base = {
         let mut s = spec(vec![wp(1.0, 1.0, Some(0.0)), wp(4.0, 2.0, None), wp(7.0, 1.0, Some(0.0))]);
         s.scoped.push(scoped(1, None, ConstraintKind::StopPoint { wait_s: 0.0 }));
-        s.events.push(EventMarker { name: "after".into(), target: Target::Index(2), offset_s: 0.0 });
+        s.events.push(EventMarker { name: "after".into(), target: Target::Index(2), offset_s: 0.0, ..Default::default() });
         s
     };
     let mut waiting = base.clone();
@@ -325,7 +326,8 @@ fn a_pathfind_segment_splits_the_path_and_estimates_the_route() {
     let r = robot();
     let env = Environment {
         field: Some(FieldSize { length_m: 16.535, width_m: 8.069 }),
-        keep_out: vec![KeepOutCircle { x: 6.0, y: 4.0, radius_m: 1.0 }],
+        keep_out: vec![KeepOutCircle { x: 6.0, y: 4.0, radius_m: 1.0, ..Default::default() }],
+        ..Default::default()
     };
     let mut w = vec![wp(1.5, 4.0, Some(0.0)), wp(3.5, 4.0, Some(0.0)), wp(8.5, 4.0, Some(180.0)), wp(10.0, 5.0, Some(180.0))];
     w[1].pathfind_next = Some(PathfindOptions { max_velocity_mps: Some(3.0), ..Default::default() });
@@ -349,3 +351,69 @@ fn a_pathfind_segment_splits_the_path_and_estimates_the_route() {
     assert!(t.waypoint_times.windows(2).all(|w| w[1] > w[0]));
     assert!((t.duration_s - t.samples.last().unwrap().t).abs() < 1e-9);
 }
+
+#[test]
+fn a_slow_zone_slows_any_path_through_it() {
+    use ares_planner::{SlowZone, ZoneShape};
+    let r = robot();
+    let zone = SlowZone {
+        name: None,
+        shape: ZoneShape::Rectangle { x: 3.0, y: 0.0, width_m: 2.0, height_m: 3.0 },
+        max_velocity_mps: Some(1.5),
+        max_acceleration_mps2: None,
+        exprs: Default::default(),
+    };
+    let env = Environment { slow_zones: vec![zone.clone()], ..Default::default() };
+    let p = run(&r, &spec(vec![wp(0.5, 1.0, Some(0.0)), wp(8.0, 1.5, Some(0.0))]), &env);
+    let inside: Vec<_> = p.trajectory.samples.iter().filter(|q| zone.shape.contains(q.x, q.y)).collect();
+    assert!(!inside.is_empty());
+    for q in inside {
+        assert!(q.vx.hypot(q.vy) <= 1.5 * 1.01, "{:.2} m/s in the zone at t = {:.2}", q.vx.hypot(q.vy), q.t);
+    }
+    assert!(p.trajectory.max_speed() > 3.0, "the cap leaked out of the zone");
+}
+
+#[test]
+fn a_rotation_target_is_hit_partway() {
+    use ares_core::path::RotationTarget;
+    let r = robot();
+    let mut s = spec(vec![wp(1.0, 1.0, Some(0.0)), wp(7.0, 1.0, Some(0.0))]);
+    s.rotation_targets.push(RotationTarget { segment: 0, fraction: 0.5, heading_deg: 90.0, exprs: Default::default() });
+    let p = run(&r, &s, &Environment::default());
+    let best = p.trajectory.samples.iter().map(|q| (q.heading.to_degrees() - 90.0).abs()).fold(f64::MAX, f64::min);
+    assert!(best < 0.5, "closest heading to 90° was {best}° off");
+}
+
+#[test]
+fn an_event_zone_has_an_end() {
+    use ares_core::path::{EventMarker, Target};
+    let r = robot();
+    let mut s = spec(vec![wp(1.0, 1.0, Some(0.0)), wp(6.0, 1.0, Some(0.0))]);
+    s.events.push(EventMarker { name: "intake".into(), target: Target::First, offset_s: 0.2, duration_s: Some(0.5), ..Default::default() });
+    let p = run(&r, &s, &Environment::default());
+    let e = &p.trajectory.events[0];
+    assert!((e.end_t.unwrap() - e.t - 0.5).abs() < 1e-9);
+}
+
+#[test]
+fn a_pathfind_segment_can_be_entered_and_left_moving() {
+    use ares_core::path::PathfindOptions;
+    let r = robot();
+    let mut w = vec![wp(1.0, 4.0, Some(0.0)), wp(4.0, 4.0, Some(0.0)), wp(8.0, 4.0, Some(0.0)), wp(11.0, 4.0, Some(0.0))];
+    w[1].pathfind_next = Some(PathfindOptions { keep_moving_in: true, keep_moving_out: true, ..Default::default() });
+    let p = run(&r, &spec(w), &Environment { field: Some(FieldSize { length_m: 16.5, width_m: 8.0 }), ..Default::default() });
+    let span = &p.trajectory.pathfind[0];
+    let (a, b) = (&p.trajectory.samples[span.start_sample], &p.trajectory.samples[span.end_sample]);
+    assert!(a.vx.hypot(a.vy) > 0.5, "entered at rest");
+    assert!(b.vx.hypot(b.vy) > 0.5, "left at rest");
+}
+
+#[test]
+fn a_path_can_start_moving_where_another_ended() {
+    let r = robot();
+    let opts = PlannerOptions { start_state: Some([2.0, 0.0, 0.0]), ..Default::default() };
+    let p = plan(&r, &spec(vec![wp(1.0, 1.0, Some(0.0)), wp(6.0, 2.0, Some(0.0))]), &Environment::default(), &opts).unwrap();
+    let first = &p.trajectory.samples[0];
+    assert!((first.vx - 2.0).abs() < 1e-3 && first.vy.abs() < 1e-3, "{} {}", first.vx, first.vy);
+}
+

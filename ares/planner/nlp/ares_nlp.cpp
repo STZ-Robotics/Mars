@@ -347,6 +347,17 @@ extern "C" int ares_nlp_solve(const AresNlpProblem* p, AresNlpResult* out) {
             case ARES_C_MAX_ACCELERATION:
               problem.subject_to(ax[k] * ax[k] + ay[k] * ay[k] <= q.p[0] * q.p[0]);
               break;
+            case ARES_C_HEADING: {
+              const double ch = std::cos(q.p[0]), sh = std::sin(q.p[0]);
+              problem.subject_to(s[k] * ch - c[k] * sh == 0.0);
+              problem.subject_to(c[k] * ch + s[k] * sh >= 0.0);
+              break;
+            }
+            case ARES_C_VELOCITY:
+              problem.subject_to(vx[k] == q.p[0]);
+              problem.subject_to(vy[k] == q.p[1]);
+              problem.subject_to(w[k] == q.p[2]);
+              break;
             case ARES_C_MAX_OMEGA:
               problem.subject_to(w[k] * w[k] <= q.p[0] * q.p[0]);
               break;

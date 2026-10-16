@@ -264,7 +264,7 @@ mod tests {
                 Waypoint { x: 9.0, y: 7.0, heading_deg: Some(0.0), ..Default::default() },
             ],
         );
-        spec.scoped.push(ScopedConstraint { from: Target::Index(1), to: None, enabled: true, kind: ConstraintKind::StopPoint { wait_s: 0.0 } });
+        spec.scoped.push(ScopedConstraint { from: Target::Index(1), to: None, enabled: true, kind: ConstraintKind::StopPoint { wait_s: 0.0 }, exprs: Default::default() });
         let free = Free { obstacles: vec![Obstacle { center: Vec2::new(5.0, 4.0), radius: 1.0 }], bounds: field() };
         let r = route(&spec, &free, 0.39);
         assert!(r.spec.waypoints.len() > 3);

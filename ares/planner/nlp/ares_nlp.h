@@ -33,6 +33,8 @@ enum {
   ARES_C_KEEP_IN_LANE = 7,     /* p0, p1 -> p2, p3 = the line; p4 = tolerance */
   ARES_C_KEEP_OUT_CIRCLE = 8,  /* p0, p1 = center; p2 = radius */
   ARES_C_ON_BEZIER = 9,        /* p0..p7 = the cubic's four points; from/to = its ends */
+  ARES_C_HEADING = 10,         /* p0 = heading rad, at samples [from, to] */
+  ARES_C_VELOCITY = 11,        /* p0, p1, p2 = vx, vy, omega, at samples [from, to] */
 };
 
 typedef struct {

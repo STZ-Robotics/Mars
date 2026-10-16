@@ -16,6 +16,8 @@ pub const C_KEEP_IN_RECT: c_int = 6;
 pub const C_KEEP_IN_LANE: c_int = 7;
 pub const C_KEEP_OUT_CIRCLE: c_int = 8;
 pub const C_ON_BEZIER: c_int = 9;
+pub const C_HEADING: c_int = 10;
+pub const C_VELOCITY: c_int = 11;
 
 /// A constraint over samples `from..=to`; `p` as `ares_nlp.h` documents per kind.
 #[repr(C)]

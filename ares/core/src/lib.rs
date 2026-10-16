@@ -23,5 +23,5 @@ pub mod trajectory;
 pub use error::AresError;
 pub use path::{PathConstraints, PathSpec, Waypoint};
 pub use robot::RobotConfig;
-pub use solver::{solve, SolverOptions};
+pub use solver::{solve, solve_between, SolverOptions};
 pub use trajectory::Trajectory;

@@ -32,6 +32,8 @@ pub struct FieldDoc {
     pub walls: bool,
     #[serde(default)]
     pub keep_out: Vec<ares_planner::KeepOutCircle>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub slow_zones: Vec<ares_planner::SlowZone>,
 }
 
 fn yes() -> bool {
@@ -40,7 +42,7 @@ fn yes() -> bool {
 
 impl Default for FieldDoc {
     fn default() -> Self {
-        FieldDoc { walls: true, keep_out: vec![] }
+        FieldDoc { walls: true, keep_out: vec![], slow_zones: vec![] }
     }
 }
 
@@ -204,8 +206,25 @@ pub async fn path_plan(
 ) -> Result<PlanResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let started = Instant::now();
-        let env = Environment { field: if field.walls { field_size } else { None }, keep_out: field.keep_out };
-        let planned = plan(&robot, &spec, &env, &PlannerOptions::default()).map_err(|e| e.to_string())?;
+        // A path that continues another starts where that one's generated
+        // trajectory ends: its pose and its speed.
+        let mut spec = spec;
+        let mut options = PlannerOptions::default();
+        if let (Some(prev), Some(rp)) = (spec.continues_from.clone(), robot_path.as_ref()) {
+            let end = trajectory_open(rp.clone(), prev.clone())
+                .and_then(|t| t.samples.last().cloned())
+                .ok_or_else(|| format!("\"{prev}\" has no generated trajectory to continue from: generate it first"))?;
+            if let Some(w) = spec.waypoints.first_mut() {
+                w.x = end.x;
+                w.y = end.y;
+                if w.heading_deg.is_some() || w.kind() == ares_core::path::WaypointKind::Pose {
+                    w.heading_deg = Some(end.heading.to_degrees());
+                }
+            }
+            options.start_state = Some([end.vx, end.vy, end.omega]);
+        }
+        let env = Environment { field: if field.walls { field_size } else { None }, keep_out: field.keep_out, slow_zones: field.slow_zones };
+        let planned = plan(&robot, &spec, &env, &options).map_err(|e| e.to_string())?;
         if let Some(rp) = robot_path {
             let text = serde_json::to_string(&planned.trajectory).map_err(|e| e.to_string())?;
             write(&traj_file(&rp, &spec.name)?, &text)?;
