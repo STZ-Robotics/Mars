@@ -49,6 +49,16 @@ fn motors() -> Vec<MotorInfo> {
 struct Derived {
     /// Wheel surface speed at the motor's free speed.
     free_speed_mps: f64,
+    /// What trajectories may use: the free speed times the usable fraction
+    /// (Choreo's "floor speed").
+    floor_speed_mps: f64,
+    /// Choreo's theoretical panel: the launch as grip allows and as the
+    /// motors allow; the lesser is `max_accel_mps2`.
+    traction_accel_mps2: f64,
+    motor_accel_mps2: f64,
+    /// Spinning in place: top rate and how fast it gets there.
+    max_omega_radps: f64,
+    max_alpha_radps2: f64,
     /// Fastest spin in place, with every wheel at free speed.
     max_omega_dps: f64,
     /// What one wheel's drive can push at a standstill (current limit included).
@@ -105,7 +115,11 @@ fn robot_check(config: serde_json::Value) -> Check {
         / s.wheel_radius_m;
     let grip_force = s.wheel_cof * robot.mass_kg * GRAVITY / n;
     let launch = drive_force.min(grip_force) * n / robot.mass_kg;
-    let free = robot.max_module_speed();
+    let free = robot.free_module_speed();
+    let floor = robot.max_module_speed();
+    let traction = grip_force * n / robot.mass_kg;
+    let motor_accel = drive_force * n / robot.mass_kg;
+    let r = robot.drive_radius();
 
     // Tipping: the robot goes over when the center of pressure leaves the
     // wheels' support polygon, a·h = g·d, with d the distance from the center
@@ -126,7 +140,12 @@ fn robot_check(config: serde_json::Value) -> Check {
         problems: vec![],
         derived: Some(Derived {
             free_speed_mps: free,
-            max_omega_dps: (free / robot.drive_radius()).to_degrees(),
+            floor_speed_mps: floor,
+            traction_accel_mps2: traction,
+            motor_accel_mps2: motor_accel,
+            max_omega_radps: floor / r,
+            max_alpha_radps2: drive_force.min(grip_force) * n * r / robot.moi_kg_m2,
+            max_omega_dps: (floor / r).to_degrees(),
             drive_force_n: drive_force,
             grip_force_n: grip_force,
             max_accel_mps2: launch,

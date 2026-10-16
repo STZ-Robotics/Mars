@@ -115,6 +115,11 @@ pub struct SwerveConfig {
     /// match battery under load is closer to 11.
     #[serde(default = "nominal_voltage")]
     pub battery_voltage: f64,
+    /// The fraction of the free speed trajectories may use. Choreo's advice is
+    /// about 0.8: the rest is headroom for the feedback controller to catch
+    /// up when the robot falls behind. None = all of it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_speed_fraction: Option<f64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -196,6 +201,11 @@ impl RobotConfig {
         positive(&mut p, "driveGearRatio", s.drive_gear_ratio);
         positive(&mut p, "wheelCof", s.wheel_cof);
         positive(&mut p, "batteryVoltage", s.battery_voltage);
+        if let Some(f) = s.max_speed_fraction {
+            if !(f.is_finite() && f > 0.0 && f <= 1.0) {
+                p.push(format!("maxSpeedFraction has to be between 0 and 1, it is {f}"));
+            }
+        }
         if !(s.drive_current_limit_a.is_finite() && s.drive_current_limit_a >= 0.0) {
             p.push(format!("driveCurrentLimitA cannot be negative, it is {}", s.drive_current_limit_a));
         }
@@ -232,8 +242,14 @@ impl RobotConfig {
         }
     }
 
-    /// The fastest a module can roll, at the motor's free speed.
+    /// The fastest a module may roll: the motor's free speed, times the
+    /// usable fraction.
     pub fn max_module_speed(&self) -> f64 {
+        self.free_module_speed() * self.swerve().max_speed_fraction.unwrap_or(1.0)
+    }
+
+    /// The fastest a module can roll at all, at the motor's free speed.
+    pub fn free_module_speed(&self) -> f64 {
         let s = self.swerve();
         s.drive_motor.motor().free_speed / s.drive_gear_ratio * s.wheel_radius_m
     }
@@ -302,6 +318,7 @@ pub(crate) mod tests {
                 drive_current_limit_a: 120.0,
                 wheel_cof: 0.9,
                 battery_voltage: 12.0,
+                max_speed_fraction: None,
             }),
             model: None,
         }

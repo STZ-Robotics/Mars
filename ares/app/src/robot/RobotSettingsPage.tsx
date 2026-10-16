@@ -137,7 +137,25 @@ export default function RobotSettingsPage({ robot, onChange, robotPath }: Props)
               </div>
             </PropertyRow>
             <Q label="Stator current limit" dim="plain" unit="A" value={dt.driveCurrentLimitA} onChange={v => setDrive({ driveCurrentLimitA: v })} hint="0 = no limit" />
+            <Q
+              label="Usable speed" dim="plain" unit="% free" optional
+              value={dt.maxSpeedFraction === undefined ? undefined : Number((dt.maxSpeedFraction * 100).toFixed(1))}
+              onChange={v => setDrive({ maxSpeedFraction: v === undefined ? undefined : v / 100 })}
+              hint="How much of the motor's free speed trajectories may use. Choreo suggests about 80%: the rest is headroom for the feedback controller. Empty = 100%."
+            />
           </Panel>
+
+          {derived && (
+            <Panel title="Theoretical" icon="ti-math-function">
+              <Stat label="Floor speed" value={`${derived.floorSpeedMps.toFixed(2)} m/s`} note={`${(derived.floorSpeedMps / 0.3048).toFixed(1)} ft/s`} />
+              <Stat label="Traction accel limit" value={`${derived.tractionAccelMps2.toFixed(2)} m/s²`} bind={derived.launchLimitedBy === "grip"} />
+              <Stat label="Motor accel limit" value={`${derived.motorAccelMps2.toFixed(2)} m/s²`} bind={derived.launchLimitedBy === "motor"} />
+              <Stat label="Floor accel" value={`${derived.maxAccelMps2.toFixed(2)} m/s²`} />
+              <Stat label="Angular speed" value={`${derived.maxOmegaRadps.toFixed(2)} rad/s`} note={`${derived.maxOmegaDps.toFixed(0)} °/s`} />
+              <Stat label="Angular accel" value={`${derived.maxAlphaRadps2.toFixed(1)} rad/s²`} />
+              {derived.tipAccelMps2 !== null && <Stat label="Tips over at" value={`${derived.tipAccelMps2.toFixed(2)} m/s²`} bind={derived.tipAccelMps2 < derived.maxAccelMps2} />}
+            </Panel>
+          )}
 
           <Collapsible title="Advanced (optional)" icon="ti-adjustments" hint="Good defaults; change them only if you know the value.">
             <Q
@@ -266,4 +284,15 @@ function useMotors(): MotorInfo[] {
   const [motors, setMotors] = useState<MotorInfo[]>([])
   useEffect(() => { invoke<MotorInfo[]>("motors").then(setMotors).catch(() => {}) }, [])
   return motors
+}
+
+/** A read-only value in the property tree; `bind` marks the limit that wins. */
+function Stat({ label, value, note, bind }: { label: string; value: string; note?: string; bind?: boolean }) {
+  return (
+    <PropertyRow label={label}>
+      <span style={{ fontFamily: "Consolas, 'Cascadia Mono', monospace", fontSize: 11, color: bind ? "var(--mars-red)" : "var(--text-primary)", fontWeight: bind ? 600 : 400 }}>{value}</span>
+      {note && <span style={{ fontSize: 10, color: "var(--text-muted)", marginLeft: 8 }}>{note}</span>}
+      {bind && <span style={{ fontSize: 9.5, color: "var(--mars-red)", marginLeft: 8 }}>limits</span>}
+    </PropertyRow>
+  )
 }

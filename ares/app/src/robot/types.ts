@@ -16,6 +16,8 @@ export interface SwerveConfig {
   driveCurrentLimitA: number
   wheelCof: number
   batteryVoltage: number
+  /** Fraction of the free speed trajectories may use (Choreo: ~0.8). */
+  maxSpeedFraction?: number
 }
 
 export interface ModelRef {
@@ -45,6 +47,11 @@ export interface MotorInfo {
 
 export interface Derived {
   freeSpeedMps: number
+  floorSpeedMps: number
+  tractionAccelMps2: number
+  motorAccelMps2: number
+  maxOmegaRadps: number
+  maxAlphaRadps2: number
   maxOmegaDps: number
   driveForceN: number
   gripForceN: number
