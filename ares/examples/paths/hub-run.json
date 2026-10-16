@@ -1,0 +1,10 @@
+{
+  "name": "hub-run",
+  "waypoints": [
+    { "x": 1.5, "y": 4.0, "headingDeg": 0 },
+    { "x": 4.0, "y": 6.5 },
+    { "x": 7.0, "y": 6.8, "headingDeg": 90 },
+    { "x": 8.2, "y": 4.1, "headingDeg": 180 }
+  ],
+  "constraints": {}
+}

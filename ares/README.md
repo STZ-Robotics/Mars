@@ -17,7 +17,28 @@ compatible with anyone's files.
 
 ## Status
 
-Nothing is built yet. This folder holds the plan and the reference material.
+`core/` exists: `robot.json`, the path, Ares' own time-optimal solver and the
+trajectory, with tests. There is a terminal entry point until the app exists:
+
+    cargo run --release --bin ares -- solve examples/robots/offseason2026.json examples/paths/hub-run.json -o hub-run.traj.json
+
+What the core already does that PathPlanner and Choreo do not:
+
+- **One `robot.json` per robot**, shared by every project, with the physics a
+  model needs (mass, inertia, the motors from MarsLink's table, their current
+  limit, the battery, the wheels' grip) and the 3D model the app draws.
+- **Per-module physics in the solver.** Every wheel's grip and every drive
+  motor's torque curve (current limit and back-EMF) bound the trajectory, and
+  translation, rotation and curve all draw from the same grip.
+- **Rotation is part of the path.** The arc length counts it, so a turn in
+  place is a trajectory like any other and spinning while driving costs the
+  time it really costs.
+- **C2 paths.** Quintic segments: the force the wheels are asked for never
+  jumps at a waypoint.
+- **Every sample says what each module does**: speed, angle, force, the grip
+  in use and the current the motor draws. Not just how fast, but why.
+
+App: not started. Gazebo stage: not started.
 
 ## Reference
 
@@ -69,12 +90,11 @@ that does not exist.
 
 ## Decisions pending
 
-- **The solver for stage 1.** Writing a nonlinear solver from zero is a
-  project of its own; Sleipnir (BSD-3) is the one Choreo uses. Options: use it
-  as a math library, write a narrower solver of our own, or start stage 1 with
-  a simpler method and invest in stage 2.
+- ~~The solver for stage 1~~: our own. Today it times a given path optimally;
+  shaping the path itself (where the curve goes, not only how fast it is
+  driven) is the next step, on top of the same physics.
 - **The trajectory format.** Ours, carrying what Choreo's cannot: mechanism
   events tied to the path, robustness margins, the simulation it was
   validated against.
-- **Where the editor lives.** Its own app, or a tab inside MARS Desktop, which
-  already has the 3D field, the swerve views and the NT4 client.
+- ~~Where the editor lives~~: its own app, looking and working like MARS
+  Desktop.

@@ -1,0 +1,475 @@
+//! Ares' own time-optimal solver.
+//!
+//! Given the geometric path, it finds the fastest way to follow it that every
+//! wheel and every motor can actually deliver. It is a time-optimal path
+//! parameterization (the reachability formulation of TOPP): along the path the
+//! state is just `s` and `ṡ`, and at each point the robot's physics turns into
+//! bounds on `s̈` for a given `ṡ`.
+//!
+//! What it models, per module, at every point:
+//!
+//! - **Grip.** The force the wheel puts on the carpet, `|f_i| <= μ·N_i`.
+//!   Translation, rotation and the centripetal force of a curve all draw from
+//!   the same budget, which is what a swerve's wheels really have.
+//! - **The motor.** Along the wheel, the force cannot exceed what the drive
+//!   motor gives at that speed with its current limit: lots at low speed,
+//!   fading to nothing at free speed (back-EMF), and stronger braking than
+//!   driving.
+//! - **The chassis.** The wrench `(F, τ) = (m·a, I·α)` is split between the
+//!   modules with the least-squares distribution, which for a symmetric swerve
+//!   is the exact one.
+//!
+//! PathPlanner applies one maximum acceleration and one maximum velocity to the
+//! whole robot; Choreo models torque but not current limits nor back-EMF.
+//! Neither knows that a turn and a sprint compete for the same grip.
+//!
+//! The algorithm, on a uniform grid in `s`, with `x = ṡ²`:
+//!
+//! 1. For each point, the most `x` it can carry at all (the maximum velocity
+//!    curve), by bisection on the feasibility of the `s̈` interval.
+//! 2. A backward pass from the end at rest: the most `x` from which the robot
+//!    can still brake in time for everything ahead.
+//! 3. A forward pass from the start at rest: accelerate as hard as possible,
+//!    never above the backward curve.
+//!
+//! Time comes from `dt = 2·Δs / (ṡ_k + ṡ_{k+1})`.
+
+use crate::error::AresError;
+use crate::geometry::{wrap_angle, Vec2};
+use crate::motor::Motor;
+use crate::path::{GeometricPath, PathPoint, PathSpec};
+use crate::robot::{RobotConfig, GRAVITY};
+use crate::trajectory::{ModuleSample, Sample, Trajectory};
+
+#[derive(Clone, Copy, Debug)]
+pub struct SolverOptions {
+    /// The grid step along the path, in meters of generalized arc length.
+    /// 1 cm is far below anything that changes the result.
+    pub resolution_m: f64,
+}
+
+impl Default for SolverOptions {
+    fn default() -> Self {
+        SolverOptions { resolution_m: 0.01 }
+    }
+}
+
+struct Model {
+    mass: f64,
+    moi: f64,
+    /// The most force one wheel can put on the carpet.
+    grip: f64,
+    modules: Vec<Vec2>,
+    motor: Motor,
+    motors: f64,
+    current_limit: f64,
+    voltage: f64,
+    gear: f64,
+    wheel_r: f64,
+    module_free_speed: f64,
+    max_v: Option<f64>,
+    max_w: Option<f64>,
+}
+
+impl Model {
+    fn new(robot: &RobotConfig, spec: &PathSpec) -> Self {
+        let s = robot.swerve();
+        let n = s.modules.len() as f64;
+        Model {
+            mass: robot.mass_kg,
+            moi: robot.moi_kg_m2,
+            // Even load on every wheel. Weight transfer under acceleration is
+            // the next refinement; the Gazebo stage sees it anyway.
+            grip: s.wheel_cof * robot.mass_kg * GRAVITY / n,
+            modules: s.modules.iter().map(|m| m.position()).collect(),
+            motor: s.motor(),
+            motors: s.drive_motors_per_module as f64,
+            current_limit: s.drive_current_limit_a,
+            voltage: s.battery_voltage,
+            gear: s.drive_gear_ratio,
+            wheel_r: s.wheel_radius_m,
+            module_free_speed: robot.max_module_speed(),
+            max_v: spec.constraints.max_velocity_mps,
+            max_w: spec.constraints.max_angular_velocity_dps.map(f64::to_radians),
+        }
+    }
+
+    /// The most force along the wheel the drive can give at `speed`.
+    fn drive_force(&self, speed: f64, driving: bool) -> f64 {
+        let omega = speed / self.wheel_r * self.gear;
+        self.motors * self.motor.max_torque(omega, self.current_limit, self.voltage, driving) * self.gear
+            / self.wheel_r
+    }
+
+    /// The current one drive motor draws to push `force` along the wheel.
+    fn current_for(&self, force: f64) -> f64 {
+        force * self.wheel_r / (self.gear * self.motors * self.motor.kt())
+    }
+}
+
+/// One point of the path, linearized: module `i` pushes `a[i]·s̈ + b[i]·ṡ²`
+/// on the carpet and moves at `c[i]·ṡ`.
+struct Point {
+    a: Vec<Vec2>,
+    b: Vec<Vec2>,
+    c: Vec<Vec2>,
+    /// The most `ṡ²` the velocity limits allow, before any force is considered.
+    x_cap: f64,
+}
+
+fn solve3(g: [[f64; 3]; 3], w: [f64; 3]) -> [f64; 3] {
+    let det = |m: [[f64; 3]; 3]| {
+        m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+            + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
+    };
+    let d = det(g);
+    let mut out = [0.0; 3];
+    for (col, slot) in out.iter_mut().enumerate() {
+        let mut m = g;
+        for row in 0..3 {
+            m[row][col] = w[row];
+        }
+        *slot = det(m) / d;
+    }
+    out
+}
+
+/// The least-squares split of a chassis wrench `(Fx, Fy, τ)` between modules
+/// at `r` (field frame, from the center).
+fn distribute(r: &[Vec2], w: [f64; 3]) -> Vec<Vec2> {
+    let n = r.len() as f64;
+    let g02: f64 = r.iter().map(|p| -p.y).sum();
+    let g12: f64 = r.iter().map(|p| p.x).sum();
+    let g22: f64 = r.iter().map(|p| p.norm2()).sum();
+    let l = solve3([[n, 0.0, g02], [0.0, n, g12], [g02, g12, g22]], w);
+    r.iter().map(|p| Vec2::new(l[0] - p.y * l[2], l[1] + p.x * l[2])).collect()
+}
+
+fn linearize(model: &Model, p: &PathPoint) -> Point {
+    let r: Vec<Vec2> = model.modules.iter().map(|m| m.rotate(p.theta)).collect();
+    let c: Vec<Vec2> = r.iter().map(|ri| p.d_pos + ri.perp() * p.d_theta).collect();
+    let a = distribute(&r, [model.mass * p.d_pos.x, model.mass * p.d_pos.y, model.moi * p.d_theta]);
+    let b = distribute(&r, [model.mass * p.dd_pos.x, model.mass * p.dd_pos.y, model.moi * p.dd_theta]);
+
+    let mut x_cap = f64::INFINITY;
+    for ci in &c {
+        let n2 = ci.norm2();
+        if n2 > 1e-12 {
+            x_cap = x_cap.min(model.module_free_speed.powi(2) / n2);
+        }
+    }
+    if let Some(v) = model.max_v {
+        let n2 = p.d_pos.norm2();
+        if n2 > 1e-12 {
+            x_cap = x_cap.min(v * v / n2);
+        }
+    }
+    if let Some(w) = model.max_w {
+        let n2 = p.d_theta * p.d_theta;
+        if n2 > 1e-12 {
+            x_cap = x_cap.min(w * w / n2);
+        }
+    }
+    if !x_cap.is_finite() {
+        x_cap = 1e6;
+    }
+    Point { a, b, c, x_cap }
+}
+
+/// `[lo, hi]` intersected with `|A·s + B| <= radius`, or None if empty.
+fn clip_disc(lo: &mut f64, hi: &mut f64, a: Vec2, b: Vec2, radius: f64) -> bool {
+    let qa = a.norm2();
+    let qb = 2.0 * a.dot(b);
+    let qc = b.norm2() - radius * radius;
+    if qa < 1e-12 {
+        // s̈ does not reach this wheel: the constraint holds for every s̈ or none.
+        return qc <= 1e-9 * (1.0 + radius * radius);
+    }
+    let disc = qb * qb - 4.0 * qa * qc;
+    if disc < 0.0 {
+        return false;
+    }
+    let root = disc.sqrt();
+    *lo = lo.max((-qb - root) / (2.0 * qa));
+    *hi = hi.min((-qb + root) / (2.0 * qa));
+    true
+}
+
+/// `[lo, hi]` intersected with `min <= p·s + q <= max`.
+fn clip_linear(lo: &mut f64, hi: &mut f64, p: f64, q: f64, min: f64, max: f64) -> bool {
+    if p.abs() < 1e-12 {
+        let tol = 1e-9 * (1.0 + max.abs() + min.abs());
+        return q >= min - tol && q <= max + tol;
+    }
+    let (e0, e1) = ((min - q) / p, (max - q) / p);
+    *lo = lo.max(e0.min(e1));
+    *hi = hi.min(e0.max(e1));
+    true
+}
+
+/// The `s̈` the robot can do at this point with `ṡ² = x`, or None if it cannot
+/// be there at that speed at all.
+fn interval(model: &Model, pt: &Point, x: f64) -> Option<(f64, f64)> {
+    let x = x.max(0.0);
+    let sd = x.sqrt();
+    let (mut lo, mut hi) = (f64::NEG_INFINITY, f64::INFINITY);
+    for i in 0..pt.a.len() {
+        let (a, b) = (pt.a[i], pt.b[i] * x);
+        if !clip_disc(&mut lo, &mut hi, a, b, model.grip) {
+            return None;
+        }
+        let cn = pt.c[i].norm();
+        let speed = cn * sd;
+        if cn > 1e-9 {
+            let u = pt.c[i] * (1.0 / cn);
+            let (f_drive, f_brake) = (model.drive_force(speed, true), model.drive_force(speed, false));
+            if !clip_linear(&mut lo, &mut hi, u.dot(a), u.dot(b), -f_brake, f_drive) {
+                return None;
+            }
+        } else if !clip_disc(&mut lo, &mut hi, a, b, model.drive_force(0.0, true)) {
+            return None;
+        }
+    }
+    let tol = 1e-9 * (1.0 + lo.abs().min(1e9) + hi.abs().min(1e9));
+    (lo <= hi + tol).then_some((lo, hi.max(lo)))
+}
+
+/// The most `ṡ²` this point can carry.
+fn max_velocity_curve(model: &Model, pt: &Point) -> f64 {
+    if interval(model, pt, pt.x_cap).is_some() {
+        return pt.x_cap;
+    }
+    let (mut lo, mut hi) = (0.0, pt.x_cap);
+    for _ in 0..60 {
+        let mid = 0.5 * (lo + hi);
+        if interval(model, pt, mid).is_some() {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    lo
+}
+
+pub fn solve(robot: &RobotConfig, spec: &PathSpec, options: &SolverOptions) -> Result<Trajectory, AresError> {
+    robot.validate()?;
+    for (name, v) in [
+        ("maxVelocityMps", spec.constraints.max_velocity_mps),
+        ("maxAngularVelocityDps", spec.constraints.max_angular_velocity_dps),
+    ] {
+        if let Some(v) = v {
+            if !(v.is_finite() && v > 0.0) {
+                return Err(AresError::Path(format!("{name} has to be positive, it is {v}")));
+            }
+        }
+    }
+
+    let path = GeometricPath::build(spec, robot.drive_radius(), options.resolution_m)?;
+    let model = Model::new(robot, spec);
+    let pts: Vec<Point> = path.points.iter().map(|p| linearize(&model, p)).collect();
+    let n = pts.len() - 1;
+    let ds = path.ds;
+    let mvc: Vec<f64> = pts.iter().map(|p| max_velocity_curve(&model, p)).collect();
+    let lower = |k: usize, x: f64| interval(&model, &pts[k], x.min(mvc[k])).map_or(0.0, |iv| iv.0);
+
+    // Backward: from rest at the end, the fastest the robot can be at each
+    // point and still brake for everything ahead. The step is implicit in x_k,
+    // so it is iterated to a fixed point; it converges in two or three.
+    let mut beta = vec![0.0_f64; n + 1];
+    for k in (0..n).rev() {
+        let mut xk = mvc[k].min(beta[k + 1]);
+        for _ in 0..4 {
+            xk = mvc[k].min(beta[k + 1] - 2.0 * ds * lower(k, xk)).max(0.0);
+        }
+        beta[k] = xk;
+    }
+
+    // Forward: from rest, as hard as the robot can, never above `beta`.
+    let mut alpha = vec![0.0_f64; n + 1];
+    for k in 0..n {
+        let x = alpha[k].min(mvc[k]);
+        let Some((_, hi)) = interval(&model, &pts[k], x) else {
+            return Err(AresError::Infeasible {
+                s_m: path.points[k].s,
+                reason: "the wheels cannot hold the path here at any speed".into(),
+            });
+        };
+        alpha[k + 1] = beta[k + 1].min(x + 2.0 * ds * hi).max(0.0);
+        if k + 1 < n && alpha[k + 1] <= 1e-12 {
+            return Err(AresError::Infeasible {
+                s_m: path.points[k + 1].s,
+                reason: "the robot stalls: no grip or torque is left to keep moving".into(),
+            });
+        }
+    }
+
+    let mut times = vec![0.0; n + 1];
+    for k in 0..n {
+        let v = alpha[k].sqrt() + alpha[k + 1].sqrt();
+        times[k + 1] = times[k] + if v > 0.0 { 2.0 * ds / v } else { 0.0 };
+    }
+
+    let samples = (0..=n)
+        .map(|k| {
+            let j = k.min(n - 1);
+            let sdd = (alpha[j + 1] - alpha[j]) / (2.0 * ds);
+            let x = alpha[k];
+            let sd = x.sqrt();
+            let (p, pt) = (&path.points[k], &pts[k]);
+            let vel = p.d_pos * sd;
+            let acc = p.d_pos * sdd + p.dd_pos * x;
+            let modules = (0..pt.a.len())
+                .map(|i| {
+                    let v = pt.c[i] * sd;
+                    let f = pt.a[i] * sdd + pt.b[i] * x;
+                    let speed = v.norm();
+                    let dir = if speed > 1e-6 { v * (1.0 / speed) } else { pt.c[i].normalized() };
+                    let along = if dir == Vec2::ZERO { f.norm() } else { f.dot(dir) };
+                    ModuleSample {
+                        speed_mps: speed,
+                        angle_rad: if dir == Vec2::ZERO { 0.0 } else { wrap_angle(dir.y.atan2(dir.x) - p.theta) },
+                        force_n: f.norm(),
+                        grip_used: f.norm() / model.grip,
+                        current_a: model.current_for(along),
+                    }
+                })
+                .collect();
+            Sample {
+                t: times[k],
+                x: p.pos.x,
+                y: p.pos.y,
+                heading: p.theta,
+                vx: vel.x,
+                vy: vel.y,
+                omega: p.d_theta * sd,
+                ax: acc.x,
+                ay: acc.y,
+                alpha: p.d_theta * sdd + p.dd_theta * x,
+                modules,
+            }
+        })
+        .collect();
+
+    Ok(Trajectory {
+        name: spec.name.clone(),
+        robot: robot.name.clone(),
+        duration_s: times[n],
+        samples,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::path::{PathConstraints, Waypoint};
+    use crate::robot::tests::offseason2026;
+
+    fn wp(x: f64, y: f64, h: Option<f64>) -> Waypoint {
+        Waypoint { x, y, heading_deg: h }
+    }
+
+    fn spec(w: Vec<Waypoint>) -> PathSpec {
+        PathSpec { name: "test".into(), waypoints: w, constraints: PathConstraints::default() }
+    }
+
+    fn run(robot: &RobotConfig, s: &PathSpec) -> Trajectory {
+        solve(robot, s, &SolverOptions::default()).unwrap()
+    }
+
+    /// Nothing the solver returns may ask more of a wheel or a motor than it has.
+    fn assert_physical(robot: &RobotConfig, t: &Trajectory) {
+        let limit = robot.swerve().drive_current_limit_a;
+        for s in &t.samples {
+            for m in &s.modules {
+                assert!(m.grip_used <= 1.03, "grip {:.3} at t = {:.3}", m.grip_used, s.t);
+                assert!(m.current_a.abs() <= limit * 1.03, "{:.1} A at t = {:.3}", m.current_a, s.t);
+                assert!(m.speed_mps <= robot.max_module_speed() * 1.001);
+            }
+        }
+    }
+
+    #[test]
+    fn a_straight_sprint_is_grip_limited_and_starts_and_ends_at_rest() {
+        let robot = offseason2026();
+        let t = run(&robot, &spec(vec![wp(0.0, 0.0, None), wp(4.0, 0.0, None)]));
+        let (first, last) = (&t.samples[0], t.samples.last().unwrap());
+        assert!(first.vx.abs() < 1e-9 && last.vx.abs() < 1e-6);
+        assert!((last.x - 4.0).abs() < 1e-6);
+        // The bang-bang bound at full grip is 2·sqrt(d / μg). The motor fades
+        // near the top, so a bit more, but not much.
+        let bound = 2.0 * (4.0 / (0.9 * GRAVITY)).sqrt();
+        assert!(t.duration_s >= bound - 0.01 && t.duration_s <= bound * 1.15, "{} vs {bound}", t.duration_s);
+        assert_physical(&robot, &t);
+    }
+
+    #[test]
+    fn a_curve_never_asks_for_more_than_the_grip() {
+        let robot = offseason2026();
+        let t = run(
+            &robot,
+            &spec(vec![wp(0.0, 0.0, None), wp(2.0, 0.5, None), wp(3.0, 2.0, None), wp(2.0, 4.0, None)]),
+        );
+        let mu_g = 0.9 * GRAVITY;
+        for s in &t.samples {
+            assert!(s.ax.hypot(s.ay) <= mu_g * 1.03, "{} m/s² at t = {}", s.ax.hypot(s.ay), s.t);
+        }
+        assert_physical(&robot, &t);
+    }
+
+    #[test]
+    fn turning_in_place_is_a_trajectory_like_any_other() {
+        let robot = offseason2026();
+        let t = run(&robot, &spec(vec![wp(2.0, 2.0, Some(0.0)), wp(2.0, 2.0, Some(180.0))]));
+        let last = t.samples.last().unwrap();
+        assert!((last.heading - std::f64::consts::PI).abs() < 1e-6);
+        assert!(t.samples.iter().all(|s| (s.x - 2.0).abs() < 1e-9 && (s.y - 2.0).abs() < 1e-9));
+        assert!(t.duration_s > 0.1 && t.duration_s < 2.0, "{}", t.duration_s);
+        assert_physical(&robot, &t);
+    }
+
+    #[test]
+    fn rotating_while_driving_costs_time() {
+        let robot = offseason2026();
+        let straight = run(&robot, &spec(vec![wp(0.0, 0.0, Some(0.0)), wp(4.0, 0.0, Some(0.0))]));
+        let spinning = run(&robot, &spec(vec![wp(0.0, 0.0, Some(0.0)), wp(4.0, 0.0, Some(180.0))]));
+        assert!(spinning.duration_s > straight.duration_s);
+        assert_physical(&robot, &spinning);
+    }
+
+    #[test]
+    fn the_velocity_cap_is_respected() {
+        let robot = offseason2026();
+        let mut s = spec(vec![wp(0.0, 0.0, None), wp(6.0, 0.0, None)]);
+        s.constraints.max_velocity_mps = Some(2.0);
+        let t = run(&robot, &s);
+        assert!(t.max_speed() <= 2.0 * 1.001, "{}", t.max_speed());
+    }
+
+    #[test]
+    fn a_lower_current_limit_is_slower() {
+        let fast = offseason2026();
+        let mut slow = offseason2026();
+        slow.swerve_mut().drive_current_limit_a = 30.0;
+        let s = spec(vec![wp(0.0, 0.0, None), wp(4.0, 0.0, None)]);
+        let (tf, ts) = (run(&fast, &s), run(&slow, &s));
+        assert!(ts.duration_s > tf.duration_s * 1.1, "{} vs {}", ts.duration_s, tf.duration_s);
+        assert_physical(&slow, &ts);
+    }
+
+    #[test]
+    fn same_input_same_trajectory() {
+        let robot = offseason2026();
+        let s = spec(vec![wp(0.0, 0.0, Some(0.0)), wp(3.0, 1.0, Some(45.0)), wp(5.0, 3.0, None)]);
+        assert_eq!(run(&robot, &s), run(&robot, &s));
+    }
+
+    #[test]
+    fn the_distribution_is_exact_for_a_square_swerve() {
+        let p = 0.3;
+        let r = [Vec2::new(p, p), Vec2::new(p, -p), Vec2::new(-p, p), Vec2::new(-p, -p)];
+        let f = distribute(&r, [4.0, -8.0, 2.0]);
+        let sum = f.iter().fold(Vec2::ZERO, |acc, v| acc + *v);
+        let torque: f64 = r.iter().zip(&f).map(|(ri, fi)| ri.x * fi.y - ri.y * fi.x).sum();
+        assert!((sum.x - 4.0).abs() < 1e-9 && (sum.y + 8.0).abs() < 1e-9 && (torque - 2.0).abs() < 1e-9);
+    }
+}
