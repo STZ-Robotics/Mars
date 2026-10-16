@@ -7,10 +7,11 @@ import RobotSettingsPage from "./robot/RobotSettingsPage"
 import PathsPage from "./paths/PathsPage"
 import { newRobot, RobotConfig } from "./robot/types"
 import VariablesPage from "./vars/VariablesPage"
+import AutosPage from "./autos/AutosPage"
 import { VariablesProvider } from "./vars/context"
 import { useProjectSync } from "./vars/sync"
 
-type Page = "robot" | "paths" | "field" | "variables"
+type Page = "robot" | "paths" | "autos" | "field" | "variables"
 
 const LAST_ROBOT_KEY = "ares.lastRobot"
 const LAST_PAGE_KEY = "ares.lastPage"
@@ -20,7 +21,7 @@ const LAST_PAGE_KEY = "ares.lastPage"
 // document the File menu opens and saves.
 export default function App() {
   const [page, setPage] = useState<Page>(() => {
-    try { const p = localStorage.getItem(LAST_PAGE_KEY); if (p === "robot" || p === "paths" || p === "field" || p === "variables") return p } catch { /* first run */ }
+    try { const p = localStorage.getItem(LAST_PAGE_KEY); if (p === "robot" || p === "paths" || p === "autos" || p === "field" || p === "variables") return p } catch { /* first run */ }
     return "robot"
   })
   useEffect(() => { try { localStorage.setItem(LAST_PAGE_KEY, page) } catch { /* nothing to remember */ } }, [page])
@@ -119,6 +120,7 @@ export default function App() {
         <Rail page={page} onSelect={setPage} />
         {page === "robot" && <RobotSettingsPage robot={robot} onChange={setRobot} robotPath={robotPath} />}
         {page === "paths" && <PathsPage robot={robot} robotPath={robotPath} onSaveRobot={fileSave} />}
+        {page === "autos" && <AutosPage robot={robot} robotPath={robotPath} />}
         {page === "field" && <ComingSoon page={page} />}
         {page === "variables" && <VariablesPage robot={robot} robotPath={robotPath} onRobot={setRobot} />}
       </div>
@@ -195,6 +197,7 @@ function MenuBar({ menus }: { menus: { label: string; items: MenuEntry[] }[] }) 
 const PAGES: { id: Page; label: string; icon: string; ready: boolean }[] = [
   { id: "robot", label: "Robot", icon: "ti-robot", ready: true },
   { id: "paths", label: "Paths", icon: "ti-route", ready: true },
+  { id: "autos", label: "Autos", icon: "ti-list-details", ready: true },
   { id: "field", label: "Field", icon: "ti-map-2", ready: false },
   { id: "variables", label: "Variables", icon: "ti-variable", ready: true },
 ]

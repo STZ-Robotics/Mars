@@ -194,43 +194,7 @@ export default function FieldView(props: Props) {
     const ctx = canvas.getContext("2d")!
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     const plan = opts.fieldStyle === "blueprint"
-    ctx.fillStyle = plan ? BLUEPRINT.background : "#e4e4e7"
-    ctx.fillRect(0, 0, size.w, size.h)
-
-    // The photo (or its sketch), placed by its calibration: field (0, 0) is
-    // the playing area's bottom-left corner in pixels.
-    if (image && opts.field) {
-      const kImg = (field.bottomRight[0] - field.topLeft[0]) / L
-      const [ix, iy] = toScreen(-field.topLeft[0] / kImg, field.bottomRight[1] / kImg)
-      const [iw, ih] = [image.width * view.k / kImg, image.height * view.k / kImg]
-      // Blue at x = 0: the picture is mirrored (or turned) about the field's
-      // center when the image has red there.
-      const [fcx, fcy] = toScreen(L / 2, W / 2)
-      ctx.save()
-      if (opts.fieldFlip === "mirror") { ctx.translate(2 * fcx, 0); ctx.scale(-1, 1) }
-      else if (opts.fieldFlip === "rotate") { ctx.translate(2 * fcx, 2 * fcy); ctx.scale(-1, -1) }
-      if (plan) {
-        if (sketch) ctx.drawImage(sketch, ix, iy, iw, ih)
-      } else {
-        ctx.globalAlpha = 0.9
-        ctx.drawImage(image, ix, iy, iw, ih)
-        ctx.globalAlpha = 1
-      }
-      ctx.restore()
-    }
-    if (plan) drawPlanOverlay(ctx, toScreen, view.k, L, W, opts.grid)
-    if (opts.grid && !plan) {
-      ctx.strokeStyle = "rgba(255,255,255,0.35)"
-      ctx.lineWidth = 1
-      for (let x = 0; x <= L; x += 1) line(ctx, toScreen(x, 0), toScreen(x, W))
-      for (let y = 0; y <= W; y += 1) line(ctx, toScreen(0, y), toScreen(L, y))
-    }
-    if (!plan) {
-      const [x0, y0] = toScreen(0, W)
-      ctx.strokeStyle = "rgba(28,28,31,0.6)"
-      ctx.lineWidth = 1
-      ctx.strokeRect(x0, y0, L * view.k, W * view.k)
-    }
+    drawFieldBackground(ctx, size, toScreen, view.k, field, image, sketch, opts)
 
     // Keep-outs shared by every path.
     const reach = Math.hypot(robot.bumper.lengthM, robot.bumper.widthM) / 2
@@ -1704,4 +1668,56 @@ function rotationAt(spec: PathSpec | null, traj: Trajectory | null, sx: number, 
 /** A segment found at run time: marked so, or leaving an unknown start. */
 function isPathfind(w: PathSpec["waypoints"][number], j: number): boolean {
   return !!w.pathfindNext || (j === 0 && kindOf(w) === "unknown")
+}
+
+/**
+ * The field under everything: the background, the photo or its sketch
+ * (mirrored so blue is at x = 0 when asked), and the plan view's outline,
+ * ticks, axes and dimensions. Shared by the path editor and the autos view.
+ */
+export function drawFieldBackground(
+  ctx: CanvasRenderingContext2D, size: { w: number; h: number }, toScreen: ToScreen, k: number,
+  field: FieldConfig, image: HTMLImageElement | null, sketch: HTMLCanvasElement | null, opts: ViewOptions,
+) {
+  const plan = opts.fieldStyle === "blueprint"
+  const [L, W] = field.sizeMeters
+  const view = { k }
+    ctx.fillStyle = plan ? BLUEPRINT.background : "#e4e4e7"
+    ctx.fillRect(0, 0, size.w, size.h)
+
+    // The photo (or its sketch), placed by its calibration: field (0, 0) is
+    // the playing area's bottom-left corner in pixels.
+    if (image && opts.field) {
+      const kImg = (field.bottomRight[0] - field.topLeft[0]) / L
+      const [ix, iy] = toScreen(-field.topLeft[0] / kImg, field.bottomRight[1] / kImg)
+      const [iw, ih] = [image.width * view.k / kImg, image.height * view.k / kImg]
+      // Blue at x = 0: the picture is mirrored (or turned) about the field's
+      // center when the image has red there.
+      const [fcx, fcy] = toScreen(L / 2, W / 2)
+      ctx.save()
+      if (opts.fieldFlip === "mirror") { ctx.translate(2 * fcx, 0); ctx.scale(-1, 1) }
+      else if (opts.fieldFlip === "rotate") { ctx.translate(2 * fcx, 2 * fcy); ctx.scale(-1, -1) }
+      if (plan) {
+        if (sketch) ctx.drawImage(sketch, ix, iy, iw, ih)
+      } else {
+        ctx.globalAlpha = 0.9
+        ctx.drawImage(image, ix, iy, iw, ih)
+        ctx.globalAlpha = 1
+      }
+      ctx.restore()
+    }
+    if (plan) drawPlanOverlay(ctx, toScreen, view.k, L, W, opts.grid)
+    if (opts.grid && !plan) {
+      ctx.strokeStyle = "rgba(255,255,255,0.35)"
+      ctx.lineWidth = 1
+      for (let x = 0; x <= L; x += 1) line(ctx, toScreen(x, 0), toScreen(x, W))
+      for (let y = 0; y <= W; y += 1) line(ctx, toScreen(0, y), toScreen(L, y))
+    }
+    if (!plan) {
+      const [x0, y0] = toScreen(0, W)
+      ctx.strokeStyle = "rgba(28,28,31,0.6)"
+      ctx.lineWidth = 1
+      ctx.strokeRect(x0, y0, L * view.k, W * view.k)
+    }
+
 }
