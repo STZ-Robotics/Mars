@@ -769,7 +769,7 @@ function PlaybackBar({ duration, playhead, playing, onToggle, onScrub, enabled, 
     <div style={{ height: 44, flexShrink: 0, display: "flex", alignItems: "center", gap: 10, padding: "0 14px", background: "var(--bg-menubar)", borderTop: "1px solid var(--border-main)", opacity: enabled ? 1 : 0.5 }}>
       <button onClick={onToggle} disabled={!enabled} title="Play (Space)"
         style={{ width: 30, height: 26, border: "1px solid var(--btn-classic-border)", background: "var(--btn-classic-bg)", borderRadius: 2, cursor: "pointer" }}>
-        <i className={`ti ${playing ? "ti-player-pause-filled" : "ti-player-play-filled"}`} />
+        <i className={`ti ${playing ? "ti-player-pause" : "ti-player-play"}`} />
       </button>
       <input type="range" min={0} max={duration || 1} step={0.005} value={Math.min(t, duration)} disabled={!enabled}
         onChange={e => onScrub(Number(e.target.value))} style={{ flex: 1 }} />
