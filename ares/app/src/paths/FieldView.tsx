@@ -246,7 +246,7 @@ export default function FieldView(props: Props) {
       ctx.setLineDash([6, 5])
       // Pathfind segments are not part of the guess: they get their own look.
       const wt = guess.waypointTimes
-      const pf = (spec?.waypoints ?? []).map((w, j) => (w.pathfindNext && wt && wt[j + 1] !== undefined ? [wt[j], wt[j + 1]] : null)).filter(Boolean) as [number, number][]
+      const pf = (spec?.waypoints ?? []).map((w, j) => (isPathfind(w, j) && wt && wt[j + 1] !== undefined ? [wt[j], wt[j + 1]] : null)).filter(Boolean) as [number, number][]
       const pts = guess.samples.filter(q => !pf.some(([a, b]) => q.t > a + 1e-9 && q.t < b - 1e-9)).map(s => toScreen(s.x, s.y))
       if (!plan) {
         ctx.setLineDash([])
@@ -368,7 +368,7 @@ export default function FieldView(props: Props) {
       const reachM = Math.hypot(robot.bumper.lengthM, robot.bumper.widthM) / 2
       spec.waypoints.forEach((w, j) => {
         const next = spec.waypoints[j + 1]
-        if (!w.pathfindNext || !next) return
+        if (!isPathfind(w, j) || !next) return
         const span = generated?.pathfind?.find(p => p.fromWaypoint === j)
         const pts = span && generated
           ? generated.samples.slice(span.startSample, span.endSample + 1).map(q => toScreen(q.x, q.y))
@@ -1632,4 +1632,9 @@ function rotationAt(spec: PathSpec | null, traj: Trajectory | null, sx: number, 
   const span = wt[segment + 1] - wt[segment]
   const fraction = span > 0 ? Math.min(1, Math.max(0, (best.t - wt[segment]) / span)) : 0.5
   return { segment, fraction: Math.round(fraction * 1000) / 1000, headingDeg: Math.round((((best.heading * 180 / Math.PI) + 540) % 360 - 180) * 10) / 10 }
+}
+
+/** A segment found at run time: marked so, or leaving an unknown start. */
+function isPathfind(w: PathSpec["waypoints"][number], j: number): boolean {
+  return !!w.pathfindNext || (j === 0 && kindOf(w) === "unknown")
 }
