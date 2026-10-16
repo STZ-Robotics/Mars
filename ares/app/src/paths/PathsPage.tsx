@@ -565,7 +565,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
               <Toggle on={tool.kind === "select"} onClick={() => setTool({ kind: "select" })} icon="ti-pointer" label="Select" />
               <Sep />
               <Toggle on={tool.kind === "waypoint" && tool.type === "pose"} onClick={() => setTool({ kind: "waypoint", type: "pose" })} icon="ti-navigation" label="Pose (1)" />
-              <Toggle on={tool.kind === "waypoint" && tool.type === "translation"} onClick={() => setTool({ kind: "waypoint", type: "translation" })} icon="ti-circle-filled" label="Translation (2)" />
+              <Toggle on={tool.kind === "waypoint" && tool.type === "translation"} onClick={() => setTool({ kind: "waypoint", type: "translation" })} icon="ti-circle-dot" label="Translation (2)" />
               <Toggle on={tool.kind === "waypoint" && tool.type === "empty"} onClick={() => setTool({ kind: "waypoint", type: "empty" })} icon="ti-circle-dashed" label="Empty (3)" />
               <Sep />
               <ConstraintMenu active={tool.kind === "constraint" ? tool.type : null} onPick={type => setTool({ kind: "constraint", type, from: null })} />
