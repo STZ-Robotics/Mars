@@ -5,6 +5,10 @@ import { propertyInputStyle } from "@desktop/styles/pageForm"
 import { FIELDS } from "@desktop/utils/field/fieldImages"
 import type { RobotConfig } from "../robot/types"
 import { renderTopView, TopView } from "../robot/topView"
+import { bindField } from "../vars/bind"
+import { useVariables } from "../vars/context"
+import { isExpr } from "../vars/expr"
+import { applyScope, dropExprs, linkToPose, linkedPose, numberText } from "../vars/variables"
 import { Card, MiniButton, Q, Toggle } from "../ui/controls"
 import FieldView, { RAMP_CSS } from "./FieldView"
 import Charts from "./Charts"
@@ -91,6 +95,54 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
   const topSpeed = usableSpeed(robot)
   const fieldDocRef = useRef(fieldDoc)
   fieldDocRef.current = fieldDoc
+
+  // Variables changed: the open path and the field follow, in memory (the
+  // project sync rewrites the files).
+  const { scope, version, variables, setVariables } = useVariables()
+  useEffect(() => {
+    setCurrent(c => {
+      if (!c) return c
+      const out = applyScope(c.spec, scope)
+      return out.changed ? { ...c, spec: out.doc } : c
+    })
+    setFieldDoc(d => applyScope(d, scope).doc)
+  }, [version])
+
+  /**
+   * A waypoint linked to a pose variable moves the pose (and so every path
+   * through it); one with formulas on x or y loses them when dragged. Returns
+   * false if the move is refused (the pose itself is a formula).
+   */
+  const moveLinked = (i: number, x: number, y: number, final: boolean): boolean => {
+    const w = spec?.waypoints[i]
+    if (!w) return false
+    const name = linkedPose(w)
+    if (name) {
+      const v = variables.find(q => q.name === name)
+      if (v?.kind === "pose" && (isExpr(v.x) || isExpr(v.y))) {
+        if (final) setNote(`"${name}" is computed by a formula: edit it in Variables`)
+        return false
+      }
+      editWaypoint(i, q => ({ ...shiftControls(q, x - q.x, y - q.y), x, y }), final)
+      if (final && v?.kind === "pose") setVariables(variables.map(q => (q === v ? { ...v, x: numberText(x), y: numberText(y) } : q)))
+      return true
+    }
+    editWaypoint(i, q => dropExprs({ ...shiftControls(q, x - q.x, y - q.y), x, y }, ["x", "y"]), final)
+    return true
+  }
+  const rotateLinked = (i: number, headingDeg: number, final: boolean) => {
+    const w = spec?.waypoints[i]
+    if (!w) return
+    const m = w.exprs?.headingDeg?.match(/^=\s*([A-Za-z_][A-Za-z0-9_]*)\.heading\s*$/)
+    const v = m ? variables.find(q => q.name === m[1]) : undefined
+    if (v?.kind === "pose" && !isExpr(v.heading)) {
+      editWaypoint(i, { headingDeg }, final)
+      if (final) setVariables(variables.map(q => (q === v ? { ...v, heading: numberText(headingDeg) } : q)))
+      return
+    }
+    if (v && final) { setNote(`"${v.name}" is computed by a formula: edit it in Variables`); return }
+    editWaypoint(i, q => dropExprs({ ...q, headingDeg }, ["headingDeg"]), final)
+  }
 
   // The robot's STL from above, as the 2D robot.
   const [topView, setTopView] = useState<TopView | null>(null)
@@ -184,8 +236,8 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
   // --- The guess, live -------------------------------------------------------
   // One request in flight at a time: while it runs, newer edits only replace
   // the pending one, so a fast drag never piles up work behind the cursor.
-  const timing = useRef<{ busy: boolean; pending: { robot: RobotConfig; spec: PathSpec } | null }>({ busy: false, pending: null })
-  const requestGuess = useCallback((req: { robot: RobotConfig; spec: PathSpec }) => {
+  const timing = useRef<{ busy: boolean; pending: { robot: RobotConfig; spec: PathSpec; robotPath: string } | null }>({ busy: false, pending: null })
+  const requestGuess = useCallback((req: { robot: RobotConfig; spec: PathSpec; robotPath: string }) => {
     const q = timing.current
     if (q.busy) { q.pending = req; return }
     q.busy = true
@@ -202,7 +254,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
   const specKey = spec ? JSON.stringify(spec) : ""
   useEffect(() => {
     if (!spec) { setGuess(null); return }
-    requestGuess({ robot, spec })
+    requestGuess({ robot, spec, robotPath })
   }, [specKey, JSON.stringify(robot)])
 
   // --- Generate --------------------------------------------------------------
@@ -267,11 +319,19 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
   const setKind = (i: number, kind: WaypointKind) => {
     if (!spec) return
     if (kind === "empty" && (i === 0 || i === n - 1)) { setNote("The first and last waypoints cannot be empty"); return }
-    editWaypoint(i, w => {
-      if (kind === "pose") return { ...w, kind, headingDeg: w.headingDeg ?? Math.round(headingAt(shown, w) * 10) / 10 }
-      const { headingDeg: _, ...rest } = w
-      return { ...rest, kind }
-    }, true)
+    if ((kind === "unknown" || kind === "continue") && i !== 0) { setNote("Only the first waypoint can be an unknown or continued start"); return }
+    editSpec(s => ({
+      ...s,
+      // Leaving "continue", the link to the other path goes.
+      continuesFrom: i === 0 && kind !== "continue" ? undefined : s.continuesFrom,
+      waypoints: s.waypoints.map((w, j) => {
+        if (j !== i) return w
+        if (kind === "pose") return { ...w, kind, headingDeg: w.headingDeg ?? Math.round(headingAt(shown, w) * 10) / 10 }
+        if (kind === "continue") return { ...w, kind }
+        const { headingDeg: _, ...rest } = w
+        return { ...rest, kind }
+      }),
+    }), true)
   }
 
   const addWaypoint = (x: number, y: number, kind: WaypointKind) => {
@@ -485,10 +545,10 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
           {spec && (
             <>
               <SectionHeading label="Path limits" />
-              <Q label="Max speed" dim="plain" unit="m/s" optional value={spec.constraints.maxVelocityMps}
-                onChange={v => editSpec(s => ({ ...s, constraints: { ...s.constraints, maxVelocityMps: v } }), true)} hint="On the whole path. Empty: what the robot can do" />
-              <Q label="Max rotation" dim="plain" unit="°/s" optional value={spec.constraints.maxAngularVelocityDps}
-                onChange={v => editSpec(s => ({ ...s, constraints: { ...s.constraints, maxAngularVelocityDps: v } }), true)} hint="On the whole path. Empty: what the robot can do" />
+              <Q label="Max speed" dim="plain" unit="m/s" optional hint="On the whole path. Empty: what the robot can do"
+                {...bindField(spec.constraints, "maxVelocityMps", f => editSpec(s => ({ ...s, constraints: f(s.constraints) }), true))} />
+              <Q label="Max rotation" dim="plain" unit="°/s" optional hint="On the whole path. Empty: what the robot can do"
+                {...bindField(spec.constraints, "maxAngularVelocityDps", f => editSpec(s => ({ ...s, constraints: f(s.constraints) }), true))} />
               <SectionHeading label="Field" />
               <PropertyRow label="Walls">
                 <input type="checkbox" checked={fieldDoc.walls} onChange={e => editField(d => ({ ...d, walls: e.target.checked }), true)} />
@@ -538,9 +598,9 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
             fitSignal={fitSignal}
             topView={topView}
             onSelect={setSelected}
-            onMoveWaypoint={(i, x, y, final) => editWaypoint(i, w => ({ ...shiftControls(w, x - w.x, y - w.y), x, y }), final)}
+            onMoveWaypoint={(i, x, y, final) => { moveLinked(i, x, y, final) }}
             onMoveControl={(i, side, x, y, final, free) => editSpec(s => moveControl(s, i, side, x, y, free), final)}
-            onRotateWaypoint={(i, hd, final) => editWaypoint(i, { headingDeg: hd }, final)}
+            onRotateWaypoint={rotateLinked}
             onFieldClick={(x, y) => {
               if (tool.kind === "waypoint") addWaypoint(x, y, tool.type)
               else if (tool.kind === "keepout") {
@@ -581,6 +641,30 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
               onSetSegment={(i, mode) => editSpec(s => setSegmentMode(s, i, mode), true)}
               onPathfind={(i, patch) => editWaypoint(i, w => ({ ...w, pathfindNext: { ...w.pathfindNext, ...patch } }), true)}
               onConstraint={(i, patch) => editConstraint(i, patch, true)}
+              onConstraintFn={(i, f) => editSpec(s => ({ ...s, scoped: s.scoped.map((c, j) => (j === i ? f(c) : c)) }), true)}
+              onEventFn={(i, f) => editSpec(s => ({ ...s, events: (s.events ?? []).map((e, j) => (j === i ? f(e) : e)) }), true)}
+              onKeepOutFn={(i, f) => editField(d => ({ ...d, keepOut: d.keepOut.map((k, j) => (j === i ? f(k) : k)) }), true)}
+              stopIndexOf={i => stopAt(spec, i)}
+              otherPaths={entries.map(e => e.name).filter(n => n !== spec.name)}
+              onContinueFrom={name => editSpec(s => ({ ...s, continuesFrom: name }), true)}
+              poses={variables.filter(v => v.kind === "pose").map(v => ({ name: v.name, computed: v.kind === "pose" && (isExpr(v.x) || isExpr(v.y)) }))}
+              onLink={(i, name) => {
+                if (!name) { editWaypoint(i, w => dropExprs(w, ["x", "y", "headingDeg"]), true); return }
+                const pose = scope.get(name)
+                if (!pose || typeof pose === "number") { setNote(`"${name}" has no value yet`); return }
+                editWaypoint(i, w => linkToPose(w, name, pose, kindOf(w) === "pose"), true)
+              }}
+              onSaveAsPose={i => {
+                const w = spec.waypoints[i]
+                let name = "pose"
+                for (let k = 2; variables.some(v => v.name === name); k++) name = `pose${k}`
+                const typed = window.prompt("Name for the new pose variable", name)?.trim()
+                if (!typed) return
+                if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(typed) || variables.some(v => v.name === typed)) { setNote(`"${typed}" is not a free variable name`); return }
+                const heading = w.headingDeg ?? Math.round(headingAt(shown, w) * 10) / 10
+                setVariables([...variables, { name: typed, kind: "pose", x: numberText(w.x), y: numberText(w.y), heading: numberText(heading) }])
+                editWaypoint(i, q => linkToPose(q, typed, { x: w.x, y: w.y, heading }, kindOf(q) === "pose"), true)
+              }}
               onEvent={editEvent}
               onKeepOut={(i, patch) => editKeepOut(i, patch, true)}
               onDelete={removeSelected}

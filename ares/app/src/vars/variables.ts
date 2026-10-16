@@ -185,3 +185,30 @@ export function withField<T extends { exprs?: Record<string, string> }>(obj: T, 
   ;(out as Record<string, unknown>)[key] = value
   return out
 }
+
+/** The pose variable a waypoint is linked to: x and y are exactly =name.x, =name.y. */
+export function linkedPose(w: { exprs?: Record<string, string> }): string | null {
+  const mx = w.exprs?.x?.match(/^=\s*([A-Za-z_][A-Za-z0-9_]*)\.x\s*$/)
+  const my = w.exprs?.y?.match(/^=\s*([A-Za-z_][A-Za-z0-9_]*)\.y\s*$/)
+  return mx && my && mx[1] === my[1] ? mx[1] : null
+}
+
+/** A waypoint linked to pose `name` (heading too when it has one), at its values. */
+export function linkToPose<T extends { x: number; y: number; headingDeg?: number; exprs?: Record<string, string> }>(w: T, name: string, pose: { x: number; y: number; heading: number }, withHeading: boolean): T {
+  const exprs: Record<string, string> = { ...(w.exprs ?? {}), x: `=${name}.x`, y: `=${name}.y` }
+  if (withHeading) exprs.headingDeg = `=${name}.heading`
+  return { ...w, x: pose.x, y: pose.y, ...(withHeading ? { headingDeg: pose.heading } : {}), exprs }
+}
+
+/** The waypoint without formulas on `keys` (it was moved by hand). */
+export function dropExprs<T extends { exprs?: Record<string, string> }>(w: T, keys: string[]): T {
+  if (!w.exprs) return w
+  const exprs = { ...w.exprs }
+  for (const k of keys) delete exprs[k]
+  return { ...w, exprs: Object.keys(exprs).length ? exprs : undefined }
+}
+
+/** A number as a variable's value text. */
+export function numberText(v: number): string {
+  return String(Number(v.toFixed(4)))
+}

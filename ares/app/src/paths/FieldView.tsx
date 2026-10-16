@@ -7,6 +7,7 @@ import {
 import { GLYPH, drawChip, drawHeadingTriangle, drawStop, positionColor } from "./glyphs"
 import type { TopView } from "../robot/topView"
 import { fieldSketch } from "./fieldSketch"
+import { linkedPose } from "../vars/variables"
 
 interface Props {
   field: FieldConfig
@@ -462,6 +463,9 @@ export default function FieldView(props: Props) {
           ctx.fillStyle = color
           ctx.fillText(String(i + 1), cx, ly)
         }
+        // Linked to a pose variable: its name, in the link color.
+        const link = linkedPose(w)
+        if (link) drawChip(ctx, cx, cy - Math.max(24, robot.bumper.widthM * view.k * 0.5 + 12), `⛓ ${link}`, GLYPH.linked, true)
         // Badges: stop, waypoint-scope constraints, split.
         const bx = cx + Math.max(13, robot.bumper.lengthM * view.k * 0.5 + 4)
         let by = cy - Math.max(13, robot.bumper.widthM * view.k * 0.5 + 4)

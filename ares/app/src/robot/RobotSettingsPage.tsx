@@ -12,6 +12,7 @@ import {
   rectangleOf, squareModules,
 } from "./types"
 import { Card, Collapsible, MiniButton, Q, QInput, Toggle } from "../ui/controls"
+import { bindField } from "../vars/bind"
 
 interface Props {
   robot: RobotConfig
@@ -49,6 +50,8 @@ export default function RobotSettingsPage({ robot, onChange, robotPath }: Props)
     invoke<string>("resolve_model_path", { robotPath, modelPath: robot.model.path }).then(setModelPath)
   }, [robotPath, robot.model?.path])
 
+  // Any robot field, by dotted path, as a number or a formula.
+  const rb = (key: string) => bindField(robot, key, f => onChange(f(robot)))
   const rect = rectangleOf(dt.modules)
   const derived = check.derived
 
@@ -87,9 +90,9 @@ export default function RobotSettingsPage({ robot, onChange, robotPath }: Props)
             <PropertyRow label="Name">
               <input style={propertyInputStyle} value={robot.name} onChange={e => set({ name: e.target.value })} />
             </PropertyRow>
-            <Q label="Mass (with battery, bumpers)" dim="mass" unit="kg" value={robot.massKg} onChange={v => set({ massKg: v })} />
-            <Q label="Bumper length (X)" dim="length" unit="m" value={robot.bumper.lengthM} onChange={v => set({ bumper: { ...robot.bumper, lengthM: v } })} />
-            <Q label="Bumper width (Y)" dim="length" unit="m" value={robot.bumper.widthM} onChange={v => set({ bumper: { ...robot.bumper, widthM: v } })} />
+            <Q label="Mass (with battery, bumpers)" dim="mass" unit="kg" {...rb("massKg")} />
+            <Q label="Bumper length (X)" dim="length" unit="m" {...rb("bumper.lengthM")} />
+            <Q label="Bumper width (Y)" dim="length" unit="m" {...rb("bumper.widthM")} />
           </Panel>
 
           <Panel title="Swerve modules" icon="ti-steering-wheel">
@@ -102,14 +105,14 @@ export default function RobotSettingsPage({ robot, onChange, robotPath }: Props)
               dt.modules.map((m, i) => (
                 <PropertyRow key={i} label={`${m.name} (x, y)`}>
                   <div style={{ display: "flex", gap: 4, width: "100%" }}>
-                    <QInput dim="length" value={m.xM} onChange={v => setDrive({ modules: dt.modules.map((q, j) => j === i ? { ...q, xM: v } : q) })} />
-                    <QInput dim="length" value={m.yM} onChange={v => setDrive({ modules: dt.modules.map((q, j) => j === i ? { ...q, yM: v } : q) })} />
+                    <QInput dim="length" {...rb(`drivetrain.modules.${i}.xM`)} />
+                    <QInput dim="length" {...rb(`drivetrain.modules.${i}.yM`)} />
                   </div>
                 </PropertyRow>
               ))
             )}
-            <Q label="Wheel radius" dim="length" unit="m" value={dt.wheelRadiusM} onChange={v => setDrive({ wheelRadiusM: v })} />
-            <Q label="Wheel grip (μ)" dim="plain" unit="" value={dt.wheelCof} onChange={v => setDrive({ wheelCof: v })} hint="Tread on carpet: about 1.0 for new, less when worn." />
+            <Q label="Wheel radius" dim="length" unit="m" {...rb("drivetrain.wheelRadiusM")} />
+            <Q label="Wheel grip (μ)" dim="plain" unit="" {...rb("drivetrain.wheelCof")} hint="Tread on carpet: about 1.0 for new, less when worn." />
           </Panel>
 
           <Panel title="Drive" icon="ti-engine">
@@ -122,7 +125,7 @@ export default function RobotSettingsPage({ robot, onChange, robotPath }: Props)
             </PropertyRow>
             <PropertyRow label="Gear ratio">
               <div style={{ display: "flex", gap: 4, width: "100%" }}>
-                <QInput dim="plain" value={dt.driveGearRatio} onChange={v => setDrive({ driveGearRatio: v })} />
+                <QInput dim="plain" {...rb("drivetrain.driveGearRatio")} />
                 <select
                   style={{ ...propertyInputStyle, width: 120 }}
                   value={GEAR_PRESETS.find(p => p.ratio === dt.driveGearRatio)?.label ?? ""}
@@ -136,7 +139,7 @@ export default function RobotSettingsPage({ robot, onChange, robotPath }: Props)
                 </select>
               </div>
             </PropertyRow>
-            <Q label="Stator current limit" dim="plain" unit="A" value={dt.driveCurrentLimitA} onChange={v => setDrive({ driveCurrentLimitA: v })} hint="0 = no limit" />
+            <Q label="Stator current limit" dim="plain" unit="A" {...rb("drivetrain.driveCurrentLimitA")} hint="0 = no limit" />
             <Q
               label="Usable speed" dim="plain" unit="% free" optional
               value={dt.maxSpeedFraction === undefined ? undefined : Number((dt.maxSpeedFraction * 100).toFixed(1))}
@@ -159,8 +162,7 @@ export default function RobotSettingsPage({ robot, onChange, robotPath }: Props)
 
           <Collapsible title="Advanced (optional)" icon="ti-adjustments" hint="Good defaults; change them only if you know the value.">
             <Q
-              label="Moment of inertia" dim="plain" unit="kg·m²" value={robot.moiKgM2}
-              onChange={v => set({ moiKgM2: v })}
+              label="Moment of inertia" dim="plain" unit="kg·m²" {...rb("moiKgM2")}
               action={derived && (
                 <MiniButton title="A box of the bumper's size and the robot's mass" onClick={() => set({ moiKgM2: Number(derived.moiEstimateKgM2.toFixed(2)) })}>
                   estimate
@@ -168,12 +170,11 @@ export default function RobotSettingsPage({ robot, onChange, robotPath }: Props)
               )}
             />
             <Q
-              label="Center of mass height" dim="length" unit="m" optional value={robot.cogHeightM}
-              onChange={v => set({ cogHeightM: v })}
+              label="Center of mass height" dim="length" unit="m" optional {...rb("cogHeightM")}
               hint="Load transfer and tipping. Leave empty if unknown."
             />
-            <Q label="Motors per module" dim="plain" unit="" value={dt.driveMotorsPerModule} integer onChange={v => setDrive({ driveMotorsPerModule: v })} />
-            <Q label="Battery under load" dim="plain" unit="V" value={dt.batteryVoltage} onChange={v => setDrive({ batteryVoltage: v })} />
+            <Q label="Motors per module" dim="plain" unit="" integer {...rb("drivetrain.driveMotorsPerModule")} />
+            <Q label="Battery under load" dim="plain" unit="V" {...rb("drivetrain.batteryVoltage")} />
           </Collapsible>
 
           <Panel title="3D model" icon="ti-cube">
@@ -201,11 +202,7 @@ export default function RobotSettingsPage({ robot, onChange, robotPath }: Props)
                 </PropertyRow>
                 {(["Roll", "Pitch", "Yaw"] as const).map((axis, i) => (
                   <PropertyRow key={axis} label={`${axis} (deg)`}>
-                    <QInput dim="plain" value={robot.model!.rotationDeg[i]} onChange={v => {
-                      const r = [...robot.model!.rotationDeg] as [number, number, number]
-                      r[i] = v
-                      setModel({ rotationDeg: r })
-                    }} />
+                    <QInput dim="plain" {...rb(`model.rotationDeg.${i}`)} exprDim="angle" />
                     <MiniButton title="Turn 90°" onClick={() => {
                       const r = [...robot.model!.rotationDeg] as [number, number, number]
                       r[i] = ((r[i] + 90 + 180) % 360) - 180
@@ -215,11 +212,7 @@ export default function RobotSettingsPage({ robot, onChange, robotPath }: Props)
                 ))}
                 {(["X", "Y", "Z"] as const).map((axis, i) => (
                   <PropertyRow key={axis} label={`Offset ${axis}`}>
-                    <QInput dim="length" value={robot.model!.offsetM[i]} onChange={v => {
-                      const o = [...robot.model!.offsetM] as [number, number, number]
-                      o[i] = v
-                      setModel({ offsetM: o })
-                    }} />
+                    <QInput dim="length" {...rb(`model.offsetM.${i}`)} />
                   </PropertyRow>
                 ))}
                 <PropertyRow label="">

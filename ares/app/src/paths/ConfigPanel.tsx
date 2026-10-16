@@ -2,6 +2,8 @@ import { ReactNode, useEffect, useState } from "react"
 import PropertyRow from "@desktop/components/common/PropertyRow"
 import { propertyInputStyle } from "@desktop/styles/pageForm"
 import { Q, QInput } from "../ui/controls"
+import { bindField } from "../vars/bind"
+import { linkedPose } from "../vars/variables"
 import { StopIcon, WaypointIcon, positionColor } from "./glyphs"
 import {
   EventMarker, KeepOut, PathSpec, PathfindOptions, ScopedConstraint, SegmentMode, Selection, Target, Trajectory, Waypoint, WaypointKind,
@@ -24,16 +26,34 @@ interface Props {
   onSetSegment: (i: number, mode: SegmentMode) => void
   onPathfind: (i: number, patch: Partial<PathfindOptions>) => void
   onConstraint: (i: number, patch: Partial<ScopedConstraint>) => void
+  /** The same, with a function of the current one (formula-aware fields). */
+  onConstraintFn: (i: number, f: (c: ScopedConstraint) => ScopedConstraint) => void
   onEvent: (i: number, patch: Partial<EventMarker>) => void
+  onEventFn: (i: number, f: (e: EventMarker) => EventMarker) => void
   onKeepOut: (i: number, patch: Partial<KeepOut>) => void
+  onKeepOutFn: (i: number, f: (k: KeepOut) => KeepOut) => void
+  /** Index of the stop constraint on waypoint i, or -1. */
+  stopIndexOf: (i: number) => number
   onDelete: () => void
   guessIntervals: (i: number) => number
+  /** The project's other paths, for "continue from". */
+  otherPaths: string[]
+  onContinueFrom: (name: string | undefined) => void
+  /** Pose variables, for linking a waypoint to one. */
+  poses: { name: string; computed: boolean }[]
+  onLink: (i: number, name: string | null) => void
+  onSaveAsPose: (i: number) => void
 }
 
 const KINDS: { kind: WaypointKind; label: string; key: string }[] = [
   { kind: "pose", label: "Pose", key: "1" },
   { kind: "translation", label: "Translation", key: "2" },
   { kind: "empty", label: "Empty", key: "3" },
+]
+/** The first waypoint can also be a start kind. */
+const START_KINDS: { kind: WaypointKind; label: string; hint: string }[] = [
+  { kind: "unknown", label: "Unknown start", hint: "The robot can start anywhere and pathfinds to the next waypoint. This position is only the likely start, for the estimate." },
+  { kind: "continue", label: "Continue", hint: "Start where the previous path ended, at its speed. Pick the path to take its end pose." },
 ]
 
 // Choreo's floating config panel: whatever is selected, edited right over
@@ -55,6 +75,23 @@ export default function ConfigPanel(p: Props) {
     icon = <WaypointIcon kind={kind} color={positionColor(i, n, false)} />
     body = (
       <>
+        {i === 0 && (
+          <div style={{ display: "flex", gap: 4, padding: "6px 8px 0" }}>
+            {START_KINDS.map(k => {
+              const on = kind === k.kind
+              return (
+                <button key={k.kind} onClick={() => p.onSetKind(i, k.kind)} title={k.hint}
+                  style={{
+                    flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5, height: 26, fontSize: 11, cursor: "pointer",
+                    border: "1px solid var(--btn-classic-border)", borderRadius: 2,
+                    background: on ? "var(--toolbar-active-bg)" : "var(--btn-classic-bg)", fontWeight: on ? 600 : 400,
+                  }}>
+                  <WaypointIcon kind={k.kind} color="#55565c" size={13} /> {k.label}
+                </button>
+              )
+            })}
+          </div>
+        )}
         <div style={{ display: "flex", gap: 4, padding: "6px 8px", borderBottom: "1px solid var(--border-light)" }}>
           {KINDS.map(k => {
             const on = kind === k.kind
@@ -72,9 +109,40 @@ export default function ConfigPanel(p: Props) {
             )
           })}
         </div>
-        <Q label="X" dim="length" unit="m" value={w.x} onChange={v => p.onWaypoint(i, { x: v })} />
-        <Q label="Y" dim="length" unit="m" value={w.y} onChange={v => p.onWaypoint(i, { y: v })} />
-        {kind === "pose" && <Q label="Heading" dim="plain" unit="°" value={w.headingDeg} onChange={v => p.onWaypoint(i, { headingDeg: v })} />}
+        {kind === "continue" && (
+          <div title="The path this one continues: it starts at that path's generated end pose and speed. Without one, the robot starts from wherever the last path left it.">
+            <PropertyRow label="Continue from">
+              <select style={propertyInputStyle} value={p.spec.continuesFrom ?? ""} onChange={e => p.onContinueFrom(e.target.value || undefined)}>
+                <option value="">— wherever the robot is</option>
+                {p.otherPaths.map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </PropertyRow>
+          </div>
+        )}
+        {kind === "unknown" && (
+          <div style={{ padding: "5px 10px", fontSize: 10.5, color: "#16a34a", lineHeight: 1.45, background: "rgba(22,163,74,0.06)", borderBottom: "1px solid var(--border-light)" }}>
+            The robot pathfinds from wherever it is to waypoint 2. Put this point where it will most likely be: Ares estimates the route from here.
+          </div>
+        )}
+        {kind !== "continue" || !p.spec.continuesFrom ? (
+          <div title="Link this waypoint to a pose variable: moving either moves both, in every path that uses it.">
+            <PropertyRow label="Pose variable">
+              <span style={{ display: "flex", gap: 4, width: "100%" }}>
+                <select style={propertyInputStyle} value={linkedPose(w) ?? ""} onChange={e => p.onLink(i, e.target.value || null)}>
+                  <option value="">— not linked</option>
+                  {p.poses.map(q => <option key={q.name} value={q.name}>⛓ {q.name}{q.computed ? " (formula)" : ""}</option>)}
+                </select>
+                <button onClick={() => p.onSaveAsPose(i)} title="Make this position a new pose variable and link to it"
+                  style={{ fontSize: 10.5, padding: "0 6px", height: 20, border: "1px solid var(--btn-classic-border)", borderRadius: 2, background: "var(--btn-classic-bg)", cursor: "pointer", whiteSpace: "nowrap" }}>
+                  + new
+                </button>
+              </span>
+            </PropertyRow>
+          </div>
+        ) : null}
+        <Q label="X" dim="length" unit="m" {...bindField(w, "x", f => p.onWaypoint(i, f))} />
+        <Q label="Y" dim="length" unit="m" {...bindField(w, "y", f => p.onWaypoint(i, f))} />
+        {(kind === "pose" || (kind === "continue" && w.headingDeg !== undefined)) && <Q label="Heading" dim="plain" unit="°" {...bindField(w, "headingDeg", f => p.onWaypoint(i, f))} />}
         <PropertyRow label="Stop here">
           <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 11 }}>
             <input type="checkbox" checked={p.stopOn(i)} onChange={() => p.onToggleStop(i)} />
@@ -83,7 +151,10 @@ export default function ConfigPanel(p: Props) {
           </label>
         </PropertyRow>
         {p.stopOn(i) && (
-          <Q label="Wait here" dim="plain" unit="s" value={p.waitOn(i)} onChange={v => p.onSetWait(i, Math.max(0, v))}
+          <Q label="Wait here" dim="plain" unit="s"
+            {...(p.stopIndexOf(i) >= 0
+              ? bindField(p.spec.scoped[p.stopIndexOf(i)], "waitS", f => p.onConstraintFn(p.stopIndexOf(i), f))
+              : { value: p.waitOn(i), onChange: (v: number) => p.onSetWait(i, Math.max(0, v)) })}
             hint="How long the robot stays stopped before moving on (to score, to intake). Everything after it happens that much later." />
         )}
         {i < n - 1 && (
@@ -102,12 +173,20 @@ export default function ConfigPanel(p: Props) {
             <div style={{ padding: "5px 10px", fontSize: 10.5, color: "#16a34a", lineHeight: 1.45, borderBottom: "1px solid var(--border-light)", background: "rgba(22,163,74,0.06)" }}>
               The robot pathfinds to waypoint {i + 2} with these limits. The path stops at both ends of this segment; the green route is Ares' estimate.
             </div>
-            <Q label="Pathfind max speed" dim="plain" unit="m/s" optional value={w.pathfindNext.maxVelocityMps}
-              onChange={v => p.onPathfind(i, { maxVelocityMps: v })} hint="Empty: what the robot can do" />
-            <Q label="Pathfind max accel" dim="plain" unit="m/s²" optional value={w.pathfindNext.maxAccelerationMps2}
-              onChange={v => p.onPathfind(i, { maxAccelerationMps2: v })} hint="Empty: what the robot can do" />
-            <Q label="Pathfind max turn" dim="plain" unit="°/s" optional value={w.pathfindNext.maxAngularVelocityDps}
-              onChange={v => p.onPathfind(i, { maxAngularVelocityDps: v })} hint="Empty: what the robot can do" />
+            <Q label="Pathfind max speed" dim="plain" unit="m/s" optional hint="Empty: what the robot can do"
+              {...bindField(w.pathfindNext, "maxVelocityMps", f => p.onWaypoint(i, x => ({ ...x, pathfindNext: f(x.pathfindNext ?? {}) })))} />
+            <Q label="Pathfind max accel" dim="plain" unit="m/s²" optional hint="Empty: what the robot can do"
+              {...bindField(w.pathfindNext, "maxAccelerationMps2", f => p.onWaypoint(i, x => ({ ...x, pathfindNext: f(x.pathfindNext ?? {}) })))} />
+            <Q label="Pathfind max turn" dim="plain" unit="°/s" optional hint="Empty: what the robot can do"
+              {...bindField(w.pathfindNext, "maxAngularVelocityDps", f => p.onWaypoint(i, x => ({ ...x, pathfindNext: f(x.pathfindNext ?? {}) })))} />
+            <PropertyRow label="Enter moving">
+              <input type="checkbox" checked={!!w.pathfindNext.keepMovingIn} onChange={e => p.onPathfind(i, { keepMovingIn: e.target.checked || undefined })} />
+              <span style={{ fontSize: 10.5, color: "var(--text-muted)", marginLeft: 6 }}>the part before does not stop at waypoint {i + 1}</span>
+            </PropertyRow>
+            <PropertyRow label="Leave moving">
+              <input type="checkbox" checked={!!w.pathfindNext.keepMovingOut} onChange={e => p.onPathfind(i, { keepMovingOut: e.target.checked || undefined })} />
+              <span style={{ fontSize: 10.5, color: "var(--text-muted)", marginLeft: 6 }}>the part after starts at speed at waypoint {i + 2}</span>
+            </PropertyRow>
           </>
         )}
         {i < n - 1 && (
@@ -119,7 +198,7 @@ export default function ConfigPanel(p: Props) {
                   return { ...x, intervals: p.guessIntervals(i) }
                 })} />
               {w.intervals !== undefined
-                ? <QInput dim="plain" integer value={w.intervals} onChange={v => p.onWaypoint(i, { intervals: Math.max(1, Math.round(v)) })} />
+                ? <QInput dim="plain" integer {...bindField(w, "intervals", f => p.onWaypoint(i, x => { const y = f(x); return { ...y, intervals: Math.max(1, Math.round(y.intervals ?? 1)) } }))} />
                 : <span style={{ fontSize: 10.5, color: "var(--text-muted)" }}>automatic</span>}
             </div>
           </PropertyRow>
@@ -138,7 +217,7 @@ export default function ConfigPanel(p: Props) {
     const meta = constraintMeta(c.type)
     title = meta.label
     icon = c.type === "stopPoint" ? <StopIcon /> : <i className={`ti ${meta.icon}`} style={{ fontSize: 15, color: "#e95420" }} />
-    body = <ConstraintFields c={c} n={n} onChange={patch => p.onConstraint(selected.index, patch)} />
+    body = <ConstraintFields c={c} n={n} onChange={patch => p.onConstraint(selected.index, patch)} onUpdate={f => p.onConstraintFn(selected.index, f)} />
   } else if (selected.kind === "event") {
     const e = (spec.events ?? [])[selected.index]
     if (!e) return null
@@ -149,7 +228,9 @@ export default function ConfigPanel(p: Props) {
       <>
         <PropertyRow label="Name"><TextInput value={e.name} onCommit={name => p.onEvent(selected.index, { name })} /></PropertyRow>
         <PropertyRow label="From waypoint"><TargetSelect value={e.target} n={n} onChange={t => t && p.onEvent(selected.index, { target: t })} /></PropertyRow>
-        <Q label="Offset" dim="plain" unit="s" value={e.offsetS} onChange={v => p.onEvent(selected.index, { offsetS: v })} hint="Negative fires before the waypoint" />
+        <Q label="Offset" dim="plain" unit="s" hint="Negative fires before the waypoint" {...bindField(e, "offsetS", f => p.onEventFn(selected.index, f))} />
+        <Q label="Duration" dim="plain" unit="s" optional hint="Empty: a moment. A duration makes it a zone (PathPlanner's zoned events): from the start to start + duration."
+          {...bindField(e, "durationS", f => p.onEventFn(selected.index, f))} />
         {fired && !p.stale && (
           <PropertyRow label="Fires at">
             <span style={{ fontFamily: "Consolas, 'Cascadia Mono', monospace", fontSize: 11 }}>{fired.t.toFixed(3)} s</span>
@@ -165,9 +246,9 @@ export default function ConfigPanel(p: Props) {
     body = (
       <>
         <div style={{ padding: "5px 10px", fontSize: 10.5, color: "var(--text-muted)", borderBottom: "1px solid var(--border-light)" }}>On the field: every path avoids it.</div>
-        <Q label="X" dim="length" unit="m" value={k.x} onChange={v => p.onKeepOut(selected.index, { x: v })} />
-        <Q label="Y" dim="length" unit="m" value={k.y} onChange={v => p.onKeepOut(selected.index, { y: v })} />
-        <Q label="Radius" dim="length" unit="m" value={k.radiusM} onChange={v => p.onKeepOut(selected.index, { radiusM: v })} />
+        <Q label="X" dim="length" unit="m" {...bindField(k, "x", f => p.onKeepOutFn(selected.index, f))} />
+        <Q label="Y" dim="length" unit="m" {...bindField(k, "y", f => p.onKeepOutFn(selected.index, f))} />
+        <Q label="Radius" dim="length" unit="m" {...bindField(k, "radiusM", f => p.onKeepOutFn(selected.index, f))} />
       </>
     )
   }
@@ -193,9 +274,12 @@ export default function ConfigPanel(p: Props) {
   )
 }
 
-function ConstraintFields({ c, n, onChange }: { c: ScopedConstraint; n: number; onChange: (patch: Partial<ScopedConstraint>) => void }) {
+function ConstraintFields({ c, n, onChange, onUpdate }: {
+  c: ScopedConstraint; n: number; onChange: (patch: Partial<ScopedConstraint>) => void; onUpdate: (f: (c: ScopedConstraint) => ScopedConstraint) => void
+}) {
   const meta = constraintMeta(c.type)
   const set = (patch: Record<string, unknown>) => onChange(patch as Partial<ScopedConstraint>)
+  const b = (key: string) => bindField(c, key, onUpdate)
   return (
     <>
       <div style={{ padding: "5px 10px", fontSize: 10.5, color: "var(--text-muted)", lineHeight: 1.45, borderBottom: "1px solid var(--border-light)" }}>{meta.hint}</div>
@@ -211,17 +295,17 @@ function ConstraintFields({ c, n, onChange }: { c: ScopedConstraint; n: number; 
         </PropertyRow>
       )}
       {c.type === "stopPoint" && (
-        <Q label="Wait" dim="plain" unit="s" value={c.waitS ?? 0} onChange={v => set({ waitS: v > 0 ? v : undefined })}
+        <Q label="Wait" dim="plain" unit="s" {...b("waitS")}
           hint="How long the robot stays stopped before moving on. Everything after it happens that much later." />
       )}
-      {c.type === "maxVelocity" && <Q label="Max velocity" dim="plain" unit="m/s" value={c.mps} onChange={v => set({ mps: v })} />}
-      {c.type === "maxAcceleration" && <Q label="Max acceleration" dim="plain" unit="m/s²" value={c.mps2} onChange={v => set({ mps2: v })} />}
-      {c.type === "maxAngularVelocity" && <Q label="Max angular velocity" dim="plain" unit="°/s" value={c.dps} onChange={v => set({ dps: v })} />}
+      {c.type === "maxVelocity" && <Q label="Max velocity" dim="plain" unit="m/s" {...b("mps")} />}
+      {c.type === "maxAcceleration" && <Q label="Max acceleration" dim="plain" unit="m/s²" {...b("mps2")} />}
+      {c.type === "maxAngularVelocity" && <Q label="Max angular velocity" dim="plain" unit="°/s" {...b("dps")} />}
       {c.type === "pointAt" && (
         <>
-          <Q label="Target X" dim="length" unit="m" value={c.x} onChange={v => set({ x: v })} />
-          <Q label="Target Y" dim="length" unit="m" value={c.y} onChange={v => set({ y: v })} />
-          <Q label="Tolerance" dim="plain" unit="°" value={c.toleranceDeg} onChange={v => set({ toleranceDeg: v })} />
+          <Q label="Target X" dim="length" unit="m" {...b("x")} />
+          <Q label="Target Y" dim="length" unit="m" {...b("y")} />
+          <Q label="Tolerance" dim="plain" unit="°" {...b("toleranceDeg")} />
           <PropertyRow label="Face">
             <select style={propertyInputStyle} value={c.flip ? "back" : "front"} onChange={e => set({ flip: e.target.value === "back" })}>
               <option value="front">Front toward it</option>
@@ -232,20 +316,20 @@ function ConstraintFields({ c, n, onChange }: { c: ScopedConstraint; n: number; 
       )}
       {(c.type === "keepInCircle" || c.type === "keepOutCircle") && (
         <>
-          <Q label="Center X" dim="length" unit="m" value={c.x} onChange={v => set({ x: v })} />
-          <Q label="Center Y" dim="length" unit="m" value={c.y} onChange={v => set({ y: v })} />
-          <Q label="Radius" dim="length" unit="m" value={c.radiusM} onChange={v => set({ radiusM: v })} />
+          <Q label="Center X" dim="length" unit="m" {...b("x")} />
+          <Q label="Center Y" dim="length" unit="m" {...b("y")} />
+          <Q label="Radius" dim="length" unit="m" {...b("radiusM")} />
         </>
       )}
       {c.type === "keepInRectangle" && (
         <>
-          <Q label="X (left)" dim="length" unit="m" value={c.x} onChange={v => set({ x: v })} />
-          <Q label="Y (bottom)" dim="length" unit="m" value={c.y} onChange={v => set({ y: v })} />
-          <Q label="Width" dim="length" unit="m" value={c.widthM} onChange={v => set({ widthM: v })} />
-          <Q label="Height" dim="length" unit="m" value={c.heightM} onChange={v => set({ heightM: v })} />
+          <Q label="X (left)" dim="length" unit="m" {...b("x")} />
+          <Q label="Y (bottom)" dim="length" unit="m" {...b("y")} />
+          <Q label="Width" dim="length" unit="m" {...b("widthM")} />
+          <Q label="Height" dim="length" unit="m" {...b("heightM")} />
         </>
       )}
-      {c.type === "keepInLane" && <Q label="Tolerance" dim="length" unit="m" value={c.toleranceM} onChange={v => set({ toleranceM: v })} />}
+      {c.type === "keepInLane" && <Q label="Tolerance" dim="length" unit="m" {...b("toleranceM")} />}
     </>
   )
 }

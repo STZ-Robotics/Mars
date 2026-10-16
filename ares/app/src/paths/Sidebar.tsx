@@ -1,5 +1,6 @@
 import { ReactNode, useState } from "react"
 import { GLYPH, StopIcon, WaypointIcon, positionColor } from "./glyphs"
+import { linkedPose } from "../vars/variables"
 import {
   PathEntry, PathSpec, SegmentMode, Selection, WaypointKind, constraintChip, constraintMeta, kindOf, rangeOf, segmentMode, stopAt, targetLabel, waitAt,
 } from "./types"
@@ -100,6 +101,8 @@ export default function Sidebar(p: Props) {
                   <Label>
                     {KIND_LABEL[kind]}
                     {kind === "pose" && w.headingDeg !== undefined && <Dim sel={sel}> {Math.round(w.headingDeg)}°</Dim>}
+                    {linkedPose(w) && <Dim sel={sel}> · ⛓ {linkedPose(w)}</Dim>}
+                    {i === 0 && kind === "continue" && spec.continuesFrom && <Dim sel={sel}> · after {spec.continuesFrom}</Dim>}
                     {waitAt(spec, i) > 0 && <Dim sel={sel}> · waits {waitAt(spec, i)} s</Dim>}
                     {w.split && <Dim sel={sel}> · split</Dim>}
                     {segmentMode(w) === "manual" && <Dim sel={sel}> · ✎ manual →</Dim>}
