@@ -212,3 +212,18 @@ export function dropExprs<T extends { exprs?: Record<string, string> }>(w: T, ke
 export function numberText(v: number): string {
   return String(Number(v.toFixed(4)))
 }
+
+/**
+ * The variables with a variant's overrides in place. A number takes the
+ * override as its value; a pose overridden with another pose's name (=note2)
+ * becomes that pose.
+ */
+export function withOverrides(vars: Variable[], overrides: Record<string, string>): Variable[] {
+  return vars.map(v => {
+    const o = overrides[v.name]
+    if (o === undefined) return v
+    if (v.kind === "number") return { ...v, value: o }
+    const m = o.match(/^=?\s*([A-Za-z_][A-Za-z0-9_]*)\s*$/)
+    return m ? { ...v, x: `=${m[1]}.x`, y: `=${m[1]}.y`, heading: `=${m[1]}.heading` } : v
+  })
+}

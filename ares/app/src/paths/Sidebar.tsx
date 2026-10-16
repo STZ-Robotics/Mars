@@ -2,7 +2,7 @@ import { ReactNode, useState } from "react"
 import { GLYPH, StopIcon, WaypointIcon, positionColor } from "./glyphs"
 import { linkedPose } from "../vars/variables"
 import {
-  PathEntry, PathSpec, SegmentMode, Selection, WaypointKind, constraintChip, constraintMeta, kindOf, rangeOf, segmentMode, stopAt, targetLabel, waitAt,
+  PathEntry, PathSpec, PathStatus, SegmentMode, Selection, WaypointKind, constraintChip, constraintMeta, kindOf, rangeOf, segmentMode, stopAt, targetLabel, waitAt,
 } from "./types"
 
 interface Props {
@@ -26,6 +26,9 @@ interface Props {
   onDeleteConstraint: (i: number) => void
   onDeleteEvent: (i: number) => void
   onDeleteRotation: (i: number) => void
+  /** Per path: generated and up to date. */
+  status: Record<string, PathStatus>
+  onGenerateMany: (which: "outdated" | "all") => void
   /** Rendered after the lists, in the same scroll. */
   children?: ReactNode
 }
@@ -48,18 +51,39 @@ export default function Sidebar(p: Props) {
   return (
     <div className="ares-scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column" }}>
       <Heading label="Paths" count={p.entries.length}>
+        <IconButton icon="ti-refresh-alert" title="Generate all outdated: every path not generated, or generated from something that changed, in order (a path before what continues from it)" onClick={() => p.onGenerateMany("outdated")} />
+        <IconButton icon="ti-stack-2" title="Generate all: every path and variant, in order" onClick={() => p.onGenerateMany("all")} />
         <IconButton icon="ti-plus" title="New path" onClick={p.onNewPath} />
         <IconButton icon="ti-copy" title="Duplicate path" onClick={p.onDuplicatePath} disabled={!spec} />
         <IconButton icon="ti-trash" title="Delete path" onClick={p.onDeletePath} disabled={!spec} />
       </Heading>
       <div style={{ maxHeight: 150, overflowY: "auto" }}>
         {p.entries.length === 0 && !p.unsavedName && <None>No paths yet.</None>}
-        {p.entries.map(e => (
-          <Item key={e.name} active={p.activeName === e.name} onClick={() => p.onOpen(e)} title={e.error ?? undefined}>
-            <i className={`ti ${e.error ? "ti-alert-triangle" : "ti-route"}`} style={{ fontSize: 14, color: e.error ? "var(--status-error)" : "var(--icon-tree)" }} />
-            <Label>{e.name}</Label>
-          </Item>
-        ))}
+        {tree(p.entries).map(({ entry: e, depth }) => {
+          const st = p.status[e.name]
+          const sp = e.spec
+          const isBranch = !!sp?.continuesFrom && sp.continuesAt !== undefined
+          const isChain = !!sp?.continuesFrom && sp.continuesAt === undefined
+          const active = p.activeName === e.name
+          const dot = !st?.generated ? "var(--text-light)" : st.outdated ? "#d97706" : "#16a34a"
+          return (
+            <Item key={e.name} active={active} onClick={() => p.onOpen(e)}
+              title={e.error ?? `${e.name}${isBranch ? `: branch of ${sp!.continuesFrom} at waypoint ${sp!.continuesAt! + 1}, when ${sp!.condition ?? "?"}` : isChain ? `: continues ${sp!.continuesFrom}` : ""}. ${!st?.generated ? "Not generated." : st.outdated ? "Out of date: generate again." : "Up to date."}`}
+              style={{ paddingLeft: 8 + depth * 16 }}>
+              {e.error ? <i className="ti ti-alert-triangle" style={{ fontSize: 14, color: "var(--status-error)" }} />
+                : isBranch ? <span style={{ color: active ? "#ffffff" : "#db2777", fontSize: 12, width: 14, textAlign: "center" }}>◆</span>
+                : isChain ? <span style={{ color: active ? "#ffffff" : "#0e7490", fontSize: 13, width: 14, textAlign: "center" }}>↪</span>
+                : <i className="ti ti-route" style={{ fontSize: 14, color: active ? "#ffffff" : "var(--icon-tree)" }} />}
+              <Label>
+                {e.name}
+                {isBranch && sp!.condition && <Dim sel={active}> · if {sp!.condition}</Dim>}
+                {(sp?.variants?.length ?? 0) > 0 && <Dim sel={active}> · {sp!.variants!.length} variant{sp!.variants!.length > 1 ? "s" : ""}</Dim>}
+              </Label>
+              {st?.durationS !== undefined && <span style={{ fontSize: 10, opacity: 0.8, fontFamily: "Consolas, 'Cascadia Mono', monospace" }}>{st.durationS.toFixed(2)} s</span>}
+              <span style={{ width: 8, height: 8, borderRadius: 4, background: dot, flexShrink: 0, boxShadow: active ? "0 0 0 1.5px #ffffff" : undefined }} />
+            </Item>
+          )
+        })}
         {p.unsavedName && (
           <Item active>
             <i className="ti ti-route" style={{ fontSize: 14 }} />
@@ -105,7 +129,7 @@ export default function Sidebar(p: Props) {
                     {linkedPose(w) && <Dim sel={sel}> · ⛓ {linkedPose(w)}</Dim>}
                     {i === 0 && kind === "continue" && spec.continuesFrom && <Dim sel={sel}> · after {spec.continuesFrom}</Dim>}
                     {waitAt(spec, i) > 0 && <Dim sel={sel}> · waits {waitAt(spec, i)} s</Dim>}
-                    {w.split && <Dim sel={sel}> · split</Dim>}
+                    {(w.split || w.section) && <Dim sel={sel}> · ✂ {w.section ?? "split"}</Dim>}
                     {segmentMode(w) === "manual" && <Dim sel={sel}> · ✎ manual →</Dim>}
                     {segmentMode(w) === "pathfind" && <Dim sel={sel}> · ? pathfind →</Dim>}
                     {w.intervals !== undefined && <Dim sel={sel}> · {w.intervals} samples</Dim>}
@@ -216,6 +240,34 @@ function SegmentIcon({ mode, sel }: { mode: SegmentMode; sel: boolean }) {
   }
   if (mode === "manual") return <i className="ti ti-pencil" style={{ fontSize: 13, color: sel ? "#ffffff" : "#e95420" }} />
   return <i className="ti ti-wave-sine" style={{ fontSize: 13, color: sel ? "rgba(255,255,255,0.8)" : "var(--text-light)" }} />
+}
+
+/**
+ * The paths as a tree: what continues or branches from a path hangs under
+ * it. Paths whose parent is missing (or a cycle) stay at the root.
+ */
+function tree(entries: PathEntry[]): { entry: PathEntry; depth: number }[] {
+  const names = new Set(entries.map(e => e.name))
+  const children = new Map<string, PathEntry[]>()
+  const roots: PathEntry[] = []
+  for (const e of entries) {
+    const parent = e.spec?.continuesFrom
+    if (parent && names.has(parent) && parent !== e.name) children.set(parent, [...(children.get(parent) ?? []), e])
+    else roots.push(e)
+  }
+  const out: { entry: PathEntry; depth: number }[] = []
+  const seen = new Set<string>()
+  const walk = (e: PathEntry, depth: number) => {
+    if (seen.has(e.name)) return
+    seen.add(e.name)
+    out.push({ entry: e, depth })
+    // Branches in fork order, then continuations.
+    const kids = (children.get(e.name) ?? []).slice().sort((a, b) => (a.spec?.continuesAt ?? 1e9) - (b.spec?.continuesAt ?? 1e9))
+    kids.forEach(k => walk(k, depth + 1))
+  }
+  roots.forEach(r => walk(r, 0))
+  entries.forEach(e => walk(e, 0))
+  return out
 }
 
 /** The next kind when cycling a waypoint's type from its row. */

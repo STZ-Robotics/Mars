@@ -53,6 +53,9 @@ interface Props {
   zones: SlowZone[]
   onAddZone: (z: SlowZone) => void
   onEditZone: (i: number, patch: Partial<SlowZone>, final: boolean) => void
+  /** Paths that branch off this one, drawn from their fork. */
+  branches: { name: string; condition?: string; fork: [number, number]; points: [number, number][] }[]
+  onOpenPath: (name: string) => void
   onAddRotation: (segment: number, fraction: number, headingDeg: number) => void
   onEditRotation: (i: number, patch: Partial<RotationTarget>, final: boolean) => void
 }
@@ -340,6 +343,37 @@ export default function FieldView(props: Props) {
       })
     }
 
+    // Branches: dashed magenta from the fork, with a diamond and the
+    // condition the robot code checks there.
+    for (const b of props.branches) {
+      const pts = b.points.map(([x, y]) => toScreen(x, y))
+      if (!plan) polyline(ctx, pts, "rgba(255,255,255,0.85)", 6)
+      ctx.setLineDash([8, 5])
+      polyline(ctx, pts, BRANCH, 3)
+      ctx.setLineDash([])
+      const end = pts[pts.length - 1]
+      if (end) drawChip(ctx, end[0], end[1] - 16, b.name, BRANCH)
+    }
+    // The diamonds on top, one per fork (several conditions stack).
+    const forks = new Map<string, typeof props.branches>()
+    for (const b of props.branches) {
+      const k = b.fork.join(",")
+      forks.set(k, [...(forks.get(k) ?? []), b])
+    }
+    for (const group of forks.values()) {
+      const [fx, fy] = toScreen(...group[0].fork)
+      ctx.save()
+      ctx.translate(fx, fy)
+      ctx.rotate(Math.PI / 4)
+      ctx.fillStyle = BRANCH
+      ctx.fillRect(-8, -8, 16, 16)
+      ctx.strokeStyle = "#ffffff"
+      ctx.lineWidth = 2
+      ctx.strokeRect(-8, -8, 16, 16)
+      ctx.restore()
+      group.forEach((b, k) => drawChip(ctx, fx + 16, fy + 20 + k * 18, `◆ ${b.condition ?? "?"}`, BRANCH, true))
+    }
+
     // Slow zones: hatched amber, with their caps.
     props.zones.forEach((z, i) => {
       const sel = selected?.kind === "zone" && selected.index === i
@@ -546,7 +580,7 @@ export default function FieldView(props: Props) {
           drawChip(ctx, bx + w2 - 7, by, constraintChip(c), COLORS.constraint, sel)
           by += 18
         })
-        if (w.split && i > 0 && i < n - 1) drawChip(ctx, bx + 18, by, "✂ split", GLYPH.ink)
+        if ((w.split || w.section) && i > 0 && i < n - 1) drawChip(ctx, bx + 18, by, `✂ ${w.section ?? "split"}`, GLYPH.ink)
       })
     }
 
@@ -660,7 +694,7 @@ export default function FieldView(props: Props) {
       drawRobot(ctx, toScreen, view.k, s.x, s.y, s.heading, robot, topView, opts.robotColor, 1)
       moduleVectors(ctx, toScreen, s, robot)
     }
-  }, [view, size, image, sketch, spec, guess, generated, stale, keepOut, selected, hovered, playhead, robot, field, opts, topSpeed, tool, hoverWp, topView, box, ruler, guides, zoneDraft, props.multi, props.zones, props.poseMarks])
+  }, [view, size, image, sketch, spec, guess, generated, stale, keepOut, selected, hovered, playhead, robot, field, opts, topSpeed, tool, hoverWp, topView, box, ruler, guides, zoneDraft, props.multi, props.zones, props.poseMarks, props.branches])
 
   // --- Interaction -----------------------------------------------------------
   const waypointAt = (sx: number, sy: number): number | null => {
@@ -753,6 +787,21 @@ export default function FieldView(props: Props) {
     return null
   }
 
+  /** The branch whose fork diamond (or condition label) is under the pointer. */
+  const branchAt = (sx: number, sy: number) => {
+    const p = propsRef.current
+    const counts = new Map<string, number>()
+    for (const b of p.branches) {
+      const k = b.fork.join(",")
+      const row = counts.get(k) ?? 0
+      counts.set(k, row + 1)
+      const [fx, fy] = toScreen(...b.fork)
+      if (row === 0 && Math.hypot(sx - fx, sy - fy) <= 11) return b
+      if (sx >= fx + 10 && sx <= fx + 130 && Math.abs(sy - (fy + 20 + row * 18)) <= 8) return b
+    }
+    return null
+  }
+
   const local = (e: { clientX: number; clientY: number }): [number, number] => {
     const r = canvasRef.current!.getBoundingClientRect()
     return [e.clientX - r.left, e.clientY - r.top]
@@ -791,6 +840,8 @@ export default function FieldView(props: Props) {
       if (r) p.onAddRotation(r.segment, r.fraction, r.headingDeg)
       return
     }
+    const fork = branchAt(sx, sy)
+    if (fork) { p.onOpenPath(fork.name); return }
     const h = hit(sx, sy)
     if (h) {
       // Shift+click a waypoint adds it to (or takes it out of) the group.
@@ -842,6 +893,14 @@ export default function FieldView(props: Props) {
   const describe = (sx: number, sy: number): { sx: number; sy: number; title: string; lines: string[]; hint?: string } | null => {
     const p = propsRef.current
     const at = (title: string, lines: string[], hint?: string) => ({ sx, sy, title, lines, hint })
+    const fork = branchAt(sx, sy)
+    if (fork) {
+      return at(`Branch "${fork.name}"`, [
+        `Taken when ${fork.condition ?? "its condition"} is true: a NamedCondition the robot code registers.`,
+        "Otherwise the robot keeps going along this path.",
+        "It starts here, at the speed the robot has here.",
+      ], "Click to open the branch.")
+    }
     const h = hit(sx, sy)
     const n = p.spec?.waypoints.length ?? 0
     if (h && p.spec) {
@@ -1217,6 +1276,7 @@ function drawShape(ctx: CanvasRenderingContext2D, toScreen: ToScreen, k: number,
 }
 
 export const PATHFIND = "#16a34a"
+export const BRANCH = "#db2777"
 
 function drawTrajectory(ctx: CanvasRenderingContext2D, toScreen: ToScreen, t: Trajectory, gradient: ViewOptions["gradient"], topSpeed: number, width: number, skip: [number, number][] = []) {
   const s = t.samples

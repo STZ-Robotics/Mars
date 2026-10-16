@@ -8,7 +8,7 @@ import { renderTopView, TopView } from "../robot/topView"
 import { bindField } from "../vars/bind"
 import { useVariables } from "../vars/context"
 import { isExpr } from "../vars/expr"
-import { applyScope, dropExprs, linkToPose, linkedPose, numberText } from "../vars/variables"
+import { applyScope, dropExprs, evaluateAll, linkToPose, linkedPose, numberText, withOverrides } from "../vars/variables"
 import { Card, MiniButton, Q, Toggle } from "../ui/controls"
 import FieldView, { RAMP_CSS } from "./FieldView"
 import Charts from "./Charts"
@@ -16,7 +16,7 @@ import Sidebar, { IconButton } from "./Sidebar"
 import ConfigPanel, { TextInput } from "./ConfigPanel"
 import { StopIcon, WaypointIcon, GLYPH } from "./glyphs"
 import {
-  SlowZone, mirrorPath, moveWaypoints,
+  PathStatus, SlowZone, mirrorPath, moveWaypoints,
   CONSTRAINTS, ConstraintType, DEFAULT_VIEW, EventMarker, FieldDoc, GRADIENTS, KeepOut, PathEntry, PathSpec, PlanResult,
   ScopedConstraint, Selection, Target, Tool, Trajectory, ViewOptions, Waypoint, WaypointKind, afterInsert, afterMove,
   afterRemove, constraintMeta, kindOf, moveControl, newConstraint, newPathSpec, NEXT_MODE, segmentMode, setSegmentMode, setWait, shiftControls, stopAt, toggleStop, waitAt,
@@ -91,9 +91,18 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
 
   useEffect(() => { try { localStorage.setItem(VIEW_KEY, JSON.stringify(view)) } catch { /* nothing to remember */ } }, [view])
 
-  const spec = current?.spec ?? null
+  const base = current?.spec ?? null
+  // The variant being viewed: the path with its overrides in place. Edits go
+  // to the base path; what is drawn, timed and generated is the variant.
+  const [variant, setVariant] = useState<string | null>(null)
+  const { scope, version, variables, setVariables } = useVariables()
+  const variantDef = base?.variants?.find(v => v.name === variant) ?? null
+  const spec = useMemo(() => {
+    if (!base || !variantDef) return base
+    return applyScope(base, evaluateAll(withOverrides(variables, variantDef.overrides)).scope).doc
+  }, [base, variantDef, variables])
   const n = spec?.waypoints.length ?? 0
-  const genKey = (s: PathSpec | null) => (s ? JSON.stringify([s, fieldDoc, robot]) : "")
+  const genKey = (s: PathSpec | null) => (s ? JSON.stringify([s, fieldDoc, robot, variant]) : "")
   const stale = !!generated && generated.key !== genKey(spec)
   const shown = generated?.trajectory ?? guess
   const topSpeed = usableSpeed(robot)
@@ -104,7 +113,6 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
 
   // Variables changed: the open path and the field follow, in memory (the
   // project sync rewrites the files).
-  const { scope, version, variables, setVariables } = useVariables()
   useEffect(() => {
     setCurrent(c => {
       if (!c) return c
@@ -164,14 +172,36 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
   }, [modelKey, robotPath])
 
   // --- Files -----------------------------------------------------------------
+  const [status, setStatus] = useState<Record<string, PathStatus>>({})
+  const refreshStatus = useCallback(async () => {
+    const st = await invoke<PathStatus[]>("paths_status", { robotPath, robot, field: fieldDocRef.current }).catch(() => [] as PathStatus[])
+    setStatus(Object.fromEntries(st.map(q => [q.name, q])))
+  }, [robotPath, robot])
   const refresh = useCallback(async () => {
     const list = await invoke<PathEntry[]>("paths_list", { robotPath })
     setEntries(list)
+    refreshStatus()
     return list
-  }, [robotPath])
+  }, [robotPath, refreshStatus])
+  useEffect(() => { refreshStatus() }, [JSON.stringify(robot), fieldCommit])
 
-  const loadPath = useCallback(async (s: PathSpec, savedName: string | null = s.name) => {
+  // Branches leaving the open path: their specs and trajectories, to draw
+  // them from their fork.
+  const [branchTrajs, setBranchTrajs] = useState<Record<string, Trajectory | null>>({})
+  const branches = useMemo(
+    () => entries.filter(e => e.spec && base && e.spec.continuesFrom === base.name && e.spec.continuesAt !== undefined).map(e => e.spec!),
+    [entries, base?.name],
+  )
+  useEffect(() => {
+    let alive = true
+    Promise.all(branches.map(b => invoke<Trajectory | null>("trajectory_open", { robotPath, name: b.name }).catch(() => null)))
+      .then(ts => { if (alive) setBranchTrajs(Object.fromEntries(branches.map((b, k) => [b.name, ts[k]]))) })
+    return () => { alive = false }
+  }, [branches, status])
+
+  const loadPath = useCallback(async (s: PathSpec, savedName: string | null = s.name, keepVariant = false) => {
     setCurrent({ spec: s, savedName })
+    if (!keepVariant) setVariant(null)
     history.current = { undo: [], redo: [], committed: s }
     setHistoryTick(t => t + 1)
     setSelected(null)
@@ -180,8 +210,21 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
     setGenState({ kind: "idle" })
     // The trajectory saved with it, if any: shown until the path changes.
     const traj = savedName ? await invoke<Trajectory | null>("trajectory_open", { robotPath, name: savedName }).catch(() => null) : null
-    setGenerated(traj ? { result: null, trajectory: traj, key: JSON.stringify([s, fieldDocRef.current, robot]) } : null)
+    setGenerated(traj ? { result: null, trajectory: traj, key: JSON.stringify([s, fieldDocRef.current, robot, null]) } : null)
   }, [robotPath, robot])
+
+  // Switching variants shows that variant's trajectory, if generated.
+  useEffect(() => {
+    if (!base || !current?.savedName) return
+    let alive = true
+    const name = variant ? `${base.name}@${variant}` : base.name
+    invoke<Trajectory | null>("trajectory_open", { robotPath, name }).catch(() => null).then(traj => {
+      if (!alive) return
+      setGenerated(traj ? { result: null, trajectory: traj, key: genKey(spec) } : null)
+      setPlayhead(null)
+    })
+    return () => { alive = false }
+  }, [variant])
 
   useEffect(() => {
     setCurrent(null)
@@ -270,14 +313,94 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
     const id = ++genReq.current
     const key = genKey(spec)
     setGenState({ kind: "running" })
-    invoke<PlanResult>("path_plan", { robot, spec, field: fieldDoc, fieldSize, robotPath })
+    invoke<PlanResult>("path_plan", { robot, spec, field: fieldDoc, fieldSize, robotPath, variant })
       .then(result => {
         if (id !== genReq.current) return
         setGenerated({ result, trajectory: result.trajectory, key })
         setGenState({ kind: "idle" })
         setPlayhead(null)
+        refreshStatus()
       })
       .catch(e => { if (id === genReq.current) setGenState({ kind: "error", message: String(e) }) })
+  }
+
+  /**
+   * Generates many paths in the right order: a path before the ones that
+   * continue or branch from it (they start from its trajectory). With
+   * `outdated`, only those not generated or generated from something else;
+   * each path's variants too.
+   */
+  const generateMany = async (which: "outdated" | "all") => {
+    if (genState.kind === "running") return
+    setGenState({ kind: "running" })
+    const specs = (await invoke<PathEntry[]>("paths_list", { robotPath })).flatMap(e => (e.spec ? [e.spec] : []))
+    const byName = new Map(specs.map(q => [q.name, q]))
+    const order: PathSpec[] = []
+    const seen = new Set<string>()
+    const visit = (q: PathSpec) => {
+      if (seen.has(q.name)) return
+      seen.add(q.name)
+      const parent = q.continuesFrom ? byName.get(q.continuesFrom) : undefined
+      if (parent) visit(parent)
+      order.push(q)
+    }
+    specs.forEach(visit)
+    const st = Object.fromEntries((await invoke<PathStatus[]>("paths_status", { robotPath, robot, field: fieldDoc })).map(q => [q.name, q]))
+    let done = 0, failed: string[] = []
+    // A parent regenerated now outdates what continues from it.
+    const regenerated = new Set<string>()
+    for (const q of order) {
+      const need = which === "all" || !st[q.name]?.generated || st[q.name]?.outdated || (q.continuesFrom && regenerated.has(q.continuesFrom))
+      if (!need) continue
+      setNote(`Generating ${q.name}…`)
+      const jobs: [PathSpec, string | null][] = [[applyScope(q, scope).doc, null]]
+      for (const v of q.variants ?? []) jobs.push([applyScope(q, evaluateAll(withOverrides(variables, v.overrides)).scope).doc, v.name])
+      for (const [s2, v] of jobs) {
+        try {
+          await invoke<PlanResult>("path_plan", { robot, spec: s2, field: fieldDoc, fieldSize, robotPath, variant: v })
+          done++
+        } catch (e) {
+          failed.push(`${q.name}${v ? "@" + v : ""}: ${String(e)}`)
+        }
+      }
+      regenerated.add(q.name)
+    }
+    setGenState(failed.length ? { kind: "error", message: failed.join(" · ") } : { kind: "idle" })
+    setNote(`Generated ${done} trajector${done === 1 ? "y" : "ies"}${failed.length ? `, ${failed.length} failed` : ""}`)
+    await refreshStatus()
+    // The open path shows its fresh trajectory.
+    if (base && current?.savedName) {
+      const traj = await invoke<Trajectory | null>("trajectory_open", { robotPath, name: variant ? `${base.name}@${variant}` : base.name }).catch(() => null)
+      setGenerated(traj ? { result: null, trajectory: traj, key: genKey(spec) } : null)
+    }
+  }
+
+  /** A new path forking from waypoint `i`, under a condition from the robot code. */
+  const createBranch = async (i: number) => {
+    if (!base || !current?.savedName) { setNote("Save the path first"); return }
+    const condition = window.prompt("Condition that takes this branch (a NamedCondition in the robot code, e.g. hasNote)", "hasNote")?.trim()
+    if (!condition) return
+    const name = uniqueName(`${base.name} if ${condition}`)
+    const w = base.waypoints[i]
+    const heading = w.headingDeg ?? 0
+    const branch: PathSpec = {
+      name,
+      waypoints: [
+        { x: w.x, y: w.y, kind: "continue", headingDeg: heading },
+        { x: w.x + 1.5 * Math.cos(heading * Math.PI / 180), y: w.y + 1.5 * Math.sin(heading * Math.PI / 180), kind: "pose", headingDeg: heading },
+      ],
+      constraints: {},
+      // A branch leaves moving: it only stops at its end.
+      scoped: [{ type: "stopPoint", from: "last" }],
+      events: [],
+      continuesFrom: base.name,
+      continuesAt: i,
+      condition,
+    }
+    await invoke("path_save", { robotPath, spec: branch, previous: null })
+    await refresh()
+    loadPath(branch)
+    setNote(`Branch "${name}": generate "${base.name}" first, then this one (or Generate all)`)
   }
 
   // --- Edits -----------------------------------------------------------------
@@ -610,10 +733,108 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
           onToggleConstraint={i => editSpec(s => ({ ...s, scoped: s.scoped.map((c, j) => (j === i ? { ...c, enabled: c.enabled === false ? undefined : false } : c)) }), true)}
           onDeleteConstraint={deleteConstraint}
           onDeleteEvent={deleteEvent}
+          status={status}
+          onGenerateMany={generateMany}
           onDeleteRotation={i => { editSpec(s => ({ ...s, rotationTargets: (s.rotationTargets ?? []).filter((_, j) => j !== i) }), true); setSelected(null) }}
         >
           {spec && (
             <>
+              {base && base.continuesFrom && base.continuesAt !== undefined && (
+                <>
+                  <SectionHeading label="Branch" />
+                  <div style={{ padding: "5px 12px", fontSize: 10.5, color: "var(--text-muted)", lineHeight: 1.45 }}>
+                    Starts at the parent's waypoint, at the robot's state there, when the condition holds. The robot code registers the condition by name (a NamedCondition); the parent keeps going otherwise.
+                  </div>
+                  <PropertyRow label="Branch of">
+                    <select style={propertyInputStyle} value={base.continuesFrom} onChange={e => editSpec(q => ({ ...q, continuesFrom: e.target.value }), true)}>
+                      {entries.filter(e => e.name !== base.name).map(e => <option key={e.name} value={e.name}>{e.name}</option>)}
+                    </select>
+                  </PropertyRow>
+                  <PropertyRow label="At waypoint">
+                    <select style={propertyInputStyle} value={base.continuesAt} onChange={e => editSpec(q => ({ ...q, continuesAt: Number(e.target.value) }), true)}>
+                      {Array.from({ length: entries.find(e => e.name === base.continuesFrom)?.spec?.waypoints.length ?? 0 }, (_, j) => <option key={j} value={j}>Waypoint {j + 1}</option>)}
+                    </select>
+                  </PropertyRow>
+                  <PropertyRow label="When (condition)">
+                    <TextInput value={base.condition ?? ""} onCommit={c => editSpec(q => ({ ...q, condition: c || undefined }), true)} />
+                  </PropertyRow>
+                  <PropertyRow label="">
+                    <MiniButton onClick={() => { const e = entries.find(q => q.name === base.continuesFrom); if (e?.spec) loadPath(e.spec) }}>Open parent</MiniButton>
+                  </PropertyRow>
+                </>
+              )}
+              {base && base.waypoints.some((w, i) => i > 0 && i < base.waypoints.length - 1 && (w.split || w.section)) && (
+                <>
+                  <SectionHeading label="Sections" />
+                  <PropertyRow label="First section">
+                    <TextInput value={base.firstSection ?? ""} onCommit={v => editSpec(q => ({ ...q, firstSection: v || undefined }), true)} />
+                  </PropertyRow>
+                  {(generated?.trajectory.sections ?? []).map(sec => (
+                    <PropertyRow key={sec.name} label={sec.name}>
+                      <span style={{ fontFamily: "Consolas, 'Cascadia Mono', monospace", fontSize: 11 }}>{(sec.endT - sec.startT).toFixed(2)} s</span>
+                      <span style={{ fontSize: 10, color: "var(--text-muted)", marginLeft: 8 }}>{sec.startT.toFixed(2)} → {sec.endT.toFixed(2)} s</span>
+                    </PropertyRow>
+                  ))}
+                </>
+              )}
+              {base && (
+                <>
+                  <SectionHeading label={`Variants (${base.variants?.length ?? 0})`} />
+                  <div style={{ padding: "4px 12px 2px", fontSize: 10.5, color: "var(--text-muted)", lineHeight: 1.45 }}>
+                    Versions of this path that set some variables otherwise (which note, how fast). Each generates its own trajectory.
+                  </div>
+                  {[null, ...(base.variants ?? []).map(v => v.name)].map(v => (
+                    <div key={v ?? "__base"} onClick={() => setVariant(v)}
+                      style={{ display: "flex", alignItems: "center", gap: 7, height: 26, padding: "0 10px", fontSize: 11.5, cursor: "pointer", borderBottom: "1px solid var(--border-light)",
+                        background: variant === v ? "var(--tree-selection-bg)" : "transparent", color: variant === v ? "var(--tree-selection-fg)" : "var(--text-primary)" }}>
+                      <span style={{ width: 14, textAlign: "center" }}>{v === null ? "●" : "◇"}</span>
+                      <span style={{ flex: 1 }}>{v ?? "Base"}</span>
+                      {v !== null && (
+                        <span title="Delete variant" onClick={e => { e.stopPropagation(); if (variant === v) setVariant(null); editSpec(q => ({ ...q, variants: (q.variants ?? []).filter(x => x.name !== v) }), true) }}
+                          style={{ opacity: 0.7, cursor: "pointer" }}><i className="ti ti-trash" /></span>
+                      )}
+                    </div>
+                  ))}
+                  <PropertyRow label="">
+                    <MiniButton onClick={() => {
+                      const name = window.prompt("Variant name", `variant ${(base.variants?.length ?? 0) + 1}`)?.trim()
+                      if (!name || base.variants?.some(v => v.name === name)) return
+                      editSpec(q => ({ ...q, variants: [...(q.variants ?? []), { name, overrides: {} }] }), true)
+                      setVariant(name)
+                    }}>+ Variant</MiniButton>
+                  </PropertyRow>
+                  {variantDef && (
+                    <>
+                      {Object.entries(variantDef.overrides).map(([name, value]) => (
+                        <PropertyRow key={name} label={name}>
+                          <span style={{ display: "flex", gap: 4, width: "100%" }}>
+                            <TextInput value={value} onCommit={v => editSpec(q => ({ ...q, variants: (q.variants ?? []).map(x => (x.name === variant ? { ...x, overrides: { ...x.overrides, [name]: v } } : x)) }), true)} />
+                            <span title="Remove override" style={{ cursor: "pointer", opacity: 0.7 }}
+                              onClick={() => editSpec(q => ({ ...q, variants: (q.variants ?? []).map(x => { if (x.name !== variant) return x; const o = { ...x.overrides }; delete o[name]; return { ...x, overrides: o } }) }), true)}>
+                              <i className="ti ti-x" />
+                            </span>
+                          </span>
+                        </PropertyRow>
+                      ))}
+                      <PropertyRow label="Override">
+                        <select style={propertyInputStyle} value="" onChange={e => {
+                          const name = e.target.value
+                          if (!name) return
+                          const v = variables.find(q => q.name === name)
+                          const start = v?.kind === "number" ? v.value : variables.find(q => q.kind === "pose" && q.name !== name)?.name ?? name
+                          editSpec(q => ({ ...q, variants: (q.variants ?? []).map(x => (x.name === variant ? { ...x, overrides: { ...x.overrides, [name]: start } } : x)) }), true)
+                        }}>
+                          <option value="">+ a variable…</option>
+                          {variables.filter(v => !(v.name in variantDef.overrides)).map(v => <option key={v.name} value={v.name}>{v.name} ({v.kind})</option>)}
+                        </select>
+                      </PropertyRow>
+                      <div style={{ padding: "2px 12px 6px", fontSize: 10, color: "var(--text-muted)" }}>
+                        A number takes a value or =formula; a pose takes another pose's name (=note2).
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
               <SectionHeading label="Path limits" />
               <Q label="Max speed" dim="plain" unit="m/s" optional hint="On the whole path. Empty: what the robot can do"
                 {...bindField(spec.constraints, "maxVelocityMps", f => editSpec(s => ({ ...s, constraints: f(s.constraints) }), true))} />
@@ -670,6 +891,14 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
             }} />
             <span title="What the field shows: the path gradient and the layers."><Toggle on={viewOpen} onClick={() => setViewOpen(o => !o)} icon="ti-eye" label="View" /></span>
             <span title="Fit the whole field in view (F)."><Toggle on={false} onClick={() => setFitSignal(s => s + 1)} icon="ti-maximize" label="Fit" /></span>
+            {(base?.variants?.length ?? 0) > 0 && (
+              <span title="The variant shown, edited and generated">
+                <select style={{ ...propertyInputStyle, width: 130, height: 26 }} value={variant ?? ""} onChange={e => setVariant(e.target.value || null)}>
+                  <option value="">Base</option>
+                  {base!.variants!.map(v => <option key={v.name} value={v.name}>◇ {v.name}</option>)}
+                </select>
+              </span>
+            )}
             <GenerateButton state={genState.kind} stale={stale || !generated} onClick={generate} />
           </span>
         </div>
@@ -720,6 +949,15 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
               setTool({ kind: "select" })
             }}
             onEditZone={(i, patch, final) => editField(d => ({ ...d, slowZones: (d.slowZones ?? []).map((z, j) => (j === i ? ({ ...z, ...patch } as SlowZone) : z)) }), final)}
+            branches={branches.flatMap(b => {
+              const at = b.continuesAt!
+              const fork = base?.waypoints[at]
+              if (!fork) return []
+              const t = branchTrajs[b.name]
+              const points: [number, number][] = t ? t.samples.filter((_, k) => k % 4 === 0).map(q => [q.x, q.y]) : b.waypoints.map(w => [w.x, w.y])
+              return [{ name: b.name, condition: b.condition, fork: [fork.x, fork.y] as [number, number], points }]
+            })}
+            onOpenPath={name => { const e = entries.find(q => q.name === name); if (e?.spec) loadPath(e.spec) }}
             onAddRotation={(segment, fraction, headingDeg) => {
               editSpec(s => ({ ...s, rotationTargets: [...(s.rotationTargets ?? []), { segment, fraction, headingDeg }] }), true)
               setSelected({ kind: "rotation", index: (spec?.rotationTargets ?? []).length })
@@ -758,6 +996,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
               onEventFn={(i, f) => editSpec(s => ({ ...s, events: (s.events ?? []).map((e, j) => (j === i ? f(e) : e)) }), true)}
               onKeepOutFn={(i, f) => editField(d => ({ ...d, keepOut: d.keepOut.map((k, j) => (j === i ? f(k) : k)) }), true)}
               stopIndexOf={i => stopAt(spec, i)}
+              onBranch={createBranch}
               zones={fieldDoc.slowZones ?? []}
               onZoneFn={(i, f) => editField(d => ({ ...d, slowZones: (d.slowZones ?? []).map((z, j) => (j === i ? f(z) : z)) }), true)}
               onRotationFn={(i, f) => editSpec(s => ({ ...s, rotationTargets: (s.rotationTargets ?? []).map((r, j) => (j === i ? f(r) : r)) }), true)}

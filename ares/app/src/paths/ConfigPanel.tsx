@@ -43,6 +43,7 @@ interface Props {
   poses: { name: string; computed: boolean }[]
   onLink: (i: number, name: string | null) => void
   onSaveAsPose: (i: number) => void
+  onBranch: (i: number) => void
   zones: SlowZone[]
   onZoneFn: (i: number, f: (z: SlowZone) => SlowZone) => void
   onRotationFn: (i: number, f: (r: RotationTarget) => RotationTarget) => void
@@ -207,9 +208,24 @@ export default function ConfigPanel(p: Props) {
           </PropertyRow>
         )}
         {!isEnd && (
-          <PropertyRow label="Split here">
-            <input type="checkbox" checked={!!w.split} onChange={e => p.onWaypoint(i, { split: e.target.checked || undefined })} />
-            <span style={{ fontSize: 10.5, color: "var(--text-muted)", marginLeft: 6 }}>the robot code can run each part</span>
+          <div title="Split the trajectory here: the part from here to the next split is a section the robot code can run on its own, by name.">
+            <PropertyRow label="Section starts here">
+              <span style={{ display: "flex", alignItems: "center", gap: 6, width: "100%" }}>
+                <input type="checkbox" checked={!!(w.split || w.section)}
+                  onChange={e => p.onWaypoint(i, x => (e.target.checked ? { ...x, split: true } : { ...x, split: undefined, section: undefined }))} />
+                {(w.split || w.section) && (
+                  <TextInput value={w.section ?? ""} onCommit={name => p.onWaypoint(i, x => ({ ...x, section: name || undefined, split: true }))} />
+                )}
+              </span>
+            </PropertyRow>
+          </div>
+        )}
+        {i < n - 1 && (
+          <PropertyRow label="">
+            <button onClick={() => p.onBranch(i)} title="Fork here: a new path that starts at this waypoint, at the robot's state there, taken when a condition from the robot code holds."
+              style={{ fontSize: 10.5, padding: "0 8px", height: 20, border: "1px solid var(--btn-classic-border)", borderRadius: 2, background: "var(--btn-classic-bg)", cursor: "pointer" }}>
+              ◆ Branch here…
+            </button>
           </PropertyRow>
         )}
       </>

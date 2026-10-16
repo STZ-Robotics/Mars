@@ -14,6 +14,8 @@ export interface Waypoint {
   /** Samples to the next waypoint, overriding the automatic count. */
   intervals?: number
   split?: boolean
+  /** Names the section that starts here (and so splits the trajectory). */
+  section?: string
   /** The segment to the next waypoint is drawn by hand (a Bézier). */
   manualNext?: boolean
   /** Bézier control points, field coordinates (PathPlanner's). */
@@ -84,7 +86,21 @@ export interface PathSpec {
   rotationTargets?: RotationTarget[]
   /** Starts where this path ends (its first waypoint is a "continue"). */
   continuesFrom?: string
+  /** With continuesFrom: start at that path's waypoint (index), a branch. */
+  continuesAt?: number
+  /** A branch's condition, named in the robot code. */
+  condition?: string
+  /** The first section's name, when the path has sections. */
+  firstSection?: string
+  /** Versions of the path that set some variables otherwise. */
+  variants?: PathVariant[]
 }
+
+export interface PathVariant { name: string; overrides: Record<string, string> }
+
+export interface PathStatus { name: string; generated: boolean; outdated: boolean; durationS?: number }
+
+export interface Section { name: string; startSample: number; endSample: number; startT: number; endT: number }
 
 export interface ModuleSample {
   speedMps: number
@@ -120,6 +136,9 @@ export interface Trajectory {
   pathfind?: PathfindSpan[]
   start?: "known" | "unknown" | "previous"
   continuesFrom?: string
+  sections?: Section[]
+  variant?: string
+  sourceHash?: string
 }
 
 export interface PathfindSpan {

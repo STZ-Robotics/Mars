@@ -54,3 +54,19 @@ describe("variables", () => {
     expect(withField({ x: 1 } as { x: number; exprs?: Record<string, string> }, "x", 4.1, "=hub.x - 0.5").exprs).toEqual({ x: "=hub.x - 0.5" })
   })
 })
+
+import { withOverrides } from "./variables"
+
+describe("variant overrides", () => {
+  it("set numbers and swap poses", () => {
+    const base: Variable[] = [
+      { name: "note1", kind: "pose", x: "2", y: "3", heading: "0" },
+      { name: "note2", kind: "pose", x: "5", y: "6", heading: "90" },
+      { name: "target", kind: "pose", x: "=note1.x", y: "=note1.y", heading: "=note1.heading" },
+      { name: "vmax", kind: "number", dim: "speed", value: "4" },
+    ]
+    const { scope } = evaluateAll(withOverrides(base, { target: "=note2", vmax: "2.5" }))
+    expect(scope.get("target")).toEqual({ x: 5, y: 6, heading: 90 })
+    expect(scope.get("vmax")).toBe(2.5)
+  })
+})
