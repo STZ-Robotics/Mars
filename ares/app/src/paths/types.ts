@@ -147,12 +147,14 @@ export interface ViewOptions {
   flipped: boolean
   /** The band a pathfind segment's route can take. */
   corridor: boolean
+  /** Speed, acceleration, current... over time, under the field. */
+  charts: boolean
   gradient: Gradient
 }
 
 export const DEFAULT_VIEW: ViewOptions = {
   fieldStyle: "blueprint", robotColor: "#22d3ee",
-  field: true, grid: false, guess: true, trajectory: true, samples: false, waypoints: true, flipped: false, corridor: true, gradient: "velocity",
+  field: true, grid: false, guess: true, trajectory: true, samples: false, waypoints: true, flipped: false, corridor: true, charts: true, gradient: "velocity",
 }
 
 export const GRADIENTS: { id: Gradient; label: string; hint: string }[] = [

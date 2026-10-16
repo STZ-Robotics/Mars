@@ -7,6 +7,7 @@ import type { RobotConfig } from "../robot/types"
 import { renderTopView, TopView } from "../robot/topView"
 import { Card, MiniButton, Q, Toggle } from "../ui/controls"
 import FieldView, { RAMP_CSS } from "./FieldView"
+import Charts from "./Charts"
 import Sidebar, { IconButton } from "./Sidebar"
 import ConfigPanel, { TextInput } from "./ConfigPanel"
 import { StopIcon, WaypointIcon, GLYPH } from "./glyphs"
@@ -66,6 +67,8 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
   const [genState, setGenState] = useState<{ kind: "idle" } | { kind: "running" } | { kind: "error"; message: string }>({ kind: "idle" })
   const [playhead, setPlayhead] = useState<number | null>(null)
   const [playing, setPlaying] = useState(false)
+  // Hovering the charts shows the robot at that time without moving the playhead.
+  const [scrub, setScrub] = useState<number | null>(null)
   const [fitSignal, setFitSignal] = useState(0)
   const [note, setNote] = useState<string>("")
   const [view, setView] = useState<ViewOptions>(() => loadView())
@@ -531,7 +534,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
             tool={tool}
             view={view}
             topSpeed={topSpeed}
-            playhead={playhead}
+            playhead={scrub ?? playhead}
             fitSignal={fitSignal}
             topView={topView}
             onSelect={setSelected}
@@ -597,6 +600,15 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
           )}
           <Legend />
         </div>
+        {view.charts && shown && (
+          <Charts
+            trajectory={shown}
+            playhead={playhead}
+            limits={{ speed: topSpeed, accel: robot.drivetrain.wheelCof * 9.80665, current: robot.drivetrain.driveCurrentLimitA }}
+            onScrub={setScrub}
+            onSeek={t => { setPlaying(false); setPlayhead(t) }}
+          />
+        )}
         <PlaybackBar
           duration={shown?.durationS ?? 0}
           playhead={playhead}
@@ -660,6 +672,7 @@ const VIEW_HELP: Partial<Record<keyof ViewOptions, string>> = {
   waypoints: "Waypoints, stops and constraint labels.",
   flipped: "The same trajectory as the other alliance would run it.",
   corridor: "Around a pathfind estimate, the band the robot can use: a bumper's reach each side.",
+  charts: "Speed, acceleration, turn rate, heading, current and grip over time, under the field.",
 }
 
 function ViewPanel({ view, onChange, onClose }: { view: ViewOptions; onChange: (v: ViewOptions) => void; onClose: () => void }) {
@@ -698,7 +711,7 @@ function ViewPanel({ view, onChange, onClose }: { view: ViewOptions; onChange: (
       </PropertyRow>
       {([
         ["field", "Field"], ["grid", "Grid (1 m)"], ["guess", "Guess (spline)"], ["trajectory", "Trajectory"],
-        ["samples", "Samples"], ["waypoints", "Waypoints & constraints"], ["corridor", "Pathfind corridor"], ["flipped", "Other alliance (mirror)"],
+        ["samples", "Samples"], ["waypoints", "Waypoints & constraints"], ["corridor", "Pathfind corridor"], ["charts", "Charts"], ["flipped", "Other alliance (mirror)"],
       ] as [keyof ViewOptions, string][]).map(([key, label]) => (
         <div key={key} title={VIEW_HELP[key]}>
           <PropertyRow label={label}>
