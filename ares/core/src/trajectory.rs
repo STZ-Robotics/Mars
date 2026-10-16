@@ -58,6 +58,30 @@ pub struct Trajectory {
     pub splits: Vec<usize>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub events: Vec<TimedEvent>,
+    /// Windows the robot pathfinds through instead of following samples.
+    /// The samples inside are Ares' estimate of that route, for the preview.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pathfind: Vec<PathfindSpan>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PathfindSpan {
+    /// Samples [start, end] are the estimate; the robot pathfinds instead.
+    pub start_sample: usize,
+    pub end_sample: usize,
+    /// The waypoints it pathfinds between.
+    pub from_waypoint: usize,
+    pub to_waypoint: usize,
+    /// Where to: the pose it must reach (heading in radians).
+    pub goal_x: f64,
+    pub goal_y: f64,
+    pub goal_heading: f64,
+    pub max_velocity_mps: Option<f64>,
+    pub max_acceleration_mps2: Option<f64>,
+    pub max_angular_velocity_dps: Option<f64>,
+    /// How long Ares expects it to take.
+    pub estimated_s: f64,
 }
 
 /// An event marker resolved to a time on the trajectory.

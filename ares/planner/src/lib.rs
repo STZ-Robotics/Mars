@@ -24,7 +24,7 @@ use std::time::{Duration, Instant};
 use ares_core::geometry::{wrap_angle, Vec2};
 use ares_core::path::{ConstraintKind, WaypointKind};
 use ares_core::robot::{GRAVITY, MIN_LOAD_FRACTION};
-use ares_core::trajectory::{ModuleSample, Sample, TimedEvent};
+use ares_core::trajectory::{ModuleSample, PathfindSpan, Sample, TimedEvent};
 use ares_core::{AresError, PathSpec, RobotConfig, SolverOptions, Trajectory};
 use serde::{Deserialize, Serialize};
 
@@ -146,7 +146,216 @@ fn drive(robot: &RobotConfig) -> Drive {
     }
 }
 
+/// Plans a path. Segments marked for pathfinding split it: the parts in
+/// between are planned on their own (stopping at the hand-off), and each
+/// pathfind segment gets Ares' estimate of the route the robot will find.
 pub fn plan(
+    robot: &RobotConfig,
+    spec: &PathSpec,
+    env: &Environment,
+    options: &PlannerOptions,
+) -> Result<Planned, PlanError> {
+    validate(spec)?;
+    let n = spec.waypoints.len();
+    let cuts: Vec<usize> = (0..n - 1).filter(|&j| spec.waypoints[j].pathfind_next.is_some()).collect();
+    if cuts.is_empty() {
+        return plan_fixed(robot, spec, env, options);
+    }
+    let started = Instant::now();
+
+    // The fixed parts: waypoint ranges between the cuts.
+    let mut groups = Vec::new();
+    let mut a = 0;
+    for &c in &cuts {
+        groups.push((a, c));
+        a = c + 1;
+    }
+    groups.push((a, n - 1));
+    let parts: Vec<Option<Planned>> = groups
+        .iter()
+        .map(|&(a, b)| (b > a).then(|| plan_fixed(robot, &sub_spec(spec, a, b, &cuts), env, options)).transpose())
+        .collect::<Result<_, _>>()?;
+
+    // Stitch: part, pathfind estimate, part, ...
+    let mut samples: Vec<Sample> = Vec::new();
+    let mut waypoint_times = vec![0.0; n];
+    let (mut splits, mut events, mut pathfind) = (Vec::new(), Vec::new(), Vec::new());
+    let (mut spline, mut iterations) = (0.0, 0);
+    let append = |samples: &mut Vec<Sample>, add: &[Sample]| {
+        let offset = samples.last().map_or(0.0, |s| s.t);
+        let skip = usize::from(!samples.is_empty());
+        samples.extend(add.iter().skip(skip).map(|s| Sample { t: s.t + offset, ..s.clone() }));
+    };
+    let at_rest = |w: &ares_core::path::Waypoint, heading: f64| Sample {
+        t: 0.0, x: w.x, y: w.y, heading, vx: 0.0, vy: 0.0, omega: 0.0, ax: 0.0, ay: 0.0, alpha: 0.0, modules: vec![],
+    };
+    for (g, &(a, _)) in groups.iter().enumerate() {
+        let start = samples.len().saturating_sub(1);
+        let offset = samples.last().map_or(0.0, |s| s.t);
+        match &parts[g] {
+            Some(p) => {
+                let t = &p.trajectory;
+                append(&mut samples, &t.samples);
+                for (k, wt) in t.waypoint_times.iter().enumerate() {
+                    waypoint_times[a + k] = wt + offset;
+                }
+                splits.extend(t.splits.iter().map(|&k| k + start));
+                events.extend(t.events.iter().map(|e| TimedEvent { name: e.name.clone(), t: e.t + offset }));
+                spline += p.spline_duration_s;
+                iterations += p.iterations;
+            }
+            None => {
+                // A lone waypoint between two pathfind segments: the robot
+                // only passes through it.
+                let w = &spec.waypoints[a];
+                let h = samples.last().map_or(w.fixed_heading_deg().unwrap_or(0.0).to_radians(), |s| s.heading);
+                if samples.is_empty() {
+                    samples.push(at_rest(w, h));
+                }
+                waypoint_times[a] = offset;
+            }
+        }
+        if g < cuts.len() {
+            // From the end of this part to the start of the next.
+            let j = cuts[g];
+            let from = samples.last().cloned().unwrap();
+            let to = match &parts[g + 1] {
+                Some(p) => p.trajectory.samples[0].clone(),
+                None => {
+                    let w = &spec.waypoints[j + 1];
+                    at_rest(w, w.fixed_heading_deg().map_or(from.heading, f64::to_radians))
+                }
+            };
+            let opts = spec.waypoints[j].pathfind_next.clone().unwrap_or_default();
+            let est = pathfind_estimate(robot, spec, env, &from, &to, &opts).map_err(|e| match e {
+                PlanError::Core(AresError::Path(msg)) => {
+                    PlanError::Core(AresError::Path(format!("pathfinding from waypoint {} to {}: {msg}", j + 1, j + 2)))
+                }
+                other => other,
+            })?;
+            let span_start = samples.len() - 1;
+            append(&mut samples, &est.samples);
+            pathfind.push(PathfindSpan {
+                start_sample: span_start,
+                end_sample: samples.len() - 1,
+                from_waypoint: j,
+                to_waypoint: j + 1,
+                goal_x: to.x,
+                goal_y: to.y,
+                goal_heading: to.heading,
+                max_velocity_mps: opts.max_velocity_mps,
+                max_acceleration_mps2: opts.max_acceleration_mps2,
+                max_angular_velocity_dps: opts.max_angular_velocity_dps,
+                estimated_s: est.duration_s,
+            });
+        }
+    }
+    // Events were resolved per part; they keep the user's order.
+    let duration_s = samples.last().map_or(0.0, |s| s.t);
+    Ok(Planned {
+        trajectory: Trajectory {
+            name: spec.name.clone(),
+            robot: robot.name.clone(),
+            duration_s,
+            samples,
+            waypoint_times,
+            splits,
+            events,
+            pathfind,
+        },
+        spline_duration_s: spline,
+        iterations,
+        solve_time: started.elapsed(),
+    })
+}
+
+/// Waypoints `a..=b` as a path of their own: constraints and events that
+/// fall in it, renumbered, and a stop at each end that hands off to a
+/// pathfind segment.
+fn sub_spec(spec: &PathSpec, a: usize, b: usize, cuts: &[usize]) -> PathSpec {
+    use ares_core::path::{ScopedConstraint, Target};
+    let n = spec.waypoints.len();
+    let mut waypoints: Vec<_> = spec.waypoints[a..=b].to_vec();
+    if let Some(last) = waypoints.last_mut() {
+        last.manual_next = false;
+        last.pathfind_next = None;
+    }
+    let local = |i: usize| -> Target {
+        let k = i - a;
+        if k == 0 { Target::First } else if k == b - a { Target::Last } else { Target::Index(k) }
+    };
+    let mut scoped: Vec<ScopedConstraint> = spec
+        .scoped
+        .iter()
+        .filter_map(|c| {
+            let (lo, hi) = c.range(n);
+            let (lo, hi) = (lo.max(a), hi.min(b));
+            if lo > hi {
+                return None;
+            }
+            // A segment constraint clipped to one waypoint only makes sense
+            // for the kinds that work on a point.
+            if lo == hi && c.to.is_some() && matches!(c.kind, ConstraintKind::KeepInLane { .. }) {
+                return None;
+            }
+            Some(ScopedConstraint { from: local(lo), to: c.to.map(|_| local(hi)), ..c.clone() })
+        })
+        .collect();
+    let stop = |t: Target| ScopedConstraint { from: t, to: None, enabled: true, kind: ConstraintKind::StopPoint { wait_s: 0.0 } };
+    let has_stop = |s: &[ScopedConstraint], t: Target| {
+        s.iter().any(|c| c.enabled && matches!(c.kind, ConstraintKind::StopPoint { .. }) && c.from == t && c.to.is_none())
+    };
+    if a > 0 && cuts.contains(&(a - 1)) && !has_stop(&scoped, Target::First) {
+        scoped.push(stop(Target::First));
+    }
+    if cuts.contains(&b) && !has_stop(&scoped, Target::Last) {
+        scoped.push(stop(Target::Last));
+    }
+    let events = spec
+        .events
+        .iter()
+        .filter(|e| (a..=b).contains(&e.target.resolve(n)))
+        .map(|e| ares_core::path::EventMarker { target: local(e.target.resolve(n)), ..e.clone() })
+        .collect();
+    PathSpec { name: spec.name.clone(), waypoints, constraints: spec.constraints.clone(), scoped, events }
+}
+
+/// What the robot will probably do when it pathfinds from `from` to `to`:
+/// the shortest way around the keep-outs (A*, like PathPlanner's
+/// pathfinder), timed by the robot's physics under the pathfinding limits.
+/// An estimate: the real route depends on where the robot actually is.
+fn pathfind_estimate(
+    robot: &RobotConfig,
+    spec: &PathSpec,
+    env: &Environment,
+    from: &Sample,
+    to: &Sample,
+    opts: &ares_core::path::PathfindOptions,
+) -> Result<Trajectory, PlanError> {
+    use ares_core::path::{ScopedConstraint, Target, Waypoint};
+    let reach = 0.5 * robot.bumper.length_m.hypot(robot.bumper.width_m);
+    let free = free_space(spec, env, reach);
+    let (a, b) = (Vec2::new(from.x, from.y), Vec2::new(to.x, to.y));
+    let corners = route::shortest_way(&free, a, b)
+        .ok_or_else(|| PlanError::Core(AresError::Path("there is no way around the keep-outs".into())))?;
+    let mut waypoints = vec![Waypoint { x: a.x, y: a.y, heading_deg: Some(from.heading.to_degrees()), ..Default::default() }];
+    waypoints.extend(corners.iter().map(|c| Waypoint { x: c.x, y: c.y, ..Default::default() }));
+    waypoints.push(Waypoint { x: b.x, y: b.y, heading_deg: Some(to.heading.to_degrees()), ..Default::default() });
+    let mut s = PathSpec::new("pathfind", waypoints);
+    s.constraints.max_velocity_mps = opts.max_velocity_mps;
+    s.constraints.max_angular_velocity_dps = opts.max_angular_velocity_dps;
+    if let Some(a) = opts.max_acceleration_mps2 {
+        s.scoped.push(ScopedConstraint {
+            from: Target::First,
+            to: Some(Target::Last),
+            enabled: true,
+            kind: ConstraintKind::MaxAcceleration { mps2: a },
+        });
+    }
+    Ok(ares_core::solve(robot, &s, &SolverOptions::default())?)
+}
+
+fn plan_fixed(
     robot: &RobotConfig,
     spec: &PathSpec,
     env: &Environment,
@@ -435,6 +644,7 @@ pub fn plan(
         waypoint_times,
         splits,
         events,
+        pathfind: vec![],
     };
     if let Err(problem) = check_physics(robot, work, env, &trajectory) {
         if std::env::var("ARES_TRACE").is_ok() {

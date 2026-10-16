@@ -431,6 +431,7 @@ pub fn solve(robot: &RobotConfig, spec: &PathSpec, options: &SolverOptions) -> R
         waypoint_times: path.waypoint_s.iter().map(|ws| times[((ws / ds).round() as usize).min(n)]).collect(),
         splits: vec![],
         events: vec![],
+        pathfind: vec![],
         samples,
     })
 }

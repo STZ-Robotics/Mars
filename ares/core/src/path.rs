@@ -57,6 +57,24 @@ pub struct Waypoint {
     pub prev_control: Option<[f64; 2]>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub next_control: Option<[f64; 2]>,
+    /// The segment to the next waypoint is not planned: the robot pathfinds
+    /// there at run time (PathPlanner's pathfindToPose), from wherever it
+    /// actually is. Ares shows the likely route and its time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pathfind_next: Option<PathfindOptions>,
+}
+
+/// The limits the robot pathfinds with (PathPlanner's PathConstraints).
+/// None = what the robot can do.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PathfindOptions {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_velocity_mps: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_acceleration_mps2: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_angular_velocity_dps: Option<f64>,
 }
 
 /// Choreo's three waypoint types.

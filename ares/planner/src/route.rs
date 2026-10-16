@@ -153,7 +153,10 @@ pub fn shortest_way(free: &Free, a: Vec2, b: Vec2) -> Option<Vec<Vec2>> {
     let to_cell = |p: Vec2| (((p.x - x0) / CELL).round() as i32, ((p.y - y0) / CELL).round() as i32);
     let to_point = |c: (i32, i32)| Vec2::new(x0 + c.0 as f64 * CELL, y0 + c.1 as f64 * CELL);
     let idx = |c: (i32, i32)| (c.1 * nx + c.0) as usize;
-    let (start, goal) = (to_cell(a), to_cell(b));
+    // Ends right against a wall sit outside the grid (the center is kept a
+    // bumper's reach in): start and finish on the nearest cell inside.
+    let clamp = |c: (i32, i32)| (c.0.clamp(0, nx - 1), c.1.clamp(0, ny - 1));
+    let (start, goal) = (clamp(to_cell(a)), clamp(to_cell(b)));
     let inside = |c: (i32, i32)| c.0 >= 0 && c.1 >= 0 && c.0 < nx && c.1 < ny;
     // The ends may sit on a cell inside an obstacle's grown edge: let A* leave
     // and reach them anyway.

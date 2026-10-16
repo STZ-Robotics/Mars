@@ -318,3 +318,34 @@ fn a_manual_segment_follows_the_users_curve_and_the_rest_is_free() {
     assert!(p.trajectory.samples.iter().any(|q| q.t < t1 && q.y > 2.5));
     assert_physical(&r, &p.trajectory);
 }
+
+#[test]
+fn a_pathfind_segment_splits_the_path_and_estimates_the_route() {
+    use ares_core::path::PathfindOptions;
+    let r = robot();
+    let env = Environment {
+        field: Some(FieldSize { length_m: 16.535, width_m: 8.069 }),
+        keep_out: vec![KeepOutCircle { x: 6.0, y: 4.0, radius_m: 1.0 }],
+    };
+    let mut w = vec![wp(1.5, 4.0, Some(0.0)), wp(3.5, 4.0, Some(0.0)), wp(8.5, 4.0, Some(180.0)), wp(10.0, 5.0, Some(180.0))];
+    w[1].pathfind_next = Some(PathfindOptions { max_velocity_mps: Some(3.0), ..Default::default() });
+    let p = run(&r, &spec(w), &env);
+    let t = &p.trajectory;
+    assert_eq!(t.pathfind.len(), 1);
+    let span = &t.pathfind[0];
+    assert_eq!((span.from_waypoint, span.to_waypoint), (1, 2));
+    assert!((span.goal_x - 8.5).abs() < 1e-6 && (span.goal_heading.abs() - std::f64::consts::PI).abs() < 1e-6);
+    // The estimate goes around the keep-out, under its speed limit.
+    let est = &t.samples[span.start_sample..=span.end_sample];
+    for q in est {
+        assert!((q.x - 6.0).hypot(q.y - 4.0) > 1.0 + 0.3, "through the keep-out at ({:.2}, {:.2})", q.x, q.y);
+        assert!(q.vx.hypot(q.vy) <= 3.0 * 1.01);
+    }
+    // Stops at the hand-offs, one continuous timeline, times in order.
+    for k in [span.start_sample, span.end_sample] {
+        assert!(t.samples[k].vx.hypot(t.samples[k].vy) < 1e-3);
+    }
+    assert!(t.samples.windows(2).all(|w| w[1].t >= w[0].t));
+    assert!(t.waypoint_times.windows(2).all(|w| w[1] > w[0]));
+    assert!((t.duration_s - t.samples.last().unwrap().t).abs() < 1e-9);
+}
