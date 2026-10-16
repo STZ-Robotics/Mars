@@ -12,7 +12,8 @@
 //!   Translation, rotation and the centripetal force of a curve all draw from
 //!   the same budget, which is what a swerve's wheels really have. With the
 //!   center of mass height, `N_i` moves between wheels as the robot
-//!   accelerates, and no wheel is ever asked to carry negative load (tipping).
+//!   accelerates, and no wheel is planned below `MIN_LOAD_FRACTION` of its
+//!   share of the weight, well clear of tipping.
 //! - **The motor.** Along the wheel, the force cannot exceed what the drive
 //!   motor gives at that speed with its current limit: lots at low speed,
 //!   fading to nothing at free speed (back-EMF), and stronger braking than
@@ -40,7 +41,7 @@ use crate::error::AresError;
 use crate::geometry::{wrap_angle, Vec2};
 use crate::motor::Motor;
 use crate::path::{GeometricPath, PathPoint, PathSpec};
-use crate::robot::{RobotConfig, GRAVITY};
+use crate::robot::{RobotConfig, GRAVITY, MIN_LOAD_FRACTION};
 use crate::trajectory::{ModuleSample, Sample, Trajectory};
 
 #[derive(Clone, Copy, Debug)]
@@ -210,14 +211,14 @@ fn clip_disc(lo: &mut f64, hi: &mut f64, a: Vec2, b: Vec2, radius: f64) -> bool 
     true
 }
 
-/// `[lo, hi]` intersected with the cone `|A·s + B| <= C·s + D`: the grip of a
-/// wheel whose load depends on `s̈`. The set is convex, so an interval.
-fn clip_cone(lo: &mut f64, hi: &mut f64, a: Vec2, b: Vec2, c: f64, d: f64) -> bool {
+/// `[lo, hi]` intersected with the cone `|A·s + B| <= C·s + D` and the floor
+/// `C·s + D >= floor`: the grip of a wheel whose load depends on `s̈`, and the
+/// least load it may carry. The set is convex, so an interval.
+fn clip_cone(lo: &mut f64, hi: &mut f64, a: Vec2, b: Vec2, c: f64, d: f64, floor: f64) -> bool {
     if c.abs() < 1e-12 {
-        return d >= 0.0 && clip_disc(lo, hi, a, b, d);
+        return d >= floor && clip_disc(lo, hi, a, b, d);
     }
-    // The load cannot be negative: C·s + D >= 0.
-    if !clip_linear(lo, hi, c, d, 0.0, f64::INFINITY) {
+    if !clip_linear(lo, hi, c, d, floor, f64::INFINITY) {
         return false;
     }
     let qa = a.norm2() - c * c;
@@ -274,7 +275,7 @@ fn interval(model: &Model, pt: &Point, x: f64) -> Option<(f64, f64)> {
     for i in 0..pt.a.len() {
         let (a, b) = (pt.a[i], pt.b[i] * x);
         let (c, d) = (model.mu * pt.na[i], model.mu * (model.static_load + pt.nb[i] * x));
-        if !clip_cone(&mut lo, &mut hi, a, b, c, d) {
+        if !clip_cone(&mut lo, &mut hi, a, b, c, d, model.mu * model.static_load * MIN_LOAD_FRACTION) {
             return None;
         }
         let cn = pt.c[i].norm();
@@ -529,7 +530,8 @@ mod tests {
         // Accelerating forward: the rear wheels (bl, br) carry more.
         assert!(launch.modules[2].load_n > launch.modules[0].load_n);
         for smp in &th.samples {
-            assert!(smp.modules.iter().all(|m| m.load_n >= -1e-6));
+            let floor = crate::robot::MIN_LOAD_FRACTION * high.mass_kg * GRAVITY / 4.0;
+            assert!(smp.modules.iter().all(|m| m.load_n >= floor * 0.99), "a wheel within the tipping margin");
             let total: f64 = smp.modules.iter().map(|m| m.load_n).sum();
             assert!((total - high.mass_kg * GRAVITY).abs() < 1e-6 * total);
         }

@@ -29,6 +29,8 @@ typedef struct {
   double gravity;
   /* 0 = every wheel carries the same weight. */
   double cog_height_m;
+  /* The least load any wheel may carry, newtons (a margin from tipping). */
+  double min_load_n;
   double wheel_cof;
   int modules;
   /* 2 * modules: x, y of each module in the robot frame. */

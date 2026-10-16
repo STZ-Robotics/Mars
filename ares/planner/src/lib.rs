@@ -23,7 +23,7 @@ use std::time::{Duration, Instant};
 
 use ares_core::geometry::{wrap_angle, Vec2};
 use ares_core::path::GeometricPath;
-use ares_core::robot::GRAVITY;
+use ares_core::robot::{GRAVITY, MIN_LOAD_FRACTION};
 use ares_core::trajectory::{ModuleSample, Sample};
 use ares_core::{AresError, PathSpec, RobotConfig, SolverOptions, Trajectory};
 use serde::{Deserialize, Serialize};
@@ -219,6 +219,7 @@ pub fn plan(
         moi_kg_m2: robot.moi_kg_m2,
         gravity: GRAVITY,
         cog_height_m: robot.cog_height_m.unwrap_or(0.0),
+        min_load_n: MIN_LOAD_FRACTION * robot.mass_kg * GRAVITY / sw.modules.len() as f64,
         wheel_cof: sw.wheel_cof,
         module_xy: &module_xy,
         wheel_free_speed_mps: robot.max_module_speed(),
@@ -242,7 +243,10 @@ pub fn plan(
         timeout_s: options.timeout.as_secs_f64(),
     };
     let sol = ffi::solve(&problem);
-    if sol.status < 0 || sol.status == 1 {
+    // 1 is the stall stop and -9 the iteration cap: both leave an iterate
+    // that may well be the answer, which the physics check below decides.
+    let maybe_done = sol.status == 0 || sol.status == 1 || sol.status == -9;
+    if !maybe_done {
         return Err(PlanError::Solver { status: sol.status, reason: status_reason(sol.status) });
     }
 
@@ -304,8 +308,17 @@ pub fn plan(
         });
     }
 
+    let trajectory = Trajectory { name: spec.name.clone(), robot: robot.name.clone(), duration_s: t, samples };
+    if let Err(problem) = check_physics(robot, spec, env, &trajectory) {
+        if std::env::var("ARES_TRACE").is_ok() {
+            eprintln!("rejected: {problem}");
+        }
+        let reason = if sol.status == 0 { "its answer breaks the physics (a bug: please report the path)" } else { status_reason(sol.status) };
+        return Err(PlanError::Solver { status: sol.status, reason });
+    }
+
     Ok(Planned {
-        trajectory: Trajectory { name: spec.name.clone(), robot: robot.name.clone(), duration_s: t, samples },
+        trajectory,
         spline_duration_s: warm.duration_s,
         iterations: sol.iterations.max(0) as u32,
         solve_time: started.elapsed(),
@@ -352,4 +365,77 @@ fn push_out_of_keep_outs(guess: &mut [Sample], robot: &RobotConfig, env: &Enviro
             s.y = target.y;
         }
     }
+}
+
+/// Everything the optimizer promises, checked on what it returned: the
+/// dynamics between samples, the waypoints, every wheel's grip, current,
+/// speed and load, the walls and the keep-outs. An iterate the solver stopped
+/// on is only used if it passes; a converged one is checked anyway, because
+/// a trajectory that lies is worse than none.
+pub fn check_physics(robot: &RobotConfig, spec: &PathSpec, env: &Environment, t: &Trajectory) -> Result<(), String> {
+    const POS_TOL: f64 = 2e-3;
+    const VEL_TOL: f64 = 2e-3;
+    const LIMIT_TOL: f64 = 1.01;
+    let sw = robot.swerve();
+    let s = &t.samples;
+    for k in 0..s.len() - 1 {
+        let (a, b) = (&s[k], &s[k + 1]);
+        let h = b.t - a.t;
+        let ex = b.x - (a.x + a.vx * h + 0.5 * a.ax * h * h);
+        let ey = b.y - (a.y + a.vy * h + 0.5 * a.ay * h * h);
+        let ev = (b.vx - (a.vx + a.ax * h)).hypot(b.vy - (a.vy + a.ay * h));
+        let ew = b.omega - (a.omega + a.alpha * h);
+        if ex.hypot(ey) > POS_TOL || ev > VEL_TOL || ew.abs() > VEL_TOL * 3.0 {
+            return Err(format!("dynamics broken between t = {:.3} and {:.3}", a.t, b.t));
+        }
+    }
+    for (i, w) in spec.waypoints.iter().enumerate() {
+        let d = s.iter().map(|q| (q.x - w.x).hypot(q.y - w.y)).fold(f64::INFINITY, f64::min);
+        if d > POS_TOL {
+            return Err(format!("misses waypoint {} by {d:.3} m", i + 1));
+        }
+    }
+    for q in [&s[0], &s[s.len() - 1]] {
+        if q.vx.hypot(q.vy) > VEL_TOL || q.omega.abs() > VEL_TOL * 3.0 {
+            return Err("does not start and end at rest".into());
+        }
+    }
+    let floor = MIN_LOAD_FRACTION * robot.mass_kg * GRAVITY / sw.modules.len() as f64;
+    let vmax = robot.max_module_speed();
+    for q in s {
+        for m in &q.modules {
+            if m.grip_used > LIMIT_TOL {
+                return Err(format!("asks a wheel for {:.0}% of its grip at t = {:.3}", 100.0 * m.grip_used, q.t));
+            }
+            if sw.drive_current_limit_a > 0.0 && m.current_a.abs() > sw.drive_current_limit_a * LIMIT_TOL {
+                return Err(format!("draws {:.0} A at t = {:.3}", m.current_a.abs(), q.t));
+            }
+            if m.speed_mps > vmax * LIMIT_TOL {
+                return Err(format!("spins a wheel past free speed at t = {:.3}", q.t));
+            }
+            if robot.cog_height_m.is_some_and(|h| h > 0.0) && m.load_n < floor * 0.98 {
+                return Err(format!("nearly lifts a wheel at t = {:.3}", q.t));
+            }
+        }
+        let (c, sn) = (q.heading.cos(), q.heading.sin());
+        let (hl, hw) = (robot.bumper.length_m / 2.0, robot.bumper.width_m / 2.0);
+        if let Some(f) = env.field {
+            for (bx, by) in [(hl, hw), (hl, -hw), (-hl, hw), (-hl, -hw)] {
+                let (x, y) = (q.x + c * bx - sn * by, q.y + sn * bx + c * by);
+                if x < -POS_TOL || y < -POS_TOL || x > f.length_m + POS_TOL || y > f.width_m + POS_TOL {
+                    return Err(format!("the bumper leaves the field at t = {:.3}", q.t));
+                }
+            }
+        }
+        let qr = 0.25 * robot.bumper.length_m.hypot(robot.bumper.width_m);
+        for o in &env.keep_out {
+            for (bx, by) in [(0.5 * hl, 0.5 * hw), (0.5 * hl, -0.5 * hw), (-0.5 * hl, 0.5 * hw), (-0.5 * hl, -0.5 * hw)] {
+                let (x, y) = (q.x + c * bx - sn * by, q.y + sn * bx + c * by);
+                if (x - o.x).hypot(y - o.y) < o.radius_m + qr - POS_TOL {
+                    return Err(format!("enters a keep-out at t = {:.3}", q.t));
+                }
+            }
+        }
+    }
+    Ok(())
 }

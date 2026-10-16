@@ -24,12 +24,13 @@ fn run(robot: &RobotConfig, s: &PathSpec, env: &Environment) -> Planned {
 /// interior point's convergence.
 fn assert_physical(robot: &RobotConfig, t: &Trajectory) {
     let sw = robot.swerve();
+    let floor = ares_core::robot::MIN_LOAD_FRACTION * robot.mass_kg * 9.80665 / sw.modules.len() as f64;
     for s in &t.samples {
         for m in &s.modules {
             assert!(m.grip_used <= 1.01, "grip {:.3} at t = {:.3}", m.grip_used, s.t);
             assert!(m.current_a.abs() <= sw.drive_current_limit_a * 1.01, "{:.1} A at t = {:.3}", m.current_a, s.t);
             assert!(m.speed_mps <= robot.max_module_speed() * 1.01, "{:.2} m/s at t = {:.3}", m.speed_mps, s.t);
-            assert!(m.load_n >= -1e-6, "negative load at t = {:.3}", s.t);
+            assert!(m.load_n >= floor * 0.99, "{:.1} N on a wheel at t = {:.3}, inside the tipping margin", m.load_n, s.t);
         }
     }
 }
@@ -127,4 +128,23 @@ fn a_lower_current_limit_is_slower() {
     let (pf, ps) = (run(&fast, &s, &Environment::default()), run(&slow, &s, &Environment::default()));
     assert!(ps.trajectory.duration_s > pf.trajectory.duration_s * 1.1);
     assert_physical(&slow, &ps.trajectory);
+}
+
+#[test]
+fn load_transfer_off_an_axis_converges() {
+    // Diagonal and oblique accelerations with a known center of mass used to
+    // leave the interior point wandering until it ran out of iterations.
+    for h in [0.2, 0.35] {
+        let mut r = robot();
+        r.cog_height_m = Some(h);
+        for s in [
+            spec(vec![wp(1.0, 1.0, Some(0.0)), wp(6.0, 6.0, Some(0.0))]),
+            spec(vec![wp(1.0, 1.0, Some(0.0)), wp(6.0, 3.0, Some(0.0))]),
+            spec(vec![wp(1.686, 4.589, Some(0.0)), wp(8.168, 5.809, Some(142.8)), wp(8.2, 4.1, Some(180.0))]),
+        ] {
+            let p = run(&r, &s, &Environment::default());
+            assert!(p.trajectory.duration_s <= p.spline_duration_s * 1.001, "h = {h}: {} vs {}", p.trajectory.duration_s, p.spline_duration_s);
+            assert_physical(&r, &p.trajectory);
+        }
+    }
 }

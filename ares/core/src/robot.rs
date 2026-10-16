@@ -36,6 +36,12 @@ use crate::motor::{Motor, MotorKind, NOMINAL_VOLTAGE};
 
 pub const GRAVITY: f64 = 9.80665;
 
+/// No wheel is planned below this fraction of its share of the weight. A
+/// trajectory that rides the edge of lifting a wheel is one bump away from
+/// tipping, and the edge itself (zero load, zero grip) is a corner the
+/// optimizer cannot work from.
+pub const MIN_LOAD_FRACTION: f64 = 0.1;
+
 /// The version this code writes. A file with a higher one comes from a newer
 /// Ares and is refused instead of half-read.
 pub const ROBOT_FORMAT_VERSION: u32 = 1;

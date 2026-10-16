@@ -24,6 +24,8 @@
 
 #include <chrono>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <vector>
 
@@ -40,6 +42,10 @@ struct V2 {
 
 // Smoothing for |v| at rest, m/s: sqrt is not differentiable at 0.
 constexpr double kSpeedEps = 1e-3;
+// Stall detection: iterations between checks, and the relative change in the
+// total time below which the solver is considered done moving.
+constexpr int kStallWindow = 100;
+constexpr double kStallTolerance = 1e-4;
 
 }  // namespace
 
@@ -59,6 +65,12 @@ extern "C" int ares_nlp_solve(const AresNlpProblem* p, AresNlpResult* out) {
     std::vector<Var> x, y, c, s, vx, vy, w, ax, ay, al;
     std::vector<std::vector<Var>> Fx(samples), Fy(samples);
     std::vector<Var> dt;
+    // The acceleration in the robot's frame, only with a center of mass
+    // height: it makes the load transfer linear, where written with the field
+    // acceleration it is a product of three variables that the interior point
+    // cannot work through once the robot accelerates off an axis.
+    std::vector<Var> abx, aby;
+    const bool transfer = p->cog_height_m > 0;
     for (int k = 0; k < samples; ++k) {
       x.push_back(problem.decision_variable());
       y.push_back(problem.decision_variable());
@@ -74,10 +86,35 @@ extern "C" int ares_nlp_solve(const AresNlpProblem* p, AresNlpResult* out) {
         Fx[k].push_back(problem.decision_variable());
         Fy[k].push_back(problem.decision_variable());
       }
+      if (transfer) {
+        abx.push_back(problem.decision_variable());
+        aby.push_back(problem.decision_variable());
+      }
     }
     for (int j = 0; j < p->segments; ++j) {
       dt.push_back(problem.decision_variable());
     }
+
+    // Load transfer. With the modules at pᵢ (robot frame) and S = Σ pᵢpᵢᵀ,
+    // the loads that balance the pitch and roll moments m·h·a are
+    //   Nᵢ = m·g/n − m·h · a_robotᵀ S⁻¹ pᵢ,
+    // and a_robot·qᵢ = a_field·R(θ)qᵢ, with qᵢ = S⁻¹pᵢ.
+    double Sxx = 0, Sxy = 0, Syy = 0;
+    for (int i = 0; i < M; ++i) {
+      double px = p->module_xy[2 * i], py = p->module_xy[2 * i + 1];
+      Sxx += px * px;
+      Sxy += px * py;
+      Syy += py * py;
+    }
+    const double det = Sxx * Syy - Sxy * Sxy;
+    std::vector<double> qx(M), qy(M);
+    for (int i = 0; i < M; ++i) {
+      double px = p->module_xy[2 * i], py = p->module_xy[2 * i + 1];
+      qx[i] = (Syy * px - Sxy * py) / det;
+      qy[i] = (-Sxy * px + Sxx * py) / det;
+    }
+    const double static_load = p->mass_kg * p->gravity / M;
+    const double mh = p->mass_kg * p->cog_height_m;
 
     // Warm start.
     for (int k = 0; k < samples; ++k) {
@@ -91,10 +128,36 @@ extern "C" int ares_nlp_solve(const AresNlpProblem* p, AresNlpResult* out) {
       ax[k].set_value(p->guess_ax[k]);
       ay[k].set_value(p->guess_ay[k]);
       al[k].set_value(p->guess_alpha[k]);
-      // Even split of m·a as a start; the solver redistributes.
-      for (int i = 0; i < M; ++i) {
-        Fx[k][i].set_value(p->mass_kg * p->guess_ax[k] / M);
-        Fy[k][i].set_value(p->mass_kg * p->guess_ay[k] / M);
+      if (transfer) {
+        const double gc = std::cos(p->guess_theta[k]), gs = std::sin(p->guess_theta[k]);
+        abx[k].set_value(gc * p->guess_ax[k] + gs * p->guess_ay[k]);
+        aby[k].set_value(-gs * p->guess_ax[k] + gc * p->guess_ay[k]);
+      }
+      // Forces as the physics would split them: m·a in proportion to each
+      // wheel's load (so every wheel uses the same fraction of its grip),
+      // plus I·α as the least-squares torque split. An even split would ask
+      // the unloaded wheels for more than they have, and the interior point
+      // spends hundreds of iterations climbing out of that.
+      {
+        const double gc = std::cos(p->guess_theta[k]), gs = std::sin(p->guess_theta[k]);
+        const double gax = p->guess_ax[k], gay = p->guess_ay[k];
+        const double bx = gc * gax + gs * gay, by = -gs * gax + gc * gay;
+        std::vector<double> load(M);
+        double total = 0, r2 = 0;
+        for (int i = 0; i < M; ++i) {
+          load[i] = std::fmax(static_load - mh * (bx * qx[i] + by * qy[i]), p->min_load_n);
+          total += load[i];
+          const double px = p->module_xy[2 * i], py = p->module_xy[2 * i + 1];
+          r2 += px * px + py * py;
+        }
+        const double torque = p->moi_kg_m2 * p->guess_alpha[k];
+        for (int i = 0; i < M; ++i) {
+          const double px = p->module_xy[2 * i], py = p->module_xy[2 * i + 1];
+          const double rx = gc * px - gs * py, ry = gs * px + gc * py;
+          const double share = load[i] / total;
+          Fx[k][i].set_value(p->mass_kg * gax * share - torque * ry / r2);
+          Fy[k][i].set_value(p->mass_kg * gay * share + torque * rx / r2);
+        }
       }
     }
     for (int j = 0; j < p->segments; ++j) {
@@ -129,26 +192,6 @@ extern "C" int ares_nlp_solve(const AresNlpProblem* p, AresNlpResult* out) {
     // The composition keeps |(c, s)| = 1 once the first one is.
     problem.subject_to(c[0] * c[0] + s[0] * s[0] == 1.0);
 
-    // Load transfer. With the modules at pᵢ (robot frame) and S = Σ pᵢpᵢᵀ,
-    // the loads that balance the pitch and roll moments m·h·a are
-    //   Nᵢ = m·g/n − m·h · a_robotᵀ S⁻¹ pᵢ,
-    // and a_robot·qᵢ = a_field·R(θ)qᵢ, with qᵢ = S⁻¹pᵢ.
-    double Sxx = 0, Sxy = 0, Syy = 0;
-    for (int i = 0; i < M; ++i) {
-      double px = p->module_xy[2 * i], py = p->module_xy[2 * i + 1];
-      Sxx += px * px;
-      Sxy += px * py;
-      Syy += py * py;
-    }
-    const double det = Sxx * Syy - Sxy * Sxy;
-    std::vector<double> qx(M), qy(M);
-    for (int i = 0; i < M; ++i) {
-      double px = p->module_xy[2 * i], py = p->module_xy[2 * i + 1];
-      qx[i] = (Syy * px - Sxy * py) / det;
-      qy[i] = (-Sxy * px + Sxx * py) / det;
-    }
-    const double static_load = p->mass_kg * p->gravity / M;
-    const double mh = p->mass_kg * p->cog_height_m;
     const double mu = p->wheel_cof;
     const double vmax = p->wheel_free_speed_mps;
     const bool has_current = p->f_current_n > 0;
@@ -172,13 +215,18 @@ extern "C" int ares_nlp_solve(const AresNlpProblem* p, AresNlpResult* out) {
         Var speed2 = wvx * wvx + wvy * wvy;
         problem.subject_to(speed2 <= vmax * vmax);
 
-        // Grip with the load this wheel carries.
+        // Grip with the load this wheel carries: linear in the acceleration
+        // in the robot's frame.
         Var load = static_load;
         if (mh > 0) {
-          load = static_load - mh * (ax[k] * (c[k] * qx[i] - s[k] * qy[i]) +
-                                     ay[k] * (s[k] * qx[i] + c[k] * qy[i]));
-          problem.subject_to(load >= 0.0);
-          problem.subject_to(fx * fx + fy * fy <= mu * mu * load * load);
+          load = static_load - mh * (abx[k] * qx[i] + aby[k] * qy[i]);
+          problem.subject_to(load >= p->min_load_n);
+          // |F| <= μ·N, written as |F|²/(μN) <= μN: quadratic over linear,
+          // convex and smooth while N > 0 (the floor above guarantees it).
+          // Squared on both sides (|F|² <= μ²N²) it is the same set but not
+          // convex, and as sqrt(|F|²) <= μN its curvature blows up when a
+          // wheel pushes nothing; the interior point crawls through both.
+          problem.subject_to((fx * fx + fy * fy) / (mu * load) <= mu * load);
         } else {
           problem.subject_to(fx * fx + fy * fy <= mu * mu * static_load * static_load);
         }
@@ -194,6 +242,10 @@ extern "C" int ares_nlp_solve(const AresNlpProblem* p, AresNlpResult* out) {
           problem.subject_to(P <= p->f_current_n * sigma);
           problem.subject_to(P >= -p->f_current_n * sigma);
         }
+      }
+      if (transfer) {
+        problem.subject_to(ax[k] == c[k] * abx[k] - s[k] * aby[k]);
+        problem.subject_to(ay[k] == s[k] * abx[k] + c[k] * aby[k]);
       }
       problem.subject_to(Fx_net == p->mass_kg * ax[k]);
       problem.subject_to(Fy_net == p->mass_kg * ay[k]);
@@ -275,8 +327,37 @@ extern "C" int ares_nlp_solve(const AresNlpProblem* p, AresNlpResult* out) {
       options.timeout = std::chrono::duration<double>(p->timeout_s);
     }
     int iterations = 0;
-    problem.add_callback([&](const slp::IterationInfo<double>&) {
+    // ARES_TRACE=1: every 100 iterations, the total time the iterate implies
+    // and how hard the constraints push back, on stderr. For debugging a
+    // problem that will not converge.
+    const bool trace = std::getenv("ARES_TRACE") != nullptr;
+    // Some problems (load transfer off an axis, mostly) reach their optimum
+    // and then stall short of the KKT tolerance: degenerate constraints keep
+    // the duals from settling. When the total time has stopped moving for a
+    // while, stop; Rust checks the result against the physics before using it.
+    double guess_total = 0;
+    for (int j = 0; j < p->segments; ++j) guess_total += p->guess_dt[j] * p->intervals[j];
+    double last_t = -1;
+    int last_check = 0;
+    problem.add_callback([&](const slp::IterationInfo<double>& info) {
       ++iterations;
+      const auto n = info.x.size();
+      double t = 0;
+      for (int j = 0; j < p->segments; ++j) t += info.x[n - p->segments + j] * p->intervals[j];
+      if (info.iteration - last_check >= kStallWindow) {
+        // Only once it beats the warm start: the spline is feasible, so an
+        // iterate slower than it is still wandering, not finished.
+        const bool stalled = last_t > 0 && std::fabs(t - last_t) <= kStallTolerance * t && t <= guess_total;
+        last_t = t;
+        last_check = info.iteration;
+        if (stalled) return true;
+      }
+      if (trace && info.iteration % 100 == 0) {
+        std::fprintf(stderr, "it %5d  T %.4f  |y|inf %.3g  |z|inf %.3g  min s %.3g\n", info.iteration, t,
+                     info.y.size() ? info.y.cwiseAbs().maxCoeff() : 0.0,
+                     info.z.size() ? info.z.cwiseAbs().maxCoeff() : 0.0,
+                     info.s.size() ? info.s.minCoeff() : 0.0);
+      }
       return false;
     });
     const int status = static_cast<int>(problem.solve(options));
