@@ -36,6 +36,8 @@ export interface RobotConfig {
   bumper: { lengthM: number; widthM: number }
   drivetrain: SwerveConfig
   model?: ModelRef
+  /** Formulas behind numeric fields, by dotted path ("drivetrain.wheelRadiusM"). */
+  exprs?: Record<string, string>
 }
 
 export interface MotorInfo {

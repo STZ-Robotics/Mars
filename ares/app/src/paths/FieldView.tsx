@@ -400,6 +400,33 @@ export default function FieldView(props: Props) {
           ctx.stroke()
           ctx.setLineDash([])
         }
+        if (kind === "unknown" || kind === "continue") {
+          // Start kinds: green "?" ring for an unknown start (the robot can
+          // be anywhere, it pathfinds), a teal link for a continued one.
+          const ring = kind === "unknown" ? GLYPH.pathfind : GLYPH.linked
+          if (kind === "continue") {
+            ctx.globalAlpha = 0.7
+            bumper(ctx, toScreen, w.x, w.y, headingOf(i), robot, ring, [], 1.6, 0.08)
+            ctx.globalAlpha = 1
+          } else {
+            ctx.setLineDash([5, 4])
+            ctx.beginPath()
+            ctx.arc(cx, cy, Math.max(16, robot.bumper.lengthM * view.k * 0.55), 0, Math.PI * 2)
+            ctx.strokeStyle = ring
+            ctx.lineWidth = 2
+            ctx.stroke()
+            ctx.setLineDash([])
+          }
+          handle(ctx, cx, cy, HANDLE_R + 1, kind === "unknown" ? "#ffffff" : ring, ring)
+          ctx.fillStyle = kind === "unknown" ? ring : "#ffffff"
+          ctx.font = "800 12px 'Segoe UI', Arial, sans-serif"
+          ctx.textAlign = "center"
+          ctx.textBaseline = "middle"
+          ctx.fillText(kind === "unknown" ? "?" : "↪", cx, cy + 1)
+          const note = kind === "unknown" ? "start anywhere" : spec.continuesFrom ? `after ${spec.continuesFrom}` : "where the last path ended"
+          drawChip(ctx, cx, cy + Math.max(26, robot.bumper.widthM * view.k * 0.5 + 14), note, ring)
+          return
+        }
         if (topView && kind !== "empty") {
           drawRobot(ctx, toScreen, view.k, w.x, w.y, headingOf(i), robot, topView, null, 0.45, opts.robotColor)
         }
@@ -1076,6 +1103,8 @@ const KIND_WORDS: Record<string, string> = {
   pose: "Pose: the robot passes here facing the set heading.",
   translation: "Translation: the robot passes here; the optimizer picks the heading.",
   empty: "Empty: not a place the robot must reach; it only shapes the starting guess (around an obstacle, say).",
+  unknown: "Unknown start: the robot can be anywhere when the path begins; it pathfinds to the next waypoint. This position is only the likely start, for the estimate.",
+  continue: "Continue: the path begins where the previous one ended, at its speed. Linked to a path, it takes that path's end pose.",
 }
 
 function resolveIdx(t: PathSpec["scoped"][number]["from"], n: number): number {

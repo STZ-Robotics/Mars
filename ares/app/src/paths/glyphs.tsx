@@ -19,6 +19,8 @@ export const GLYPH = {
   selected: "#d4a514",
   stop: "#c21c1c",
   ink: "#1c1c1f",
+  pathfind: "#16a34a",
+  linked: "#0e7490",
 }
 
 export function positionColor(i: number, n: number, selected: boolean): string {
@@ -40,6 +42,18 @@ export function WaypointIcon({ kind, color, size = 16 }: { kind: WaypointKind; c
       )}
       {kind === "translation" && <circle cx={c} cy={c} r={c - 2} fill={color} />}
       {kind === "empty" && <circle cx={c} cy={c} r={c - 2} fill="none" stroke={color} strokeWidth={1.6} strokeDasharray="2.6 2" />}
+      {kind === "unknown" && (
+        <>
+          <circle cx={c} cy={c} r={c - 1.5} fill="none" stroke={GLYPH.pathfind} strokeWidth={1.6} strokeDasharray="2.6 2" />
+          <text x={c} y={c + size * 0.2} textAnchor="middle" fontSize={size * 0.62} fontWeight={800} fill={GLYPH.pathfind}>?</text>
+        </>
+      )}
+      {kind === "continue" && (
+        <>
+          <circle cx={c} cy={c} r={c - 1.5} fill="none" stroke={GLYPH.linked} strokeWidth={1.6} />
+          <text x={c} y={c + size * 0.2} textAnchor="middle" fontSize={size * 0.6} fontWeight={800} fill={GLYPH.linked}>↪</text>
+        </>
+      )}
     </svg>
   )
 }

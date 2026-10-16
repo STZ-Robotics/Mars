@@ -1,7 +1,10 @@
 // What the path editor exchanges with the backend. Mirrors ares-core's
 // PathSpec and Trajectory and the app's FieldDoc (serde, camelCase).
 
-export type WaypointKind = "pose" | "translation" | "empty"
+export type WaypointKind = "pose" | "translation" | "empty" | "unknown" | "continue"
+
+/** Formulas behind numeric fields, by field name (see vars/variables.ts). */
+export type Exprs = Record<string, string>
 
 export interface Waypoint {
   x: number
@@ -18,10 +21,20 @@ export interface Waypoint {
   nextControl?: [number, number]
   /** The segment to the next waypoint is pathfound at run time. */
   pathfindNext?: PathfindOptions
+  exprs?: Exprs
 }
 
 /** The limits the robot pathfinds with (PathPlanner's PathConstraints). */
-export interface PathfindOptions { maxVelocityMps?: number; maxAccelerationMps2?: number; maxAngularVelocityDps?: number }
+export interface PathfindOptions {
+  maxVelocityMps?: number
+  maxAccelerationMps2?: number
+  maxAngularVelocityDps?: number
+  /** Enter the pathfind moving (the part before does not stop). */
+  keepMovingIn?: boolean
+  /** Leave it moving (the part after starts at speed). */
+  keepMovingOut?: boolean
+  exprs?: Exprs
+}
 
 /** How the segment from a waypoint to the next is made. */
 export type SegmentMode = "optimized" | "manual" | "pathfind"
@@ -46,11 +59,21 @@ export type ConstraintKind =
 
 export type ConstraintType = ConstraintKind["type"]
 
-export type ScopedConstraint = ConstraintKind & { from: Target; to?: Target; enabled?: boolean }
+export type ScopedConstraint = ConstraintKind & { from: Target; to?: Target; enabled?: boolean; exprs?: Exprs }
 
-export interface EventMarker { name: string; target: Target; offsetS: number }
+export interface EventMarker { name: string; target: Target; offsetS: number; durationS?: number; exprs?: Exprs }
 
-export interface PathConstraints { maxVelocityMps?: number; maxAngularVelocityDps?: number }
+export interface PathConstraints { maxVelocityMps?: number; maxAngularVelocityDps?: number; exprs?: Exprs }
+
+/** A heading to hit partway along a segment (PathPlanner's rotation targets). */
+export interface RotationTarget { segment: number; fraction: number; headingDeg: number; exprs?: Exprs }
+
+export type ZoneShape =
+  | { shape: "circle"; x: number; y: number; radiusM: number }
+  | { shape: "rectangle"; x: number; y: number; widthM: number; heightM: number }
+
+/** An area every path drives slower through. */
+export type SlowZone = ZoneShape & { name?: string; maxVelocityMps?: number; maxAccelerationMps2?: number; exprs?: Exprs }
 
 export interface PathSpec {
   name: string
@@ -58,6 +81,9 @@ export interface PathSpec {
   constraints: PathConstraints
   scoped: ScopedConstraint[]
   events?: EventMarker[]
+  rotationTargets?: RotationTarget[]
+  /** Starts where this path ends (its first waypoint is a "continue"). */
+  continuesFrom?: string
 }
 
 export interface ModuleSample {
@@ -90,8 +116,10 @@ export interface Trajectory {
   samples: Sample[]
   waypointTimes?: number[]
   splits?: number[]
-  events?: { name: string; t: number }[]
+  events?: { name: string; t: number; endT?: number }[]
   pathfind?: PathfindSpan[]
+  start?: "known" | "unknown" | "previous"
+  continuesFrom?: string
 }
 
 export interface PathfindSpan {
@@ -106,11 +134,12 @@ export interface PathfindSpan {
   maxAccelerationMps2?: number
   maxAngularVelocityDps?: number
   estimatedS: number
+  fromUnknown?: boolean
 }
 
-export interface KeepOut { x: number; y: number; radiusM: number }
+export interface KeepOut { x: number; y: number; radiusM: number; exprs?: Exprs }
 
-export interface FieldDoc { walls: boolean; keepOut: KeepOut[] }
+export interface FieldDoc { walls: boolean; keepOut: KeepOut[]; slowZones?: SlowZone[] }
 
 export interface PathEntry { name: string; spec: PathSpec | null; error: string | null }
 

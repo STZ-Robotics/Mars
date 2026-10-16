@@ -6,8 +6,11 @@ import { fileNameOf } from "@desktop/utils/field/robotModel"
 import RobotSettingsPage from "./robot/RobotSettingsPage"
 import PathsPage from "./paths/PathsPage"
 import { newRobot, RobotConfig } from "./robot/types"
+import VariablesPage from "./vars/VariablesPage"
+import { VariablesProvider } from "./vars/context"
+import { useProjectSync } from "./vars/sync"
 
-type Page = "robot" | "paths" | "field"
+type Page = "robot" | "paths" | "field" | "variables"
 
 const LAST_ROBOT_KEY = "ares.lastRobot"
 const LAST_PAGE_KEY = "ares.lastPage"
@@ -17,7 +20,7 @@ const LAST_PAGE_KEY = "ares.lastPage"
 // document the File menu opens and saves.
 export default function App() {
   const [page, setPage] = useState<Page>(() => {
-    try { const p = localStorage.getItem(LAST_PAGE_KEY); if (p === "robot" || p === "paths" || p === "field") return p } catch { /* first run */ }
+    try { const p = localStorage.getItem(LAST_PAGE_KEY); if (p === "robot" || p === "paths" || p === "field" || p === "variables") return p } catch { /* first run */ }
     return "robot"
   })
   useEffect(() => { try { localStorage.setItem(LAST_PAGE_KEY, page) } catch { /* nothing to remember */ } }, [page])
@@ -99,6 +102,8 @@ export default function App() {
   }, [robotPath, dirty])
 
   return (
+    <VariablesProvider robotPath={robotPath}>
+    <ProjectSync robotPath={robotPath} setRobot={setRobot} />
     <div className="app-root">
       <MenuBar
         menus={[
@@ -115,10 +120,18 @@ export default function App() {
         {page === "robot" && <RobotSettingsPage robot={robot} onChange={setRobot} robotPath={robotPath} />}
         {page === "paths" && <PathsPage robot={robot} robotPath={robotPath} onSaveRobot={fileSave} />}
         {page === "field" && <ComingSoon page={page} />}
+        {page === "variables" && <VariablesPage robot={robot} robotPath={robotPath} onRobot={setRobot} />}
       </div>
       <StatusBar robot={robot.name} dirty={dirty} status={status} />
     </div>
+    </VariablesProvider>
   )
+}
+
+/** Keeps every formula in the project current as variables change. */
+function ProjectSync({ robotPath, setRobot }: { robotPath: string | null; setRobot: (f: (r: RobotConfig) => RobotConfig) => void }) {
+  useProjectSync(robotPath, setRobot)
+  return null
 }
 
 function remember(path: string) {
@@ -183,6 +196,7 @@ const PAGES: { id: Page; label: string; icon: string; ready: boolean }[] = [
   { id: "robot", label: "Robot", icon: "ti-robot", ready: true },
   { id: "paths", label: "Paths", icon: "ti-route", ready: true },
   { id: "field", label: "Field", icon: "ti-map-2", ready: false },
+  { id: "variables", label: "Variables", icon: "ti-variable", ready: true },
 ]
 
 function Rail({ page, onSelect }: { page: Page; onSelect: (p: Page) => void }) {

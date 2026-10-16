@@ -140,6 +140,22 @@ pub fn path_delete(robot_path: String, name: String) -> Result<(), String> {
     fs::remove_file(path_file(&robot_path, &name)?).map_err(|e| e.to_string())
 }
 
+/// The project's variables (variables.json). The app owns their meaning;
+/// here they are only stored, as written.
+#[tauri::command]
+pub fn variables_open(robot_path: String) -> serde_json::Value {
+    fs::read_to_string(project_dir(&robot_path).join("variables.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_else(|| serde_json::json!({ "variables": [] }))
+}
+
+#[tauri::command]
+pub fn variables_save(robot_path: String, doc: serde_json::Value) -> Result<(), String> {
+    let text = serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())?;
+    write(&project_dir(&robot_path).join("variables.json"), &(text + "\n"))
+}
+
 /// The trajectory last generated for a path, if there is one on disk.
 #[tauri::command]
 pub fn trajectory_open(robot_path: String, name: String) -> Option<Trajectory> {

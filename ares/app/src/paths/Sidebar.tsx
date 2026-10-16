@@ -28,8 +28,10 @@ interface Props {
   children?: ReactNode
 }
 
-const NEXT_KIND: Record<WaypointKind, WaypointKind> = { pose: "translation", translation: "empty", empty: "pose" }
-const KIND_LABEL: Record<WaypointKind, string> = { pose: "Pose", translation: "Translation", empty: "Empty" }
+const NEXT_KIND: Record<WaypointKind, WaypointKind> = { pose: "translation", translation: "empty", empty: "pose", unknown: "continue", continue: "pose" }
+/** The first waypoint cycles through the start kinds too. */
+const NEXT_START: Record<WaypointKind, WaypointKind> = { pose: "translation", translation: "unknown", unknown: "continue", continue: "pose", empty: "pose" }
+export const KIND_LABEL: Record<WaypointKind, string> = { pose: "Pose", translation: "Translation", empty: "Empty", unknown: "Unknown start", continue: "Continue" }
 
 // Choreo's sidebar: the project's paths, then the open path's waypoints,
 // constraints and event markers as lists. Every row says what it is at a
@@ -73,7 +75,6 @@ export default function Sidebar(p: Props) {
               const sel = p.selected?.kind === "waypoint" && p.selected.index === i
               const stop = stopAt(spec, i) >= 0
               const color = positionColor(i, n, false)
-              const isEnd = i === 0 || i === n - 1
               const over = drag && drag.over === i && drag.from !== i
               return (
                 <Item
@@ -91,8 +92,8 @@ export default function Sidebar(p: Props) {
                 >
                   <i className="ti ti-grip-vertical" style={{ fontSize: 12, color: "var(--text-light)", cursor: "grab" }} title="Drag to reorder" />
                   <RowButton
-                    title={`${KIND_LABEL[kind]}. Click for ${KIND_LABEL[NEXT_KIND[kind]]}${isEnd && NEXT_KIND[kind] === "empty" ? " (not at an end: skips to Pose)" : ""}`}
-                    onClick={() => p.onSetKind(i, isEnd && NEXT_KIND[kind] === "empty" ? "pose" : NEXT_KIND[kind])}
+                    title={`${KIND_LABEL[kind]}. Click for ${KIND_LABEL[nextKind(i, n, kind)]}`}
+                    onClick={() => p.onSetKind(i, nextKind(i, n, kind))}
                   >
                     <WaypointIcon kind={kind} color={sel ? "#ffffff" : color} />
                   </RowButton>
@@ -189,6 +190,13 @@ function SegmentIcon({ mode, sel }: { mode: SegmentMode; sel: boolean }) {
   }
   if (mode === "manual") return <i className="ti ti-pencil" style={{ fontSize: 13, color: sel ? "#ffffff" : "#e95420" }} />
   return <i className="ti ti-wave-sine" style={{ fontSize: 13, color: sel ? "rgba(255,255,255,0.8)" : "var(--text-light)" }} />
+}
+
+/** The next kind when cycling a waypoint's type from its row. */
+function nextKind(i: number, n: number, kind: WaypointKind): WaypointKind {
+  if (i === 0) return NEXT_START[kind]
+  const k = NEXT_KIND[kind]
+  return (i === n - 1 && k === "empty") || k === "unknown" || k === "continue" ? "pose" : k
 }
 
 function Heading({ label, count, children }: { label: string; count?: number; children?: ReactNode }) {
