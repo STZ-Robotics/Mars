@@ -1,0 +1,124 @@
+/* The 3D preview's annotations, drawn like a technical drawing: thin dark
+   lines, small caps labels on white, tabular numbers. Color only where it
+   carries meaning (the limit that binds). */
+
+.ares-anno {
+  font-family: "Segoe UI", Arial, sans-serif;
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.ares-anno-num {
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A dimension's value, centered on its line. */
+.ares-dim {
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid #3a3b40;
+  padding: 1px 6px;
+  font-size: 10.5px;
+  color: #1c1c1f;
+  line-height: 1.45;
+}
+.ares-dim .label {
+  font-size: 8.5px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: #5c5c62;
+  margin-right: 5px;
+}
+.ares-dim .alt {
+  color: #6e6e74;
+  margin-left: 5px;
+}
+
+/* A wheel's tag, hung off the wheel by a short leader. */
+.ares-tag {
+  background: #1c1c1f;
+  color: #ececed;
+  font-size: 9.5px;
+  padding: 2px 6px;
+  line-height: 1.4;
+  border-left: 2px solid #a83c3c;
+}
+.ares-tag b {
+  font-weight: 600;
+  letter-spacing: 0.6px;
+  margin-right: 5px;
+  color: #ffffff;
+}
+
+/* The spec plate above the robot. */
+.ares-plate {
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid #3a3b40;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.08);
+  min-width: 190px;
+}
+.ares-plate .head {
+  background: #33343a;
+  color: #ececed;
+  padding: 4px 9px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.ares-plate .head .name {
+  font-size: 9px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: #a0a1a8;
+}
+.ares-plate .head .mass {
+  margin-left: auto;
+  font-size: 13px;
+  font-weight: 600;
+}
+.ares-plate .head .mass small {
+  font-size: 10px;
+  font-weight: 400;
+  color: #a0a1a8;
+  margin-left: 4px;
+}
+.ares-plate .rows {
+  padding: 4px 9px 5px;
+}
+.ares-plate .row {
+  display: flex;
+  gap: 10px;
+  font-size: 10.5px;
+  line-height: 1.65;
+}
+.ares-plate .row .k {
+  color: #5c5c62;
+  flex: 1;
+}
+.ares-plate .row .v {
+  color: #1c1c1f;
+}
+.ares-plate .row .why {
+  font-size: 9px;
+  color: #6e6e74;
+  margin-left: 4px;
+}
+.ares-plate .row.bind .v {
+  color: #a83c3c;
+  font-weight: 600;
+}
+
+/* Center of mass: the drafting symbol, with its height. */
+.ares-cog {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ares-cog svg {
+  display: block;
+  filter: drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.9));
+}
+.ares-cog-height {
+  margin-left: 16px;
+}

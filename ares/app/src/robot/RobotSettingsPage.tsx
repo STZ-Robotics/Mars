@@ -33,7 +33,7 @@ export default function RobotSettingsPage({ robot, onChange, robotPath }: Props)
   const check = useRobotCheck(robot)
   const motors = useMotors()
   const [spinning, setSpinning] = useState(true)
-  const [showGuides, setShowGuides] = useState(true)
+  const [showAnnotations, setShowAnnotations] = useState(true)
   const [modelError, setModelError] = useState<string | null>(null)
   const [modelPath, setModelPath] = useState<string | null>(null)
 
@@ -90,20 +90,6 @@ export default function RobotSettingsPage({ robot, onChange, robotPath }: Props)
             <Q label="Mass (with battery, bumpers)" dim="mass" unit="kg" value={robot.massKg} onChange={v => set({ massKg: v })} />
             <Q label="Bumper length (X)" dim="length" unit="m" value={robot.bumper.lengthM} onChange={v => set({ bumper: { ...robot.bumper, lengthM: v } })} />
             <Q label="Bumper width (Y)" dim="length" unit="m" value={robot.bumper.widthM} onChange={v => set({ bumper: { ...robot.bumper, widthM: v } })} />
-            <Q
-              label="Moment of inertia" dim="plain" unit="kg·m²" value={robot.moiKgM2}
-              onChange={v => set({ moiKgM2: v })}
-              action={derived && (
-                <MiniButton title="A box of the bumper's size and the robot's mass" onClick={() => set({ moiKgM2: Number(derived.moiEstimateKgM2.toFixed(2)) })}>
-                  estimate
-                </MiniButton>
-              )}
-            />
-            <Q
-              label="Center of mass height" dim="length" unit="m" optional value={robot.cogHeightM}
-              onChange={v => set({ cogHeightM: v })}
-              hint="Load transfer and tipping. Leave empty if unknown."
-            />
           </Panel>
 
           <Panel title="Swerve modules" icon="ti-steering-wheel">
@@ -134,7 +120,6 @@ export default function RobotSettingsPage({ robot, onChange, robotPath }: Props)
                 ))}
               </select>
             </PropertyRow>
-            <Q label="Motors per module" dim="plain" unit="" value={dt.driveMotorsPerModule} integer onChange={v => setDrive({ driveMotorsPerModule: v })} />
             <PropertyRow label="Gear ratio">
               <div style={{ display: "flex", gap: 4, width: "100%" }}>
                 <QInput dim="plain" value={dt.driveGearRatio} onChange={v => setDrive({ driveGearRatio: v })} />
@@ -152,8 +137,26 @@ export default function RobotSettingsPage({ robot, onChange, robotPath }: Props)
               </div>
             </PropertyRow>
             <Q label="Stator current limit" dim="plain" unit="A" value={dt.driveCurrentLimitA} onChange={v => setDrive({ driveCurrentLimitA: v })} hint="0 = no limit" />
-            <Q label="Battery under load" dim="plain" unit="V" value={dt.batteryVoltage} onChange={v => setDrive({ batteryVoltage: v })} />
           </Panel>
+
+          <Collapsible title="Advanced (optional)" icon="ti-adjustments" hint="Good defaults; change them only if you know the value.">
+            <Q
+              label="Moment of inertia" dim="plain" unit="kg·m²" value={robot.moiKgM2}
+              onChange={v => set({ moiKgM2: v })}
+              action={derived && (
+                <MiniButton title="A box of the bumper's size and the robot's mass" onClick={() => set({ moiKgM2: Number(derived.moiEstimateKgM2.toFixed(2)) })}>
+                  estimate
+                </MiniButton>
+              )}
+            />
+            <Q
+              label="Center of mass height" dim="length" unit="m" optional value={robot.cogHeightM}
+              onChange={v => set({ cogHeightM: v })}
+              hint="Load transfer and tipping. Leave empty if unknown."
+            />
+            <Q label="Motors per module" dim="plain" unit="" value={dt.driveMotorsPerModule} integer onChange={v => setDrive({ driveMotorsPerModule: v })} />
+            <Q label="Battery under load" dim="plain" unit="V" value={dt.batteryVoltage} onChange={v => setDrive({ batteryVoltage: v })} />
+          </Collapsible>
 
           <Panel title="3D model" icon="ti-cube">
             {robot.model ? (
@@ -225,43 +228,22 @@ export default function RobotSettingsPage({ robot, onChange, robotPath }: Props)
           action={
             <span style={{ display: "flex", gap: 6 }}>
               <Toggle on={spinning} onClick={() => setSpinning(s => !s)} icon="ti-rotate-360" label="Spin" />
-              <Toggle on={showGuides} onClick={() => setShowGuides(s => !s)} icon="ti-box-model-2" label="Guides" />
+              <Toggle on={showAnnotations} onClick={() => setShowAnnotations(s => !s)} icon="ti-ruler-measure" label="Annotations" />
             </span>
           }
         />
         <div style={{ flex: 1, position: "relative", background: "var(--bg-page)", minHeight: 0 }}>
-          <RobotTurntable robot={robot} modelPath={modelPath} spinning={spinning} showGuides={showGuides} onModelError={setModelError} />
+          <RobotTurntable robot={robot} derived={derived} modelPath={modelPath} spinning={spinning} showAnnotations={showAnnotations} onModelError={setModelError} />
           <div style={{ position: "absolute", left: 16, bottom: 16, right: 16, display: "flex", gap: 12, alignItems: "flex-end", pointerEvents: "none", flexWrap: "wrap" }}>
-            {check.problems.length > 0 ? (
+            {check.problems.length > 0 && (
               <Card style={{ borderColor: "var(--status-error-border)", background: "var(--status-error-bg)" }}>
                 {check.problems.map((p, i) => <div key={i} style={{ fontSize: 11, color: "var(--status-error)" }}>{p}</div>)}
               </Card>
-            ) : derived && <DerivedCard d={derived} />}
+            )}
           </div>
         </div>
       </div>
     </div>
-  )
-}
-
-function DerivedCard({ d }: { d: NonNullable<Check["derived"]> }) {
-  const row = (label: string, value: string, note?: string) => (
-    <div style={{ display: "flex", gap: 12, fontSize: 11, lineHeight: 1.7 }}>
-      <span style={{ color: "var(--text-muted)", width: 150 }}>{label}</span>
-      <span style={{ fontFamily: "Consolas, 'Cascadia Mono', monospace", color: "var(--text-primary)" }}>{value}</span>
-      {note && <span style={{ color: "var(--text-muted)" }}>{note}</span>}
-    </div>
-  )
-  return (
-    <Card>
-      <div style={{ fontSize: 10, letterSpacing: 1, textTransform: "uppercase", color: "var(--text-header-eyebrow)", marginBottom: 4 }}>What this robot can do</div>
-      {row("Free speed", `${d.freeSpeedMps.toFixed(2)} m/s`, `${(d.freeSpeedMps / 0.3048).toFixed(1)} ft/s`)}
-      {row("Spin in place", `${d.maxOmegaDps.toFixed(0)} °/s`)}
-      {row("Launch", `${d.maxAccelMps2.toFixed(1)} m/s²`, d.launchLimitedBy === "grip" ? "limited by grip" : "limited by the motors")}
-      {row("Per wheel", `${d.driveForceN.toFixed(0)} N drive · ${d.gripForceN.toFixed(0)} N grip`)}
-      {d.tipAccelMps2 !== null && row("Tips over at", `${d.tipAccelMps2.toFixed(1)} m/s²`, d.tipAccelMps2 < d.maxAccelMps2 ? "below the launch: the planner will hold back" : undefined)}
-      {d.sprint5mS !== null && row("5 m sprint", `${d.sprint5mS.toFixed(2)} s`, `top ${d.sprint5mTopSpeedMps!.toFixed(2)} m/s`)}
-    </Card>
   )
 }
 
@@ -372,4 +354,26 @@ function useMotors(): MotorInfo[] {
   const [motors, setMotors] = useState<MotorInfo[]>([])
   useEffect(() => { invoke<MotorInfo[]>("motors").then(setMotors).catch(() => {}) }, [])
   return motors
+}
+
+/** A Panel that starts closed: for the values most teams never touch. */
+function Collapsible({ title, icon, hint, children }: { title: string; icon: string; hint?: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div style={{ border: "1px solid var(--border-main)", overflow: "hidden", background: "var(--bg-page)" }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        title={hint}
+        style={{
+          width: "100%", display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", cursor: "pointer", border: "none",
+          background: "var(--bg-panel-header)", borderBottom: open ? "1px solid var(--border-main)" : "none", textAlign: "left",
+        }}
+      >
+        <i className={`ti ${icon}`} style={{ fontSize: 12, color: "var(--text-muted)" }} aria-hidden />
+        <span style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: 0.3, color: "var(--text-primary)" }}>{title}</span>
+        <i className={`ti ${open ? "ti-chevron-up" : "ti-chevron-down"}`} style={{ marginLeft: "auto", fontSize: 12, color: "var(--text-muted)" }} aria-hidden />
+      </button>
+      {open && children}
+    </div>
+  )
 }
