@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react"
 import type { FieldConfig } from "@desktop/utils/field/fieldImages"
 import type { RobotConfig } from "../robot/types"
 import {
-  KeepOut, PathSpec, Sample, ScopedConstraint, Selection, Tool, Trajectory, ViewOptions, kindOf, rangeOf, sampleAt,
+  KeepOut, PathSpec, Sample, ScopedConstraint, Selection, Tool, Trajectory, ViewOptions, constraintChip, kindOf, rangeOf, sampleAt, stopAt,
 } from "./types"
+import { GLYPH, drawChip, drawHeadingTriangle, drawStop, positionColor } from "./glyphs"
 
 interface Props {
   field: FieldConfig
@@ -17,6 +18,8 @@ interface Props {
   stale: boolean
   keepOut: KeepOut[]
   selected: Selection
+  /** What the pointer is over in the lists: highlighted on the field. */
+  hovered: Selection
   tool: Tool
   view: ViewOptions
   /** The speed that colors as "fastest" (the usable speed). */
@@ -94,7 +97,7 @@ const SPLIT_COLORS = ["#2f6fdb", "#c2410c", "#1f7a1f", "#7c3aed", "#0e7490", "#a
 // the events and the playback robot, and turns mouse gestures into edits it
 // hands back to the page.
 export default function FieldView(props: Props) {
-  const { field, robot, spec, guess, generated, stale, keepOut, selected, tool, view: opts, topSpeed, playhead, fitSignal } = props
+  const { field, robot, spec, guess, generated, stale, keepOut, selected, hovered, tool, view: opts, topSpeed, playhead, fitSignal } = props
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const hostRef = useRef<HTMLDivElement>(null)
   const [view, setView] = useState<View>({ k: 50, ox: 0, oy: 0 })
@@ -222,9 +225,10 @@ export default function FieldView(props: Props) {
       }
     }
 
-    // The selected constraint's scope, over the path.
-    if (spec && selected?.kind === "constraint" && reference) {
-      const c = spec.scoped[selected.index]
+    // The selected (or hovered) constraint's scope, over the path.
+    const shownConstraint = hovered?.kind === "constraint" ? hovered : selected?.kind === "constraint" ? selected : null
+    if (spec && shownConstraint && reference) {
+      const c = spec.scoped[shownConstraint.index]
       if (c) {
         const [a, b] = rangeOf(c, spec.waypoints.length)
         const times = reference.waypointTimes
@@ -246,45 +250,103 @@ export default function FieldView(props: Props) {
       ctx.setLineDash([])
     }
 
-    // Waypoints.
+    // Segment constraints: a chip at the middle of their range, on the path.
+    if (spec && opts.waypoints) {
+      const n = spec.waypoints.length
+      const times = reference?.waypointTimes
+      const perMid = new Map<string, number>()
+      spec.scoped.forEach((c, i) => {
+        if (c.to === undefined || c.enabled === false) return
+        const [a, b] = rangeOf(c, n)
+        if (a === b) return
+        let x: number, y: number
+        if (reference && times && times.length === n) {
+          const p = sampleAt(reference, (times[a] + times[b]) / 2)
+          x = p.x; y = p.y
+        } else {
+          x = (spec.waypoints[a].x + spec.waypoints[b].x) / 2
+          y = (spec.waypoints[a].y + spec.waypoints[b].y) / 2
+        }
+        // Several on the same range stack instead of overlapping.
+        const key = `${a}-${b}`
+        const k = perMid.get(key) ?? 0
+        perMid.set(key, k + 1)
+        const [sx, sy] = toScreen(x, y)
+        const sel = (selected?.kind === "constraint" && selected.index === i) || (hovered?.kind === "constraint" && hovered.index === i)
+        drawChip(ctx, sx, sy - 18 - k * 18, constraintChip(c), COLORS.constraint, sel)
+      })
+    }
+
+    // Waypoints, each in its own shape (see glyphs.tsx).
     if (spec && opts.waypoints) {
       const n = spec.waypoints.length
       spec.waypoints.forEach((w, i) => {
         const kind = kindOf(w)
         const isSel = selected?.kind === "waypoint" && selected.index === i
-        const base = i === 0 ? COLORS.start : i === n - 1 ? COLORS.end : COLORS.mid
-        const color = isSel ? COLORS.selected : base
+        const isHover = hovered?.kind === "waypoint" && hovered.index === i
+        const color = positionColor(i, n, isSel)
         const [cx, cy] = toScreen(w.x, w.y)
-        if (kind === "empty") {
-          ctx.setLineDash([3, 3])
-          handle(ctx, cx, cy, HANDLE_R - 1, "rgba(255,255,255,0.85)", color)
-          ctx.setLineDash([])
-        } else {
-          const heading = headingOf(i)
-          bumper(ctx, toScreen, w.x, w.y, heading, robot, color, kind === "pose" ? [] : [5, 4], isSel ? 2.2 : 1.4, isSel ? 0.14 : 0.06)
-          if (kind === "pose") {
-            const [hx, hy] = toScreen(w.x + Math.cos(heading) * robot.bumper.lengthM / 2, w.y + Math.sin(heading) * robot.bumper.lengthM / 2)
-            handle(ctx, hx, hy, HEADING_HANDLE_R, color, "#ffffff")
-          }
-          handle(ctx, cx, cy, HANDLE_R, color, "#ffffff")
-        }
-        if (hoverWp === i && tool.kind !== "select" && tool.kind !== "waypoint") {
+        if (isHover || (hoverWp === i && tool.kind !== "select" && tool.kind !== "waypoint")) {
           ctx.beginPath()
-          ctx.arc(cx, cy, HANDLE_R + 5, 0, Math.PI * 2)
-          ctx.strokeStyle = COLORS.constraint
-          ctx.lineWidth = 2
+          ctx.arc(cx, cy, Math.max(HANDLE_R + 7, robot.bumper.lengthM * view.k * 0.62), 0, Math.PI * 2)
+          ctx.strokeStyle = GLYPH.selected
+          ctx.lineWidth = 2.5
+          ctx.setLineDash([5, 4])
           ctx.stroke()
+          ctx.setLineDash([])
         }
-        ctx.fillStyle = kind === "empty" ? color : "#ffffff"
-        ctx.font = "600 9.5px 'Segoe UI', Arial, sans-serif"
+        if (kind === "pose") {
+          const heading = headingOf(i)
+          bumper(ctx, toScreen, w.x, w.y, heading, robot, color, [], isSel ? 2.4 : 1.6, isSel ? 0.2 : 0.12)
+          drawHeadingTriangle(ctx, cx, cy, heading, Math.max(7, robot.bumper.lengthM * view.k * 0.3), color)
+          const [hx, hy] = toScreen(w.x + Math.cos(heading) * robot.bumper.lengthM / 2, w.y + Math.sin(heading) * robot.bumper.lengthM / 2)
+          handle(ctx, hx, hy, HEADING_HANDLE_R, "#ffffff", color)
+        } else if (kind === "translation") {
+          // Where the bumper will be, faint: the heading is the planner's.
+          ctx.globalAlpha = 0.6
+          bumper(ctx, toScreen, w.x, w.y, headingOf(i), robot, color, [4, 4], 1, 0.04)
+          ctx.globalAlpha = 1
+          handle(ctx, cx, cy, HANDLE_R, color, "#ffffff")
+        } else {
+          ctx.setLineDash([3, 2.5])
+          handle(ctx, cx, cy, HANDLE_R, "rgba(255,255,255,0.75)", color)
+          ctx.setLineDash([])
+        }
+        // The number, under the glyph.
+        ctx.font = "700 10px 'Segoe UI', Arial, sans-serif"
         ctx.textAlign = "center"
         ctx.textBaseline = "middle"
-        ctx.fillText(String(i + 1), cx, cy + 0.5)
-        if (w.split && i > 0 && i < n - 1) {
-          ctx.font = "600 9px 'Segoe UI', Arial, sans-serif"
-          ctx.fillStyle = COLORS.ink
-          ctx.fillText("✂", cx + 12, cy - 12)
+        if (kind === "translation") {
+          ctx.fillStyle = "#ffffff"
+          ctx.fillText(String(i + 1), cx, cy + 0.5)
+        } else {
+          const ly = cy + (kind === "pose" ? Math.max(14, robot.bumper.widthM * view.k * 0.5 + 9) : 15)
+          ctx.lineWidth = 3
+          ctx.strokeStyle = "rgba(255,255,255,0.9)"
+          ctx.strokeText(String(i + 1), cx, ly)
+          ctx.fillStyle = color
+          ctx.fillText(String(i + 1), cx, ly)
         }
+        // Badges: stop, waypoint-scope constraints, split.
+        const bx = cx + Math.max(13, robot.bumper.lengthM * view.k * 0.5 + 4)
+        let by = cy - Math.max(13, robot.bumper.widthM * view.k * 0.5 + 4)
+        if (stopAt(spec, i) >= 0) {
+          drawStop(ctx, bx, by, 7.5)
+          by += 18
+        }
+        spec.scoped.forEach((c, j) => {
+          if (c.type === "stopPoint" || c.enabled === false) return
+          const [a, b] = rangeOf(c, n)
+          if (a !== i || b !== i || c.to !== undefined) return
+          const sel = (selected?.kind === "constraint" && selected.index === j) || (hovered?.kind === "constraint" && hovered.index === j)
+          ctx.save()
+          ctx.font = "600 9.5px 'Segoe UI', Arial, sans-serif"
+          const w2 = ctx.measureText(constraintChip(c)).width / 2 + 5
+          ctx.restore()
+          drawChip(ctx, bx + w2 - 7, by, constraintChip(c), COLORS.constraint, sel)
+          by += 18
+        })
+        if (w.split && i > 0 && i < n - 1) drawChip(ctx, bx + 18, by, "✂ split", GLYPH.ink)
       })
     }
 
@@ -306,7 +368,7 @@ export default function FieldView(props: Props) {
       bumper(ctx, toScreen, s.x, s.y, s.heading, robot, COLORS.ink, [], 2, 0.22)
       moduleVectors(ctx, toScreen, s, robot)
     }
-  }, [view, size, image, spec, guess, generated, stale, keepOut, selected, playhead, robot, field, opts, topSpeed, tool, hoverWp])
+  }, [view, size, image, spec, guess, generated, stale, keepOut, selected, hovered, playhead, robot, field, opts, topSpeed, tool, hoverWp])
 
   // --- Interaction -----------------------------------------------------------
   const waypointAt = (sx: number, sy: number): number | null => {
@@ -502,7 +564,7 @@ export default function FieldView(props: Props) {
         onContextMenu={e => e.preventDefault()}
       />
       {cursor && (
-        <div style={{ position: "absolute", right: 10, top: 8, fontSize: 10.5, fontFamily: "Consolas, 'Cascadia Mono', monospace", color: "var(--text-secondary)", background: "rgba(255,255,255,0.85)", padding: "1px 6px", border: "1px solid var(--border-light)" }}>
+        <div style={{ position: "absolute", right: 12, bottom: 66, fontSize: 10.5, fontFamily: "Consolas, 'Cascadia Mono', monospace", color: "var(--text-secondary)", background: "rgba(255,255,255,0.85)", padding: "1px 6px", border: "1px solid var(--border-light)" }}>
           x {cursor.x.toFixed(2)} m · y {cursor.y.toFixed(2)} m
         </div>
       )}

@@ -1,18 +1,18 @@
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
-import PageHeader from "@desktop/components/layout/PageHeader"
-import PanelHeader from "@desktop/components/layout/PanelHeader"
-import Panel from "@desktop/components/common/Panel"
 import PropertyRow from "@desktop/components/common/PropertyRow"
 import { propertyInputStyle } from "@desktop/styles/pageForm"
 import { FIELDS } from "@desktop/utils/field/fieldImages"
 import type { RobotConfig } from "../robot/types"
-import { Card, MiniButton, Q, QInput, Toggle } from "../ui/controls"
-import FieldView, { COLORS, RAMP_CSS } from "./FieldView"
+import { Card, MiniButton, Q, Toggle } from "../ui/controls"
+import FieldView, { RAMP_CSS } from "./FieldView"
+import Sidebar, { IconButton } from "./Sidebar"
+import ConfigPanel, { TextInput } from "./ConfigPanel"
+import { StopIcon, WaypointIcon, GLYPH } from "./glyphs"
 import {
   CONSTRAINTS, ConstraintType, DEFAULT_VIEW, EventMarker, FieldDoc, GRADIENTS, KeepOut, PathEntry, PathSpec, PlanResult,
-  ScopedConstraint, Selection, Target, Tool, Trajectory, ViewOptions, Waypoint, WaypointKind, afterInsert, afterRemove,
-  constraintMeta, kindOf, newConstraint, newPathSpec, rangeOf, targetLabel,
+  ScopedConstraint, Selection, Target, Tool, Trajectory, ViewOptions, Waypoint, WaypointKind, afterInsert, afterMove,
+  afterRemove, constraintMeta, kindOf, newConstraint, newPathSpec, stopAt, toggleStop,
 } from "./types"
 
 interface Props {
@@ -21,9 +21,10 @@ interface Props {
   onSaveRobot: () => void
 }
 
-const SIDEBAR_WIDTH = 340
+const SIDEBAR_WIDTH = 320
 const SAVE_DELAY_MS = 400
 const VIEW_KEY = "ares.pathView"
+const HISTORY_LIMIT = 200
 
 interface Current {
   spec: PathSpec
@@ -56,6 +57,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
   const [current, setCurrent] = useState<Current | null>(null)
   const [fieldDoc, setFieldDoc] = useState<FieldDoc>({ walls: true, keepOut: [] })
   const [selected, setSelected] = useState<Selection>(null)
+  const [hovered, setHovered] = useState<Selection>(null)
   const [tool, setTool] = useState<Tool>({ kind: "select" })
   const [guess, setGuess] = useState<Trajectory | null>(null)
   const [guessError, setGuessError] = useState<string | null>(null)
@@ -64,12 +66,16 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
   const [playhead, setPlayhead] = useState<number | null>(null)
   const [playing, setPlaying] = useState(false)
   const [fitSignal, setFitSignal] = useState(0)
-  const [saveNote, setSaveNote] = useState<string>("")
+  const [note, setNote] = useState<string>("")
   const [view, setView] = useState<ViewOptions>(() => loadView())
+  const [viewOpen, setViewOpen] = useState(false)
   // Bumped on every committed edit (a drag's end, a typed value): that is
   // what saves. Drags in progress only re-time the guess.
   const [commit, setCommit] = useState(0)
   const [fieldCommit, setFieldCommit] = useState(0)
+  // Undo and redo over committed path states.
+  const history = useRef<{ undo: PathSpec[]; redo: PathSpec[]; committed: PathSpec | null }>({ undo: [], redo: [], committed: null })
+  const [, setHistoryTick] = useState(0)
 
   useEffect(() => { try { localStorage.setItem(VIEW_KEY, JSON.stringify(view)) } catch { /* nothing to remember */ } }, [view])
 
@@ -79,6 +85,8 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
   const stale = !!generated && generated.key !== genKey(spec)
   const shown = generated?.trajectory ?? guess
   const topSpeed = usableSpeed(robot)
+  const fieldDocRef = useRef(fieldDoc)
+  fieldDocRef.current = fieldDoc
 
   // --- Files -----------------------------------------------------------------
   const refresh = useCallback(async () => {
@@ -87,19 +95,18 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
     return list
   }, [robotPath])
 
-  const loadPath = useCallback(async (s: PathSpec) => {
-    setCurrent({ spec: s, savedName: s.name })
+  const loadPath = useCallback(async (s: PathSpec, savedName: string | null = s.name) => {
+    setCurrent({ spec: s, savedName })
+    history.current = { undo: [], redo: [], committed: s }
+    setHistoryTick(t => t + 1)
     setSelected(null)
     setPlayhead(null)
     setPlaying(false)
     setGenState({ kind: "idle" })
     // The trajectory saved with it, if any: shown until the path changes.
-    const traj = await invoke<Trajectory | null>("trajectory_open", { robotPath, name: s.name }).catch(() => null)
+    const traj = savedName ? await invoke<Trajectory | null>("trajectory_open", { robotPath, name: savedName }).catch(() => null) : null
     setGenerated(traj ? { result: null, trajectory: traj, key: JSON.stringify([s, fieldDocRef.current, robot]) } : null)
   }, [robotPath, robot])
-
-  const fieldDocRef = useRef(fieldDoc)
-  fieldDocRef.current = fieldDoc
 
   useEffect(() => {
     setCurrent(null)
@@ -112,16 +119,18 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
       })
   }, [robotPath])
 
-  const createPath = () => {
+  const uniqueName = (base: string) => {
     const taken = new Set(entries.map(e => e.name.toLowerCase()))
-    let name = "New path"
-    for (let i = 2; taken.has(name.toLowerCase()); i++) name = `New path ${i}`
-    setCurrent({ spec: newPathSpec(name), savedName: null })
-    setGenerated(null)
-    setSelected(null)
+    let name = base
+    for (let i = 2; taken.has(name.toLowerCase()); i++) name = `${base} ${i}`
+    return name
+  }
+  const createPath = () => { loadPath(newPathSpec(uniqueName("New path")), null); setCommit(c => c + 1) }
+  const duplicatePath = () => {
+    if (!spec) return
+    loadPath({ ...structuredClone(spec), name: uniqueName(`${spec.name} copy`) }, null)
     setCommit(c => c + 1)
   }
-
   const deletePath = async () => {
     if (!current) return
     if (!window.confirm(`Delete "${current.spec.name}" and its trajectory?`)) return
@@ -140,10 +149,10 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
       try {
         await invoke("path_save", { robotPath, spec: current.spec, previous: current.savedName })
         setCurrent(c => c && c.spec.name === current.spec.name ? { ...c, savedName: current.spec.name } : c)
-        setSaveNote("Saved")
+        setNote("Saved")
         refresh()
       } catch (e) {
-        setSaveNote(String(e))
+        setNote(String(e))
       }
     }, SAVE_DELAY_MS)
     return () => clearTimeout(t)
@@ -151,7 +160,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
 
   useEffect(() => {
     if (!fieldCommit) return
-    const t = setTimeout(() => { invoke("field_save", { robotPath, field: fieldDoc }).catch(e => setSaveNote(String(e))) }, SAVE_DELAY_MS)
+    const t = setTimeout(() => { invoke("field_save", { robotPath, field: fieldDoc }).catch(e => setNote(String(e))) }, SAVE_DELAY_MS)
     return () => clearTimeout(t)
   }, [fieldCommit])
 
@@ -198,9 +207,36 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
 
   // --- Edits -----------------------------------------------------------------
   const editSpec = (f: (s: PathSpec) => PathSpec, final: boolean) => {
-    setCurrent(c => (c ? { ...c, spec: f(c.spec) } : c))
-    if (final) setCommit(c => c + 1)
+    setCurrent(c => {
+      if (!c) return c
+      const next = f(c.spec)
+      if (final) {
+        const h = history.current
+        if (h.committed && JSON.stringify(h.committed) !== JSON.stringify(next)) {
+          h.undo.push(h.committed)
+          if (h.undo.length > HISTORY_LIMIT) h.undo.shift()
+          h.redo = []
+        }
+        h.committed = next
+      }
+      return { ...c, spec: next }
+    })
+    if (final) { setCommit(c => c + 1); setHistoryTick(t => t + 1) }
   }
+  const travel = (dir: "undo" | "redo") => {
+    const h = history.current
+    const from = dir === "undo" ? h.undo : h.redo
+    const to = dir === "undo" ? h.redo : h.undo
+    const target = from.pop()
+    if (!target || !h.committed) return
+    to.push(h.committed)
+    h.committed = target
+    setCurrent(c => (c ? { ...c, spec: target } : c))
+    setSelected(null)
+    setCommit(c => c + 1)
+    setHistoryTick(t => t + 1)
+  }
+
   const editWaypoint = (i: number, patch: Partial<Waypoint> | ((w: Waypoint) => Waypoint), final: boolean) =>
     editSpec(s => ({
       ...s,
@@ -213,7 +249,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
 
   const setKind = (i: number, kind: WaypointKind) => {
     if (!spec) return
-    if (kind === "empty" && (i === 0 || i === n - 1)) { setSaveNote("The first and last waypoints cannot be empty"); return }
+    if (kind === "empty" && (i === 0 || i === n - 1)) { setNote("The first and last waypoints cannot be empty"); return }
     editWaypoint(i, w => {
       if (kind === "pose") return { ...w, kind, headingDeg: w.headingDeg ?? Math.round(headingAt(shown, w) * 10) / 10 }
       const { headingDeg: _, ...rest } = w
@@ -238,19 +274,34 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
     setSelected({ kind: "waypoint", index: at })
   }
 
-  const removeSelected = () => {
-    if (!spec || !selected) return
-    if (selected.kind === "waypoint" && n > 2) {
-      const at = selected.index
-      editSpec(s => ({ ...s, ...afterRemove(s, at), waypoints: s.waypoints.filter((_, j) => j !== at) }), true)
-    } else if (selected.kind === "constraint") {
-      editSpec(s => ({ ...s, scoped: s.scoped.filter((_, j) => j !== selected.index) }), true)
-    } else if (selected.kind === "event") {
-      editSpec(s => ({ ...s, events: (s.events ?? []).filter((_, j) => j !== selected.index) }), true)
-    } else if (selected.kind === "keepout") {
-      editField(f => ({ ...f, keepOut: f.keepOut.filter((_, j) => j !== selected.index) }), true)
-    } else return
+  const deleteWaypoint = (at: number) => {
+    if (n <= 2) return
+    editSpec(s => ({ ...s, ...afterRemove(s, at), waypoints: s.waypoints.filter((_, j) => j !== at) }), true)
     setSelected(null)
+  }
+  const moveWaypoint = (from: number, to: number) => {
+    editSpec(s => {
+      const ws = [...s.waypoints]
+      const [w] = ws.splice(from, 1)
+      ws.splice(to, 0, w)
+      // The ends cannot be empty.
+      for (const e of [0, ws.length - 1]) if (kindOf(ws[e]) === "empty") ws[e] = { ...ws[e], kind: "translation" }
+      return { ...s, ...afterMove(s, from, to), waypoints: ws }
+    }, true)
+    setSelected({ kind: "waypoint", index: to })
+  }
+  const deleteConstraint = (i: number) => { editSpec(s => ({ ...s, scoped: s.scoped.filter((_, j) => j !== i) }), true); setSelected(null) }
+  const deleteEvent = (i: number) => { editSpec(s => ({ ...s, events: (s.events ?? []).filter((_, j) => j !== i) }), true); setSelected(null) }
+
+  const removeSelected = () => {
+    if (!selected) return
+    if (selected.kind === "waypoint") deleteWaypoint(selected.index)
+    else if (selected.kind === "constraint") deleteConstraint(selected.index)
+    else if (selected.kind === "event") deleteEvent(selected.index)
+    else if (selected.kind === "keepout") {
+      editField(f => ({ ...f, keepOut: f.keepOut.filter((_, j) => j !== selected.index) }), true)
+      setSelected(null)
+    }
   }
 
   const editField = (f: (d: FieldDoc) => FieldDoc, final: boolean) => {
@@ -266,8 +317,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
     if (!spec) return
     if (tool.kind === "event") {
       const events = spec.events ?? []
-      const name = `Event ${events.length + 1}`
-      editSpec(s => ({ ...s, events: [...(s.events ?? []), { name, target: targetOf(i, n), offsetS: 0 }] }), true)
+      editSpec(s => ({ ...s, events: [...(s.events ?? []), { name: `Event ${events.length + 1}`, target: targetOf(i, n), offsetS: 0 }] }), true)
       setSelected({ kind: "event", index: events.length })
       setTool({ kind: "select" })
       return
@@ -277,7 +327,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
     if (tool.from === null && meta.scope !== "waypoint") { setTool({ ...tool, from: i }); return }
     const from = tool.from ?? i
     const [a, b] = [Math.min(from, i), Math.max(from, i)]
-    if (meta.scope === "segment" && a === b) { setSaveNote(`${meta.label} needs a segment: click two different waypoints`); return }
+    if (meta.scope === "segment" && a === b) { setNote(`${meta.label} needs a segment: click two different waypoints`); return }
     const mid = spec.waypoints.slice(a, b + 1)
     const cx = mid.reduce((acc, w) => acc + w.x, 0) / mid.length
     const cy = mid.reduce((acc, w) => acc + w.y, 0) / mid.length
@@ -315,16 +365,19 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
   }
 
   // Keys, Choreo's where it has one.
-  const keysRef = useRef({ removeSelected, togglePlay, generate, setKind, selected })
-  keysRef.current = { removeSelected, togglePlay, generate, setKind, selected }
+  const keysRef = useRef({ removeSelected, togglePlay, generate, setKind, selected, travel })
+  keysRef.current = { removeSelected, togglePlay, generate, setKind, selected, travel }
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement
       if (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "TEXTAREA") return
       const k = e.key.toLowerCase()
-      if ((e.ctrlKey || e.metaKey) && k === "g") { e.preventDefault(); keysRef.current.generate(); return }
-      if (e.ctrlKey || e.metaKey) return
-      const kinds: Record<string, WaypointKind> = { "1": "pose", "2": "translation", "3": "empty", "!": "pose", "@": "translation", "#": "empty" }
+      const ctrl = e.ctrlKey || e.metaKey
+      if (ctrl && k === "g") { e.preventDefault(); keysRef.current.generate(); return }
+      if (ctrl && k === "z") { e.preventDefault(); keysRef.current.travel(e.shiftKey ? "redo" : "undo"); return }
+      if (ctrl && k === "y") { e.preventDefault(); keysRef.current.travel("redo"); return }
+      if (ctrl) return
+      const kinds: Record<string, WaypointKind> = { "1": "pose", "2": "translation", "3": "empty" }
       const code = e.code === "Digit1" ? "1" : e.code === "Digit2" ? "2" : e.code === "Digit3" ? "3" : null
       if (code && e.shiftKey) {
         const sel = keysRef.current.selected
@@ -332,7 +385,8 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
         return
       }
       if (code) { setTool({ kind: "waypoint", type: kinds[code] }); return }
-      if (k === "v" || k === "escape") setTool({ kind: "select" })
+      if (k === "escape") { setTool({ kind: "select" }); setSelected(null) }
+      else if (k === "v") setTool({ kind: "select" })
       else if (k === "e") setTool({ kind: "event" })
       else if (k === "k") setTool({ kind: "keepout" })
       else if (k === "f") setFitSignal(s => s + 1)
@@ -343,7 +397,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
     return () => window.removeEventListener("keydown", onKey)
   }, [])
 
-  // --- Numbers for the result panel ------------------------------------------
+  // --- Numbers for the result strip -------------------------------------------
   const traj = generated?.trajectory ?? null
   const stats = useMemo(() => {
     if (!traj) return null
@@ -358,228 +412,96 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
     return { peakA, peakGrip, top }
   }, [traj])
 
-  const wp = selected?.kind === "waypoint" && spec ? spec.waypoints[selected.index] : null
-  const sc = selected?.kind === "constraint" && spec ? spec.scoped[selected.index] : null
-  const ev = selected?.kind === "event" && spec ? (spec.events ?? [])[selected.index] : null
-  const ko = selected?.kind === "keepout" ? fieldDoc.keepOut[selected.index] : null
-
   const toolHint =
     tool.kind === "constraint"
       ? tool.from === null
         ? constraintMeta(tool.type).scope === "waypoint" ? `${constraintMeta(tool.type).label}: click a waypoint.` : `${constraintMeta(tool.type).label}: click the first waypoint.`
         : `${constraintMeta(tool.type).label}: click the last waypoint (the same one for just that waypoint). Esc cancels.`
-      : tool.kind === "event" ? "Event: click the waypoint it is timed from."
-      : tool.kind === "waypoint" ? `${cap(tool.type)} waypoint: click near the path to insert, elsewhere to extend it.`
-      : tool.kind === "keepout" ? "Keep-out: click to place a circle the robot must avoid on every path."
+      : tool.kind === "event" ? "Event: click the waypoint it is timed from. Esc cancels."
+      : tool.kind === "waypoint" ? `${cap(tool.type)} waypoint: click near the path to insert, elsewhere to extend it. Esc to stop.`
+      : tool.kind === "keepout" ? "Keep-out: click to place a circle every path must avoid."
       : null
+
+  const h = history.current
 
   return (
     <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
       <div style={{ width: SIDEBAR_WIDTH, flexShrink: 0, minHeight: 0, display: "flex", flexDirection: "column", borderRight: "1px solid var(--border-main)", background: "var(--bg-panel)" }}>
-        <PageHeader eyebrow="Paths" title={spec?.name ?? "No path"} subtitle={saveNote || `${entries.length} in this project`} />
-        <div className="ares-scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: 12, display: "flex", flexDirection: "column", gap: 12 }}>
-          <Panel title="Paths" icon="ti-route">
-            <div style={{ maxHeight: 160, overflowY: "auto" }}>
-              {entries.length === 0 && !current && <Empty>No paths yet.</Empty>}
-              {entries.map(e => (
-                <Row key={e.name} active={current?.savedName === e.name} onClick={() => e.spec && loadPath(e.spec)} title={e.error ?? undefined}
-                  icon={e.error ? "ti-alert-triangle" : "ti-route"} danger={!!e.error}>
-                  {e.name}
-                </Row>
-              ))}
-              {current && current.savedName === null && <Row active icon="ti-route">{current.spec.name}</Row>}
+        <div style={{ padding: "12px 12px 10px", borderBottom: "1px solid var(--border-light)" }}>
+          <div style={{ fontSize: 10, color: "var(--text-header-eyebrow)", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4, display: "flex", alignItems: "center" }}>
+            Path
+            <span style={{ marginLeft: "auto", display: "flex", gap: 2 }}>
+              <IconButton icon="ti-arrow-back-up" title="Undo (Ctrl+Z)" onClick={() => travel("undo")} disabled={h.undo.length === 0} />
+              <IconButton icon="ti-arrow-forward-up" title="Redo (Ctrl+Shift+Z)" onClick={() => travel("redo")} disabled={h.redo.length === 0} />
+            </span>
+          </div>
+          {spec ? (
+            <div style={{ fontSize: 15, fontWeight: 600 }}>
+              <TextInput value={spec.name} onCommit={name => editSpec(s => ({ ...s, name }), true)} />
             </div>
-            <Buttons>
-              <MiniButton onClick={createPath}>New</MiniButton>
-              <MiniButton onClick={deletePath}>Delete</MiniButton>
-            </Buttons>
-          </Panel>
-
+          ) : <div style={{ fontSize: 15, fontWeight: 600 }}>No path</div>}
+          <div style={{ fontSize: 10, color: note.startsWith("Saved") || !note ? "var(--text-header-subtitle)" : "var(--status-error)", marginTop: 5 }}>
+            {note || `${entries.length} in this project`}
+          </div>
+        </div>
+        <Sidebar
+          entries={entries}
+          activeName={current?.savedName ?? null}
+          unsavedName={current && current.savedName === null ? current.spec.name : null}
+          spec={spec}
+          selected={selected}
+          onOpen={e => e.spec && loadPath(e.spec)}
+          onNewPath={createPath}
+          onDuplicatePath={duplicatePath}
+          onDeletePath={deletePath}
+          onSelect={setSelected}
+          onHover={setHovered}
+          onSetKind={setKind}
+          onToggleStop={i => editSpec(s => toggleStop(s, i), true)}
+          onMoveWaypoint={moveWaypoint}
+          onDeleteWaypoint={deleteWaypoint}
+          onToggleConstraint={i => editSpec(s => ({ ...s, scoped: s.scoped.map((c, j) => (j === i ? { ...c, enabled: c.enabled === false ? undefined : false } : c)) }), true)}
+          onDeleteConstraint={deleteConstraint}
+          onDeleteEvent={deleteEvent}
+        >
           {spec && (
-            <Panel title="Path" icon="ti-settings">
-              <PropertyRow label="Name">
-                <NameInput value={spec.name} onCommit={name => editSpec(s => ({ ...s, name }), true)} />
-              </PropertyRow>
+            <>
+              <SectionHeading label="Path limits" />
               <Q label="Max speed" dim="plain" unit="m/s" optional value={spec.constraints.maxVelocityMps}
                 onChange={v => editSpec(s => ({ ...s, constraints: { ...s.constraints, maxVelocityMps: v } }), true)} hint="On the whole path. Empty: what the robot can do" />
               <Q label="Max rotation" dim="plain" unit="°/s" optional value={spec.constraints.maxAngularVelocityDps}
                 onChange={v => editSpec(s => ({ ...s, constraints: { ...s.constraints, maxAngularVelocityDps: v } }), true)} hint="On the whole path. Empty: what the robot can do" />
-            </Panel>
-          )}
-
-          {wp && selected?.kind === "waypoint" && spec && (
-            <Panel title={`Waypoint ${selected.index + 1} of ${n}`} icon="ti-map-pin">
-              <PropertyRow label="Type">
-                <select style={propertyInputStyle} value={kindOf(wp)} onChange={e => setKind(selected.index, e.target.value as WaypointKind)}>
-                  <option value="pose">Pose (position + heading)</option>
-                  <option value="translation">Translation (position)</option>
-                  <option value="empty" disabled={selected.index === 0 || selected.index === n - 1}>Empty (shapes the guess)</option>
-                </select>
+              <SectionHeading label="Field" />
+              <PropertyRow label="Walls">
+                <input type="checkbox" checked={fieldDoc.walls} onChange={e => editField(d => ({ ...d, walls: e.target.checked }), true)} />
+                <span style={{ fontSize: 10.5, color: "var(--text-muted)", marginLeft: 6 }}>{fieldSize.lengthM} × {fieldSize.widthM} m</span>
               </PropertyRow>
-              <Q label="X" dim="length" unit="m" value={wp.x} onChange={v => editWaypoint(selected.index, { x: v }, true)} />
-              <Q label="Y" dim="length" unit="m" value={wp.y} onChange={v => editWaypoint(selected.index, { y: v }, true)} />
-              {kindOf(wp) === "pose" && (
-                <Q label="Heading" dim="plain" unit="°" value={wp.headingDeg} onChange={v => editWaypoint(selected.index, { headingDeg: v }, true)} />
-              )}
-              {selected.index < n - 1 && (
-                <PropertyRow label="Samples to next">
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, width: "100%" }} title="Override how many intervals the optimizer uses up to the next waypoint. More is finer and slower to solve.">
-                    <input type="checkbox" checked={wp.intervals !== undefined}
-                      onChange={e => editWaypoint(selected.index, w => {
-                        if (!e.target.checked) { const { intervals: _, ...rest } = w; return rest }
-                        return { ...w, intervals: guessIntervals(shown, selected.index) }
-                      }, true)} />
-                    {wp.intervals !== undefined
-                      ? <QInput dim="plain" integer value={wp.intervals} onChange={v => editWaypoint(selected.index, { intervals: Math.max(1, Math.round(v)) }, true)} />
-                      : <span style={{ fontSize: 10.5, color: "var(--text-muted)" }}>automatic</span>}
-                  </div>
-                </PropertyRow>
-              )}
-              {selected.index > 0 && selected.index < n - 1 && (
-                <PropertyRow label="Split here">
-                  <input type="checkbox" checked={!!wp.split} onChange={e => editWaypoint(selected.index, { split: e.target.checked || undefined }, true)} />
-                  <span style={{ fontSize: 10.5, color: "var(--text-muted)", marginLeft: 6 }}>the robot code can run each part</span>
-                </PropertyRow>
-              )}
-              <Buttons><MiniButton onClick={removeSelected}>Delete waypoint</MiniButton></Buttons>
-            </Panel>
-          )}
-
-          {sc && selected?.kind === "constraint" && spec && (
-            <ConstraintPanel c={sc} n={n} onChange={(patch, final) => editConstraint(selected.index, patch, final)} onDelete={removeSelected} />
-          )}
-
-          {ev && selected?.kind === "event" && spec && (
-            <Panel title="Event marker" icon="ti-map-pin-bolt">
-              <PropertyRow label="Name">
-                <NameInput value={ev.name} onCommit={name => editEvent(selected.index, { name })} />
+              <PropertyRow label="Keep-outs">
+                <span style={{ fontSize: 11 }}>{fieldDoc.keepOut.length}</span>
+                <span style={{ fontSize: 10.5, color: "var(--text-muted)", marginLeft: 6 }}>shared by every path (K to add)</span>
               </PropertyRow>
-              <PropertyRow label="From waypoint">
-                <TargetSelect value={ev.target} n={n} onChange={target => editEvent(selected.index, { target })} />
-              </PropertyRow>
-              <Q label="Offset" dim="plain" unit="s" value={ev.offsetS} onChange={v => editEvent(selected.index, { offsetS: v })} hint="Negative fires before the waypoint" />
-              {traj?.events?.[selected.index] && !stale && (
-                <Stat label="Fires at" value={`${traj.events[selected.index].t.toFixed(3)} s`} />
-              )}
-              <Buttons><MiniButton onClick={removeSelected}>Delete event</MiniButton></Buttons>
-            </Panel>
+            </>
           )}
-
-          {ko && selected?.kind === "keepout" && (
-            <Panel title={`Keep-out ${selected.index + 1} (every path)`} icon="ti-circle-off">
-              <Q label="X" dim="length" unit="m" value={ko.x} onChange={v => editKeepOut(selected.index, { x: v }, true)} />
-              <Q label="Y" dim="length" unit="m" value={ko.y} onChange={v => editKeepOut(selected.index, { y: v }, true)} />
-              <Q label="Radius" dim="length" unit="m" value={ko.radiusM} onChange={v => editKeepOut(selected.index, { radiusM: v }, true)} />
-              <Buttons><MiniButton onClick={removeSelected}>Delete keep-out</MiniButton></Buttons>
-            </Panel>
-          )}
-
-          {spec && (
-            <Panel title={`Constraints (${spec.scoped.length})`} icon="ti-adjustments-alt">
-              {spec.scoped.length === 0 && <Empty>None. Add one from the toolbar.</Empty>}
-              {spec.scoped.map((c, i) => {
-                const meta = constraintMeta(c.type)
-                const [a, b] = rangeOf(c, n)
-                return (
-                  <Row key={i} active={selected?.kind === "constraint" && selected.index === i} onClick={() => setSelected({ kind: "constraint", index: i })}
-                    icon={meta.icon} dim={c.enabled === false}
-                    right={<span style={{ fontSize: 10, opacity: 0.8 }}>{a === b ? `#${a + 1}` : `#${a + 1}–#${b + 1}`}</span>}>
-                    {meta.label}{summary(c)}
-                  </Row>
-                )
-              })}
-            </Panel>
-          )}
-
-          {spec && (
-            <Panel title={`Event markers (${(spec.events ?? []).length})`} icon="ti-map-pin-bolt">
-              {(spec.events ?? []).length === 0 && <Empty>None. Use the Event tool (E) and click a waypoint.</Empty>}
-              {(spec.events ?? []).map((e, i) => (
-                <Row key={i} active={selected?.kind === "event" && selected.index === i} onClick={() => setSelected({ kind: "event", index: i })} icon="ti-map-pin-bolt"
-                  right={<span style={{ fontSize: 10, opacity: 0.8 }}>{targetLabel(e.target)} {e.offsetS >= 0 ? "+" : ""}{e.offsetS.toFixed(2)} s</span>}>
-                  {e.name}
-                </Row>
-              ))}
-            </Panel>
-          )}
-
-          <Panel title="Result" icon="ti-chart-line">
-            {traj ? (
-              <>
-                {stale && <div style={{ padding: "5px 10px", fontSize: 11, color: "var(--status-warning)", background: "var(--status-warning-bg)" }}>Out of date: generate again (Ctrl+G).</div>}
-                <Stat label="Time" value={`${traj.durationS.toFixed(3)} s`} strong />
-                {generated?.result && (
-                  <Stat label="Guess (spline)" value={`${generated.result.splineDurationS.toFixed(3)} s`}
-                    note={`${(100 * (1 - traj.durationS / generated.result.splineDurationS)).toFixed(0)}% faster`} />
-                )}
-                <Stat label="Top speed" value={`${stats!.top.toFixed(2)} m/s`} />
-                <Stat label="Peak drive current" value={`${stats!.peakA.toFixed(0)} A`} />
-                <Stat label="Peak grip" value={`${(100 * stats!.peakGrip).toFixed(0)} %`} />
-                <Stat label="Samples" value={`${traj.samples.length}`} note={(traj.splits?.length ?? 0) > 0 ? `${(traj.splits?.length ?? 0) + 1} parts` : undefined} />
-                {generated?.result && <Stat label="Solved in" value={`${generated.result.solveMs.toFixed(0)} ms`} note={`${generated.result.iterations} iterations`} />}
-              </>
-            ) : (
-              <div style={{ padding: 10, fontSize: 11, color: genState.kind === "error" || guessError ? "var(--status-error)" : "var(--text-muted)", lineHeight: 1.5 }}>
-                {genState.kind === "error" ? genState.message : guessError ?? (guess ? `Guess: ${guess.durationS.toFixed(3)} s. Press Generate (Ctrl+G).` : "No path open.")}
-              </div>
-            )}
-            {traj && genState.kind === "error" && (
-              <div style={{ padding: "5px 10px", fontSize: 11, color: "var(--status-error)" }}>{genState.message}</div>
-            )}
-          </Panel>
-
-          <Panel title="View" icon="ti-eye">
-            <PropertyRow label="Gradient">
-              <select style={propertyInputStyle} value={view.gradient} title={GRADIENTS.find(g => g.id === view.gradient)?.hint}
-                onChange={e => setView(v => ({ ...v, gradient: e.target.value as ViewOptions["gradient"] }))}>
-                {GRADIENTS.map(g => <option key={g.id} value={g.id}>{g.label}</option>)}
-              </select>
-            </PropertyRow>
-            {([
-              ["field", "Field image"], ["grid", "Grid (1 m)"], ["guess", "Guess (spline)"], ["trajectory", "Trajectory"],
-              ["samples", "Samples"], ["waypoints", "Waypoints"], ["flipped", "Flipped (other alliance)"],
-            ] as [keyof ViewOptions, string][]).map(([key, label]) => (
-              <PropertyRow key={key} label={label}>
-                <input type="checkbox" checked={view[key] as boolean} onChange={e => setView(v => ({ ...v, [key]: e.target.checked }))} />
-              </PropertyRow>
-            ))}
-          </Panel>
-
-          <Panel title="Field" icon="ti-map-2">
-            <PropertyRow label="Walls">
-              <input type="checkbox" checked={fieldDoc.walls} onChange={e => editField(d => ({ ...d, walls: e.target.checked }), true)} />
-              <span style={{ fontSize: 10.5, color: "var(--text-muted)", marginLeft: 6 }}>{fieldSize.lengthM} × {fieldSize.widthM} m</span>
-            </PropertyRow>
-            <PropertyRow label="Keep-outs">
-              <span style={{ fontSize: 11 }}>{fieldDoc.keepOut.length}</span>
-              <span style={{ fontSize: 10.5, color: "var(--text-muted)", marginLeft: 6 }}>shared by every path</span>
-            </PropertyRow>
-          </Panel>
-        </div>
+        </Sidebar>
       </div>
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-        <PanelHeader
-          title={
-            <span style={{ display: "flex", gap: 4, alignItems: "center" }}>
-              <Toggle on={tool.kind === "select"} onClick={() => setTool({ kind: "select" })} icon="ti-pointer" label="Select" />
-              <Sep />
-              <Toggle on={tool.kind === "waypoint" && tool.type === "pose"} onClick={() => setTool({ kind: "waypoint", type: "pose" })} icon="ti-navigation" label="Pose (1)" />
-              <Toggle on={tool.kind === "waypoint" && tool.type === "translation"} onClick={() => setTool({ kind: "waypoint", type: "translation" })} icon="ti-circle-dot" label="Translation (2)" />
-              <Toggle on={tool.kind === "waypoint" && tool.type === "empty"} onClick={() => setTool({ kind: "waypoint", type: "empty" })} icon="ti-circle-dashed" label="Empty (3)" />
-              <Sep />
-              <ConstraintMenu active={tool.kind === "constraint" ? tool.type : null} onPick={type => setTool({ kind: "constraint", type, from: null })} />
-              <Toggle on={tool.kind === "event"} onClick={() => setTool({ kind: "event" })} icon="ti-map-pin-bolt" label="Event (E)" />
-              <Toggle on={tool.kind === "keepout"} onClick={() => setTool({ kind: "keepout" })} icon="ti-circle-off" label="Keep-out (K)" />
-            </span>
-          }
-          action={
-            <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <Toggle on={false} onClick={() => setFitSignal(s => s + 1)} icon="ti-maximize" label="Fit" />
-              <GenerateButton state={genState.kind} stale={stale || !generated} onClick={generate} />
-            </span>
-          }
-        />
+        <div style={{ height: 44, flexShrink: 0, display: "flex", alignItems: "center", gap: 4, padding: "0 10px", background: "var(--bg-menubar)", borderBottom: "1px solid var(--border-main)" }}>
+          <Toggle on={tool.kind === "select"} onClick={() => setTool({ kind: "select" })} icon="ti-pointer" label="Select" />
+          <Sep />
+          <ToolButton on={tool.kind === "waypoint" && tool.type === "pose"} onClick={() => setTool({ kind: "waypoint", type: "pose" })} label="Pose" k="1"><WaypointIcon kind="pose" color={GLYPH.mid} size={14} /></ToolButton>
+          <ToolButton on={tool.kind === "waypoint" && tool.type === "translation"} onClick={() => setTool({ kind: "waypoint", type: "translation" })} label="Translation" k="2"><WaypointIcon kind="translation" color={GLYPH.mid} size={14} /></ToolButton>
+          <ToolButton on={tool.kind === "waypoint" && tool.type === "empty"} onClick={() => setTool({ kind: "waypoint", type: "empty" })} label="Empty" k="3"><WaypointIcon kind="empty" color={GLYPH.mid} size={14} /></ToolButton>
+          <Sep />
+          <ConstraintMenu active={tool.kind === "constraint" ? tool.type : null} onPick={type => setTool({ kind: "constraint", type, from: null })} />
+          <ToolButton on={tool.kind === "event"} onClick={() => setTool({ kind: "event" })} label="Event" k="E"><i className="ti ti-map-pin-bolt" style={{ color: "#a1690a" }} /></ToolButton>
+          <ToolButton on={tool.kind === "keepout"} onClick={() => setTool({ kind: "keepout" })} label="Keep-out" k="K"><i className="ti ti-circle-off" style={{ color: "#c21c1c" }} /></ToolButton>
+          <span style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
+            <Toggle on={viewOpen} onClick={() => setViewOpen(o => !o)} icon="ti-eye" label="View" />
+            <Toggle on={false} onClick={() => setFitSignal(s => s + 1)} icon="ti-maximize" label="Fit" />
+            <GenerateButton state={genState.kind} stale={stale || !generated} onClick={generate} />
+          </span>
+        </div>
         <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
           <FieldView
             field={field}
@@ -590,6 +512,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
             stale={stale}
             keepOut={fieldDoc.keepOut}
             selected={selected}
+            hovered={hovered}
             tool={tool}
             view={view}
             topSpeed={topSpeed}
@@ -597,7 +520,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
             fitSignal={fitSignal}
             onSelect={setSelected}
             onMoveWaypoint={(i, x, y, final) => editWaypoint(i, { x, y }, final)}
-            onRotateWaypoint={(i, h, final) => editWaypoint(i, { headingDeg: h }, final)}
+            onRotateWaypoint={(i, hd, final) => editWaypoint(i, { headingDeg: hd }, final)}
             onFieldClick={(x, y) => {
               if (tool.kind === "waypoint") addWaypoint(x, y, tool.type)
               else if (tool.kind === "keepout") {
@@ -612,12 +535,37 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
             onEditConstraint={editConstraint}
           />
           {toolHint && (
-            <div style={{ position: "absolute", left: 12, top: 8, fontSize: 11, background: "rgba(255,255,255,0.92)", border: "1px solid var(--border-main)", padding: "3px 8px", color: "var(--text-primary)" }}>
+            <div style={{ position: "absolute", left: 12, top: 8, fontSize: 11, background: "rgba(255,255,255,0.94)", border: "1px solid var(--border-main)", padding: "4px 9px", color: "var(--text-primary)" }}>
               {toolHint}
             </div>
           )}
+          {genState.kind === "error" && (
+            <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", top: 8, maxWidth: 520, fontSize: 11, background: "var(--bg-page)", border: "1px solid var(--status-error-border)", color: "var(--status-error)", padding: "5px 10px" }}>
+              <i className="ti ti-alert-triangle" /> {genState.message}
+            </div>
+          )}
+          {spec && selected && (
+            <ConfigPanel
+              spec={spec}
+              selected={selected}
+              keepOut={fieldDoc.keepOut}
+              trajectory={traj}
+              stale={stale}
+              onClose={() => setSelected(null)}
+              onWaypoint={(i, patch) => editWaypoint(i, patch, true)}
+              onSetKind={setKind}
+              onToggleStop={i => editSpec(s => toggleStop(s, i), true)}
+              stopOn={i => stopAt(spec, i) >= 0}
+              onConstraint={(i, patch) => editConstraint(i, patch, true)}
+              onEvent={editEvent}
+              onKeepOut={(i, patch) => editKeepOut(i, patch, true)}
+              onDelete={removeSelected}
+              guessIntervals={i => guessIntervals(shown, i)}
+            />
+          )}
+          {viewOpen && <ViewPanel view={view} onChange={setView} onClose={() => setViewOpen(false)} />}
           {traj && view.trajectory && view.gradient !== "none" && view.gradient !== "splits" && (
-            <div style={{ position: "absolute", right: 12, bottom: 12, background: "rgba(255,255,255,0.92)", border: "1px solid var(--border-main)", padding: "5px 8px", fontSize: 10, color: "var(--text-secondary)" }}>
+            <div style={{ position: "absolute", right: 12, bottom: 12, background: "rgba(255,255,255,0.94)", border: "1px solid var(--border-main)", padding: "5px 8px", fontSize: 10, color: "var(--text-secondary)" }}>
               <div style={{ marginBottom: 3 }}>{GRADIENTS.find(g => g.id === view.gradient)?.label}</div>
               <div style={{ width: 150, height: 6, background: RAMP_CSS }} />
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2 }}>
@@ -626,6 +574,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
               </div>
             </div>
           )}
+          <Legend />
         </div>
         <PlaybackBar
           duration={shown?.durationS ?? 0}
@@ -634,8 +583,22 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
           onToggle={togglePlay}
           onScrub={t => { setPlaying(false); setPlayhead(t) }}
           enabled={!!shown}
-          label={traj ? (stale ? "generated (out of date)" : "generated") : guess ? "guess" : ""}
-        />
+        >
+          {traj && stats ? (
+            <>
+              <Metric label={stale ? "Generated (out of date)" : "Time"} value={`${traj.durationS.toFixed(3)} s`} strong warn={stale} />
+              {generated?.result && <Metric label="vs guess" value={`−${(100 * (1 - traj.durationS / generated.result.splineDurationS)).toFixed(0)}%`} />}
+              <Metric label="Top speed" value={`${stats.top.toFixed(2)} m/s`} />
+              <Metric label="Peak current" value={`${stats.peakA.toFixed(0)} A`} />
+              <Metric label="Peak grip" value={`${(100 * stats.peakGrip).toFixed(0)}%`} />
+              {generated?.result && <Metric label="Solved" value={`${generated.result.solveMs.toFixed(0)} ms`} />}
+            </>
+          ) : guess ? (
+            <Metric label="Guess (not generated)" value={`${guess.durationS.toFixed(3)} s`} />
+          ) : guessError ? (
+            <span style={{ fontSize: 11, color: "var(--status-error)" }}>{guessError}</span>
+          ) : null}
+        </PlaybackBar>
       </div>
     </div>
   )
@@ -643,72 +606,52 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
 
 // --- Pieces --------------------------------------------------------------------
 
-function ConstraintPanel({ c, n, onChange, onDelete }: {
-  c: ScopedConstraint; n: number; onChange: (patch: Partial<ScopedConstraint>, final: boolean) => void; onDelete: () => void
-}) {
-  const meta = constraintMeta(c.type)
-  const set = (patch: Record<string, unknown>) => onChange(patch as Partial<ScopedConstraint>, true)
+/** The glyphs, explained, in a corner of the field. */
+function Legend() {
+  const [open, setOpen] = useState(true)
   return (
-    <Panel title={meta.label} icon={meta.icon}>
-      <div style={{ padding: "5px 10px", fontSize: 10.5, color: "var(--text-muted)", lineHeight: 1.45, borderBottom: "1px solid var(--border-light)" }}>{meta.hint}</div>
-      <PropertyRow label="Enabled">
-        <input type="checkbox" checked={c.enabled !== false} onChange={e => set({ enabled: e.target.checked ? undefined : false })} />
-      </PropertyRow>
-      <PropertyRow label={meta.scope === "waypoint" ? "Waypoint" : "From"}>
-        <TargetSelect value={c.from} n={n} onChange={from => set({ from })} />
-      </PropertyRow>
-      {meta.scope !== "waypoint" && (
-        <PropertyRow label="To">
-          <TargetSelect value={c.to} n={n} allowNone={meta.scope === "both"} onChange={to => set({ to })} />
-        </PropertyRow>
+    <div style={{ position: "absolute", right: 12, top: 8, background: "rgba(255,255,255,0.94)", border: "1px solid var(--border-main)", fontSize: 10.5, color: "var(--text-secondary)" }}>
+      <div onClick={() => setOpen(o => !o)} style={{ padding: "3px 8px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+        Legend <i className={`ti ${open ? "ti-chevron-up" : "ti-chevron-down"}`} />
+      </div>
+      {open && (
+        <div style={{ padding: "2px 8px 6px", display: "grid", gridTemplateColumns: "16px auto", gap: "4px 6px", alignItems: "center" }}>
+          <WaypointIcon kind="pose" color={GLYPH.mid} size={13} /><span>Pose: position + heading</span>
+          <WaypointIcon kind="translation" color={GLYPH.mid} size={13} /><span>Translation: position</span>
+          <WaypointIcon kind="empty" color={GLYPH.mid} size={13} /><span>Empty: shapes the guess</span>
+          <StopIcon size={13} /><span>Stops here</span>
+          <span style={{ width: 12, height: 12, borderRadius: 6, background: GLYPH.start }} /><span>Start</span>
+          <span style={{ width: 12, height: 12, borderRadius: 6, background: GLYPH.end }} /><span>End</span>
+        </div>
       )}
-      {c.type === "maxVelocity" && <Q label="Max velocity" dim="plain" unit="m/s" value={c.mps} onChange={v => set({ mps: v })} />}
-      {c.type === "maxAcceleration" && <Q label="Max acceleration" dim="plain" unit="m/s²" value={c.mps2} onChange={v => set({ mps2: v })} />}
-      {c.type === "maxAngularVelocity" && <Q label="Max angular velocity" dim="plain" unit="°/s" value={c.dps} onChange={v => set({ dps: v })} />}
-      {c.type === "pointAt" && (
-        <>
-          <Q label="Target X" dim="length" unit="m" value={c.x} onChange={v => set({ x: v })} />
-          <Q label="Target Y" dim="length" unit="m" value={c.y} onChange={v => set({ y: v })} />
-          <Q label="Tolerance" dim="plain" unit="°" value={c.toleranceDeg} onChange={v => set({ toleranceDeg: v })} />
-          <PropertyRow label="Face">
-            <select style={propertyInputStyle} value={c.flip ? "back" : "front"} onChange={e => set({ flip: e.target.value === "back" })}>
-              <option value="front">Front toward it</option>
-              <option value="back">Back toward it</option>
-            </select>
-          </PropertyRow>
-        </>
-      )}
-      {(c.type === "keepInCircle" || c.type === "keepOutCircle") && (
-        <>
-          <Q label="Center X" dim="length" unit="m" value={c.x} onChange={v => set({ x: v })} />
-          <Q label="Center Y" dim="length" unit="m" value={c.y} onChange={v => set({ y: v })} />
-          <Q label="Radius" dim="length" unit="m" value={c.radiusM} onChange={v => set({ radiusM: v })} />
-        </>
-      )}
-      {c.type === "keepInRectangle" && (
-        <>
-          <Q label="X (left)" dim="length" unit="m" value={c.x} onChange={v => set({ x: v })} />
-          <Q label="Y (bottom)" dim="length" unit="m" value={c.y} onChange={v => set({ y: v })} />
-          <Q label="Width" dim="length" unit="m" value={c.widthM} onChange={v => set({ widthM: v })} />
-          <Q label="Height" dim="length" unit="m" value={c.heightM} onChange={v => set({ heightM: v })} />
-        </>
-      )}
-      {c.type === "keepInLane" && <Q label="Tolerance" dim="length" unit="m" value={c.toleranceM} onChange={v => set({ toleranceM: v })} />}
-      <Buttons><MiniButton onClick={onDelete}>Delete constraint</MiniButton></Buttons>
-    </Panel>
+    </div>
   )
 }
 
-function TargetSelect({ value, n, onChange, allowNone }: { value: Target | undefined; n: number; onChange: (t: Target | undefined) => void; allowNone?: boolean }) {
-  const enc = (t: Target | undefined) => (t === undefined ? "none" : typeof t === "string" ? t : `i:${t.index}`)
-  const dec = (s: string): Target | undefined => (s === "none" ? undefined : s === "first" || s === "last" ? s : { index: Number(s.slice(2)) })
+function ViewPanel({ view, onChange, onClose }: { view: ViewOptions; onChange: (v: ViewOptions) => void; onClose: () => void }) {
   return (
-    <select style={propertyInputStyle} value={enc(value)} onChange={e => onChange(dec(e.target.value))}>
-      {allowNone && <option value="none">— (just the first waypoint)</option>}
-      <option value="first">First (follows the start)</option>
-      <option value="last">Last (follows the end)</option>
-      {Array.from({ length: n }, (_, i) => <option key={i} value={`i:${i}`}>Waypoint {i + 1}</option>)}
-    </select>
+    <div onPointerDown={e => e.stopPropagation()}
+      style={{ position: "absolute", right: 12, top: 40, width: 260, background: "var(--bg-page)", border: "1px solid var(--border-dark)", boxShadow: "2px 2px 0 var(--shadow-soft)", zIndex: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", padding: "5px 6px 5px 10px", background: "var(--bg-panel-header)", borderBottom: "1px solid var(--border-main)" }}>
+        <i className="ti ti-eye" style={{ marginRight: 6 }} />
+        <span style={{ fontSize: 11.5, fontWeight: 600 }}>View</span>
+        <span style={{ marginLeft: "auto" }}><IconButton icon="ti-x" title="Close" onClick={onClose} /></span>
+      </div>
+      <PropertyRow label="Path gradient">
+        <select style={propertyInputStyle} value={view.gradient} title={GRADIENTS.find(g => g.id === view.gradient)?.hint}
+          onChange={e => onChange({ ...view, gradient: e.target.value as ViewOptions["gradient"] })}>
+          {GRADIENTS.map(g => <option key={g.id} value={g.id}>{g.label}</option>)}
+        </select>
+      </PropertyRow>
+      {([
+        ["field", "Field image"], ["grid", "Grid (1 m)"], ["guess", "Guess (spline)"], ["trajectory", "Trajectory"],
+        ["samples", "Samples"], ["waypoints", "Waypoints & constraints"], ["flipped", "Other alliance (mirror)"],
+      ] as [keyof ViewOptions, string][]).map(([key, label]) => (
+        <PropertyRow key={key} label={label}>
+          <input type="checkbox" checked={view[key] as boolean} onChange={e => onChange({ ...view, [key]: e.target.checked })} />
+        </PropertyRow>
+      ))}
+    </div>
   )
 }
 
@@ -721,14 +664,14 @@ function ConstraintMenu({ active, onPick }: { active: ConstraintType | null; onP
       {open && (
         <>
           <div style={{ position: "fixed", inset: 0, zIndex: 30 }} onClick={() => setOpen(false)} />
-          <div style={{ position: "absolute", top: 28, left: 0, zIndex: 31, minWidth: 230, background: "var(--bg-page)", border: "1px solid var(--border-dark)", boxShadow: "2px 2px 0 var(--shadow-soft)", padding: "3px 0" }}>
+          <div style={{ position: "absolute", top: 28, left: 0, zIndex: 31, minWidth: 250, background: "var(--bg-page)", border: "1px solid var(--border-dark)", boxShadow: "2px 2px 0 var(--shadow-soft)", padding: "3px 0" }}>
             {CONSTRAINTS.map(c => (
               <div key={c.type} title={c.hint}
                 onClick={() => { setOpen(false); onPick(c.type) }}
                 onMouseEnter={e => (e.currentTarget.style.background = "var(--tree-hover-bg)")}
                 onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
                 style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 12px", fontSize: 12, cursor: "pointer" }}>
-                <i className={`ti ${c.icon}`} style={{ color: COLORS.constraint }} />
+                {c.type === "stopPoint" ? <StopIcon size={13} /> : <i className={`ti ${c.icon}`} style={{ color: "#7c3aed" }} />}
                 <span>{c.label}</span>
                 <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--text-muted)" }}>{c.scope === "both" ? "point or segment" : c.scope}</span>
               </div>
@@ -740,111 +683,82 @@ function ConstraintMenu({ active, onPick }: { active: ConstraintType | null; onP
   )
 }
 
+function ToolButton({ on, onClick, label, k, children }: { on: boolean; onClick: () => void; label: string; k: string; children: ReactNode }) {
+  return (
+    <button onClick={onClick} title={`${label} (${k})`}
+      style={{
+        display: "flex", alignItems: "center", gap: 5, fontSize: 11, padding: "3px 8px", height: 26, cursor: "pointer",
+        border: "1px solid var(--btn-classic-border)", borderRadius: 2,
+        background: on ? "var(--toolbar-active-bg)" : "var(--btn-classic-bg)", color: "var(--text-primary)",
+      }}>
+      {children} {label} <span style={{ fontSize: 9.5, color: "var(--text-muted)" }}>{k}</span>
+    </button>
+  )
+}
+
 function GenerateButton({ state, stale, onClick }: { state: string; stale: boolean; onClick: () => void }) {
   const running = state === "running"
   return (
-    <button
-      onClick={onClick}
-      disabled={running}
-      title="Generate the trajectory (Ctrl+G)"
+    <button onClick={onClick} disabled={running} title="Generate the trajectory (Ctrl+G)"
       style={{
-        display: "flex", alignItems: "center", gap: 6, height: 26, padding: "0 12px", fontSize: 11.5, fontWeight: 600, cursor: running ? "default" : "pointer",
+        display: "flex", alignItems: "center", gap: 6, height: 28, padding: "0 14px", fontSize: 12, fontWeight: 600, cursor: running ? "default" : "pointer",
         border: "1px solid", borderRadius: 2,
         borderColor: stale ? "#2a4fb8" : "var(--btn-classic-border)",
         background: running ? "var(--btn-classic-bg)" : stale ? "#2f6fdb" : "var(--btn-classic-bg)",
         color: running ? "var(--text-secondary)" : stale ? "#ffffff" : "var(--text-primary)",
-      }}
-    >
+      }}>
       <i className={`ti ${running ? "ti-loader-2" : "ti-wand"}`} />
       {running ? "Generating…" : "Generate"}
     </button>
   )
 }
 
-function PlaybackBar({ duration, playhead, playing, onToggle, onScrub, enabled, label }: {
-  duration: number; playhead: number | null; playing: boolean; onToggle: () => void; onScrub: (t: number) => void; enabled: boolean; label: string
+function PlaybackBar({ duration, playhead, playing, onToggle, onScrub, enabled, children }: {
+  duration: number; playhead: number | null; playing: boolean; onToggle: () => void; onScrub: (t: number) => void; enabled: boolean; children: ReactNode
 }) {
   const t = playhead ?? 0
   return (
-    <div style={{ height: 44, flexShrink: 0, display: "flex", alignItems: "center", gap: 10, padding: "0 14px", background: "var(--bg-menubar)", borderTop: "1px solid var(--border-main)", opacity: enabled ? 1 : 0.5 }}>
-      <button onClick={onToggle} disabled={!enabled} title="Play (Space)"
-        style={{ width: 30, height: 26, border: "1px solid var(--btn-classic-border)", background: "var(--btn-classic-bg)", borderRadius: 2, cursor: "pointer" }}>
-        <i className={`ti ${playing ? "ti-player-pause" : "ti-player-play"}`} />
-      </button>
-      <input type="range" min={0} max={duration || 1} step={0.005} value={Math.min(t, duration)} disabled={!enabled}
-        onChange={e => onScrub(Number(e.target.value))} style={{ flex: 1 }} />
-      <span style={{ fontSize: 10, color: "var(--text-muted)", width: 140, textAlign: "right" }}>{label}</span>
-      <span style={{ fontFamily: "Consolas, 'Cascadia Mono', monospace", fontSize: 11, width: 110, textAlign: "right", color: "var(--text-secondary)" }}>
-        {t.toFixed(2)} / {duration.toFixed(2)} s
-      </span>
+    <div style={{ flexShrink: 0, background: "var(--bg-menubar)", borderTop: "1px solid var(--border-main)" }}>
+      <div style={{ height: 40, display: "flex", alignItems: "center", gap: 10, padding: "0 14px", opacity: enabled ? 1 : 0.5 }}>
+        <button onClick={onToggle} disabled={!enabled} title="Play (Space)"
+          style={{ width: 30, height: 26, border: "1px solid var(--btn-classic-border)", background: "var(--btn-classic-bg)", borderRadius: 2, cursor: "pointer" }}>
+          <i className={`ti ${playing ? "ti-player-pause" : "ti-player-play"}`} />
+        </button>
+        <input type="range" min={0} max={duration || 1} step={0.005} value={Math.min(t, duration)} disabled={!enabled}
+          onChange={e => onScrub(Number(e.target.value))} style={{ flex: 1 }} />
+        <span style={{ fontFamily: "Consolas, 'Cascadia Mono', monospace", fontSize: 11, width: 110, textAlign: "right", color: "var(--text-secondary)" }}>
+          {t.toFixed(2)} / {duration.toFixed(2)} s
+        </span>
+      </div>
+      <div style={{ height: 28, display: "flex", alignItems: "center", gap: 18, padding: "0 14px", borderTop: "1px solid var(--border-light)", background: "var(--bg-panel)" }}>
+        {children}
+      </div>
     </div>
   )
 }
 
-function Row({ children, active, onClick, icon, title, danger, dim, right }: {
-  children: ReactNode; active?: boolean; onClick?: () => void; icon: string; title?: string; danger?: boolean; dim?: boolean; right?: ReactNode
-}) {
+function Metric({ label, value, strong, warn }: { label: string; value: string; strong?: boolean; warn?: boolean }) {
   return (
-    <div onClick={onClick} title={title}
-      style={{
-        display: "flex", alignItems: "center", gap: 6, height: 24, padding: "0 10px", fontSize: 11.5, cursor: onClick ? "pointer" : "default",
-        background: active ? "var(--tree-selection-bg)" : "transparent",
-        color: active ? "var(--tree-selection-fg)" : danger ? "var(--status-error)" : "var(--text-primary)",
-        opacity: dim ? 0.5 : 1, borderBottom: "1px solid var(--border-light)",
-      }}>
-      <i className={`ti ${icon}`} style={{ fontSize: 13 }} aria-hidden />
-      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{children}</span>
-      {right}
-    </div>
+    <span style={{ display: "flex", alignItems: "baseline", gap: 6, fontSize: 10.5, color: warn ? "var(--status-warning)" : "var(--text-muted)" }}>
+      {label}
+      <span style={{ fontFamily: "Consolas, 'Cascadia Mono', monospace", fontSize: strong ? 12.5 : 11, fontWeight: strong ? 700 : 400, color: warn ? "var(--status-warning)" : "var(--text-primary)" }}>{value}</span>
+    </span>
   )
 }
 
-function Empty({ children }: { children: ReactNode }) {
-  return <div style={{ padding: 10, fontSize: 11, color: "var(--text-muted)" }}>{children}</div>
-}
-
-function Buttons({ children }: { children: ReactNode }) {
-  return <div style={{ display: "flex", gap: 4, padding: 6, borderTop: "1px solid var(--border-light)" }}>{children}</div>
+function SectionHeading({ label }: { label: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", height: 30, padding: "0 12px", background: "var(--bg-panel-header)", borderTop: "1px solid var(--border-main)", borderBottom: "1px solid var(--border-main)", flexShrink: 0 }}>
+      <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", color: "var(--text-header-eyebrow)" }}>{label}</span>
+    </div>
+  )
 }
 
 function Sep() {
-  return <span style={{ width: 1, height: 18, background: "var(--border-main)", margin: "0 3px" }} />
-}
-
-function Stat({ label, value, note, strong }: { label: string; value: string; note?: string; strong?: boolean }) {
-  return (
-    <PropertyRow label={label}>
-      <span style={{ fontFamily: "Consolas, 'Cascadia Mono', monospace", fontSize: strong ? 13 : 11, fontWeight: strong ? 600 : 400 }}>{value}</span>
-      {note && <span style={{ fontSize: 10, color: "var(--text-muted)", marginLeft: 8 }}>{note}</span>}
-    </PropertyRow>
-  )
-}
-
-/** Commits on Enter or blur, like the quantity inputs. */
-function NameInput({ value, onCommit }: { value: string; onCommit: (v: string) => void }) {
-  const [text, setText] = useState(value)
-  useEffect(() => setText(value), [value])
-  const commit = () => { const v = text.trim(); if (v && v !== value) onCommit(v); else setText(value) }
-  return (
-    <input style={propertyInputStyle} value={text} onChange={e => setText(e.target.value)} onBlur={commit}
-      onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur() }} />
-  )
+  return <span style={{ width: 1, height: 20, background: "var(--border-main)", margin: "0 4px" }} />
 }
 
 // --- Helpers -------------------------------------------------------------------
-
-function summary(c: ScopedConstraint): string {
-  switch (c.type) {
-    case "maxVelocity": return ` · ${c.mps} m/s`
-    case "maxAcceleration": return ` · ${c.mps2} m/s²`
-    case "maxAngularVelocity": return ` · ${c.dps} °/s`
-    case "pointAt": return ` · (${c.x.toFixed(1)}, ${c.y.toFixed(1)})`
-    case "keepInCircle":
-    case "keepOutCircle": return ` · r ${c.radiusM} m`
-    case "keepInLane": return ` · ±${c.toleranceM} m`
-    default: return ""
-  }
-}
 
 function targetOf(i: number, n: number): Target {
   return i === 0 ? "first" : i === n - 1 ? "last" : { index: i }

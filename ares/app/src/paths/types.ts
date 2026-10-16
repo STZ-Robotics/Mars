@@ -233,3 +233,55 @@ export function newPathSpec(name: string): PathSpec {
     events: [],
   }
 }
+
+/** Constraints and events after moving waypoint `from` to position `to`. */
+export function afterMove(spec: PathSpec, from: number, to: number): Pick<PathSpec, "scoped" | "events"> {
+  const n = spec.waypoints.length
+  // Where each old index lands.
+  const order = Array.from({ length: n }, (_, i) => i)
+  const [moved] = order.splice(from, 1)
+  order.splice(to, 0, moved)
+  const where = new Array<number>(n)
+  order.forEach((old, now) => { where[old] = now })
+  const map = (t: Target): Target => (typeof t === "object" ? { index: where[Math.min(t.index, n - 1)] } : t)
+  return {
+    scoped: spec.scoped.map(c => ({ ...c, from: map(c.from), to: c.to === undefined ? undefined : map(c.to) })),
+    events: (spec.events ?? []).map(e => ({ ...e, target: map(e.target) })),
+  }
+}
+
+/** The stop point on waypoint `i` alone, if there is one. */
+export function stopAt(spec: PathSpec, i: number): number {
+  const n = spec.waypoints.length
+  return spec.scoped.findIndex(c => c.type === "stopPoint" && c.enabled !== false && rangeOf(c, n)[0] === i)
+}
+
+/** Adds or removes the stop point on waypoint `i`. */
+export function toggleStop(spec: PathSpec, i: number): PathSpec {
+  const k = stopAt(spec, i)
+  const n = spec.waypoints.length
+  if (k >= 0) return { ...spec, scoped: spec.scoped.filter((_, j) => j !== k) }
+  const from: Target = i === 0 ? "first" : i === n - 1 ? "last" : { index: i }
+  return { ...spec, scoped: [...spec.scoped, { type: "stopPoint", from }] }
+}
+
+/** The waypoint-scope constraints on `i`, other than a stop. */
+export function constraintsOn(spec: PathSpec, i: number): ScopedConstraint[] {
+  const n = spec.waypoints.length
+  return spec.scoped.filter(c => c.type !== "stopPoint" && c.enabled !== false && c.to === undefined && rangeOf(c, n)[0] === i)
+}
+
+/** A constraint's few-word summary, for chips on the field and list rows. */
+export function constraintChip(c: ScopedConstraint): string {
+  switch (c.type) {
+    case "stopPoint": return "Stop"
+    case "maxVelocity": return `≤ ${c.mps} m/s`
+    case "maxAcceleration": return `≤ ${c.mps2} m/s²`
+    case "maxAngularVelocity": return `≤ ${c.dps} °/s`
+    case "pointAt": return c.flip ? "Back at ⊕" : "Point at ⊕"
+    case "keepInCircle": return "Keep in ◯"
+    case "keepInRectangle": return "Keep in ▭"
+    case "keepInLane": return `Lane ±${c.toleranceM} m`
+    case "keepOutCircle": return "Keep out ⊘"
+  }
+}
