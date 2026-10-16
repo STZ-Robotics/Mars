@@ -1,0 +1,11 @@
+[package]
+name = "ares-tune"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Ares's tuner: a swerve simulated against many worlds, and a search for the gains that follow a path best in all of them"
+
+[dependencies]
+ares-core = { path = "../core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

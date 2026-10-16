@@ -177,3 +177,134 @@ mod tests {
         assert_eq!(robot_names("/tmp/nowhere/bot.robot.json".into(), Some(dir.to_string_lossy().into_owned())).commands.len(), 3);
     }
 }
+
+/// The drive's numbers as the robot code has them: Tuner X's constants and
+/// the path controller's PID, read from the Java (best effort: what is not
+/// found stays None).
+#[derive(Debug, Default, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RobotTuning {
+    pub file: Option<String>,
+    pub drive_kp: Option<f64>,
+    pub drive_ks: Option<f64>,
+    pub drive_kv: Option<f64>,
+    pub speed_at_12v_mps: Option<f64>,
+    pub slip_current_a: Option<f64>,
+    pub drive_friction_v: Option<f64>,
+    /// [kP, kI, kD] of the translation and rotation PIDs the auto actually runs.
+    pub translation: Option<[f64; 3]>,
+    pub rotation: Option<[f64; 3]>,
+}
+
+/// The first number after `call` (e.g. `withKP(`) in `text`.
+fn number_after(text: &str, call: &str) -> Option<f64> {
+    let i = text.find(call)? + call.len();
+    let rest = &text[i..];
+    let end = rest.find(|c: char| !(c.is_ascii_digit() || c == '.' || c == '-' || c == 'e' || c == 'E' || c == '+'))?;
+    rest[..end].parse().ok()
+}
+
+/// The statement starting at `name` (up to its `;`).
+fn statement<'a>(text: &'a str, name: &str) -> Option<&'a str> {
+    let i = text.find(name)?;
+    let rest = &text[i..];
+    Some(&rest[..rest.find(';').unwrap_or(rest.len())])
+}
+
+fn pid_args(text: &str) -> Option<[f64; 3]> {
+    let i = text.find("new PIDConstants(")? + "new PIDConstants(".len();
+    let inner = &text[i..i + text[i..].find(')')?];
+    let v: Vec<f64> = inner.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+    match v.len() {
+        1 => Some([v[0], 0.0, 0.0]),
+        n if n >= 3 => Some([v[0], v[1], v[2]]),
+        _ => None,
+    }
+}
+
+pub fn read_tuning(root: &Path) -> RobotTuning {
+    let mut out = RobotTuning::default();
+    let mut stack = vec![root.join("src").join("main").join("java")];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else { continue };
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+                continue;
+            }
+            if p.extension().is_none_or(|x| x != "java") {
+                continue;
+            }
+            let Ok(raw) = fs::read_to_string(&p) else { continue };
+            let text = strip_comments(&raw);
+            if let Some(gains) = statement(&text, "driveGains =") {
+                out.file = Some(p.to_string_lossy().into_owned());
+                out.drive_kp = number_after(gains, "withKP(");
+                out.drive_ks = number_after(gains, "withKS(");
+                out.drive_kv = number_after(gains, "withKV(");
+            }
+            if let Some(s) = statement(&text, "kSpeedAt12Volts =") {
+                out.speed_at_12v_mps = number_after(s, ".of(");
+            }
+            if let Some(s) = statement(&text, "kSlipCurrent =") {
+                out.slip_current_a = number_after(s, ".of(");
+            }
+            if let Some(s) = statement(&text, "kDriveFrictionVoltage =") {
+                out.drive_friction_v = number_after(s, ".of(");
+            }
+            // What the auto runs: the PIDs handed to the holonomic controller.
+            if let Some(i) = text.find("PPHolonomicDriveController(") {
+                let rest = &text[i..];
+                out.translation = pid_args(rest);
+                if let Some(j) = rest.find("new PIDConstants(") {
+                    out.rotation = pid_args(&rest[j + 1..]);
+                }
+            }
+        }
+    }
+    out
+}
+
+#[tauri::command]
+pub fn robot_tuning(robot_path: String, folder: Option<String>) -> RobotTuning {
+    let root = match folder.filter(|f| !f.trim().is_empty()) {
+        Some(f) => find_root(Path::new(&f)),
+        None => Path::new(&robot_path).parent().and_then(find_root),
+    };
+    root.map(|r| read_tuning(&r)).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tuning_tests {
+    use super::*;
+
+    #[test]
+    fn reads_tuner_x_constants_and_the_path_pids() {
+        let dir = std::env::temp_dir().join(format!("ares-robot-tuning-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let java = dir.join("src/main/java/frc/robot");
+        fs::create_dir_all(&java).unwrap();
+        fs::write(dir.join("build.gradle"), "").unwrap();
+        fs::write(java.join("TunerConstants.java"), r#"
+            private static final Slot0Configs driveGains =
+                new Slot0Configs().withKP(0.1).withKI(0).withKD(0).withKS(0.12).withKV(0.124);
+            public static final LinearVelocity kSpeedAt12Volts = MetersPerSecond.of(5.85);
+            private static final Current kSlipCurrent = Amps.of(120);
+            private static final Voltage kDriveFrictionVoltage = Volts.of(0.2);
+        "#).unwrap();
+        fs::write(java.join("Drive.java"), r#"
+            new PPHolonomicDriveController(
+                new PIDConstants(5.0, 0.0, 0.0), // translation
+                new PIDConstants(4.0, 0.0, 0.1)  // rotation
+            ),
+        "#).unwrap();
+        let t = read_tuning(&dir);
+        assert_eq!((t.drive_kp, t.drive_ks, t.drive_kv), (Some(0.1), Some(0.12), Some(0.124)));
+        assert_eq!(t.speed_at_12v_mps, Some(5.85));
+        assert_eq!(t.slip_current_a, Some(120.0));
+        assert_eq!(t.drive_friction_v, Some(0.2));
+        assert_eq!(t.translation, Some([5.0, 0.0, 0.0]));
+        assert_eq!(t.rotation, Some([4.0, 0.0, 0.1]));
+    }
+}

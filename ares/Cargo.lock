@@ -53,6 +53,7 @@ version = "0.1.0"
 dependencies = [
  "ares-core",
  "ares-planner",
+ "ares-tune",
  "serde",
  "serde_json",
  "tauri",
@@ -74,6 +75,15 @@ version = "0.1.0"
 dependencies = [
  "ares-core",
  "cmake",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "ares-tune"
+version = "0.1.0"
+dependencies = [
+ "ares-core",
  "serde",
  "serde_json",
 ]

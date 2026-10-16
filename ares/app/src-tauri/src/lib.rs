@@ -4,6 +4,7 @@
 
 mod project;
 mod robot_code;
+mod tuning;
 
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -286,6 +287,10 @@ pub fn run() {
             project::navgrid_import,
             project::navgrid_export,
             robot_code::robot_names,
+            robot_code::robot_tuning,
+            tuning::tune_start,
+            tuning::tune_cancel,
+            tuning::tune_runs,
             project::path_time,
             project::path_plan,
             project::trajectory_open,
