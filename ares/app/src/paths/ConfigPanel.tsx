@@ -4,8 +4,8 @@ import { propertyInputStyle } from "@desktop/styles/pageForm"
 import { Q, QInput } from "../ui/controls"
 import { StopIcon, WaypointIcon, positionColor } from "./glyphs"
 import {
-  EventMarker, KeepOut, PathSpec, ScopedConstraint, Selection, Target, Trajectory, Waypoint, WaypointKind,
-  constraintMeta, kindOf,
+  EventMarker, KeepOut, PathSpec, PathfindOptions, ScopedConstraint, SegmentMode, Selection, Target, Trajectory, Waypoint, WaypointKind,
+  constraintMeta, kindOf, segmentMode,
 } from "./types"
 
 interface Props {
@@ -21,7 +21,8 @@ interface Props {
   stopOn: (i: number) => boolean
   waitOn: (i: number) => number
   onSetWait: (i: number, s: number) => void
-  onSetManual: (i: number, on: boolean) => void
+  onSetSegment: (i: number, mode: SegmentMode) => void
+  onPathfind: (i: number, patch: Partial<PathfindOptions>) => void
   onConstraint: (i: number, patch: Partial<ScopedConstraint>) => void
   onEvent: (i: number, patch: Partial<EventMarker>) => void
   onKeepOut: (i: number, patch: Partial<KeepOut>) => void
@@ -86,14 +87,28 @@ export default function ConfigPanel(p: Props) {
             hint="How long the robot stays stopped before moving on (to score, to intake). Everything after it happens that much later." />
         )}
         {i < n - 1 && (
-          <div title="Optimized: the optimizer shapes the curve to the next waypoint. Manual: you draw it with two handles (PathPlanner style) and the optimizer only decides how fast the robot drives it.">
+          <div title="Optimized: the optimizer shapes the curve to the next waypoint. Manual: you draw it with two handles (PathPlanner style) and the optimizer only times it. Pathfind: not planned; the robot finds its way there at run time from wherever it is, and Ares shows the likely route.">
             <PropertyRow label="Curve to next">
-              <select style={propertyInputStyle} value={w.manualNext ? "manual" : "auto"} onChange={e => p.onSetManual(i, e.target.value === "manual")}>
-                <option value="auto">Optimized (free shape)</option>
+              <select style={propertyInputStyle} value={segmentMode(w)} onChange={e => p.onSetSegment(i, e.target.value as SegmentMode)}>
+                <option value="optimized">Optimized (free shape)</option>
                 <option value="manual">Manual (I draw it) ✎</option>
+                <option value="pathfind">Pathfind at run time ?</option>
               </select>
             </PropertyRow>
           </div>
+        )}
+        {i < n - 1 && w.pathfindNext && (
+          <>
+            <div style={{ padding: "5px 10px", fontSize: 10.5, color: "#16a34a", lineHeight: 1.45, borderBottom: "1px solid var(--border-light)", background: "rgba(22,163,74,0.06)" }}>
+              The robot pathfinds to waypoint {i + 2} with these limits. The path stops at both ends of this segment; the green route is Ares' estimate.
+            </div>
+            <Q label="Pathfind max speed" dim="plain" unit="m/s" optional value={w.pathfindNext.maxVelocityMps}
+              onChange={v => p.onPathfind(i, { maxVelocityMps: v })} hint="Empty: what the robot can do" />
+            <Q label="Pathfind max accel" dim="plain" unit="m/s²" optional value={w.pathfindNext.maxAccelerationMps2}
+              onChange={v => p.onPathfind(i, { maxAccelerationMps2: v })} hint="Empty: what the robot can do" />
+            <Q label="Pathfind max turn" dim="plain" unit="°/s" optional value={w.pathfindNext.maxAngularVelocityDps}
+              onChange={v => p.onPathfind(i, { maxAngularVelocityDps: v })} hint="Empty: what the robot can do" />
+          </>
         )}
         {i < n - 1 && (
           <PropertyRow label="Samples to next">

@@ -67,3 +67,17 @@ describe("manual segments", () => {
     expect(Math.abs(Math.abs(a - b) - Math.PI)).toBeLessThan(1e-9)
   })
 })
+
+import { segmentMode, setSegmentMode } from "./types"
+
+describe("segment modes", () => {
+  it("cycle cleanly between optimized, manual and pathfind", () => {
+    let s = setSegmentMode(newPathSpec("t"), 0, "manual")
+    expect(segmentMode(s.waypoints[0])).toBe("manual")
+    s = setSegmentMode(s, 0, "pathfind")
+    expect(segmentMode(s.waypoints[0])).toBe("pathfind")
+    expect(s.waypoints[0].manualNext).toBeUndefined()
+    s = setSegmentMode(s, 0, "optimized")
+    expect(segmentMode(s.waypoints[0])).toBe("optimized")
+  })
+})

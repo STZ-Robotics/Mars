@@ -16,6 +16,18 @@ export interface Waypoint {
   /** Bézier control points, field coordinates (PathPlanner's). */
   prevControl?: [number, number]
   nextControl?: [number, number]
+  /** The segment to the next waypoint is pathfound at run time. */
+  pathfindNext?: PathfindOptions
+}
+
+/** The limits the robot pathfinds with (PathPlanner's PathConstraints). */
+export interface PathfindOptions { maxVelocityMps?: number; maxAccelerationMps2?: number; maxAngularVelocityDps?: number }
+
+/** How the segment from a waypoint to the next is made. */
+export type SegmentMode = "optimized" | "manual" | "pathfind"
+
+export function segmentMode(w: Waypoint): SegmentMode {
+  return w.pathfindNext ? "pathfind" : w.manualNext ? "manual" : "optimized"
 }
 
 /** Which waypoint a constraint or event points at. */
@@ -79,6 +91,21 @@ export interface Trajectory {
   waypointTimes?: number[]
   splits?: number[]
   events?: { name: string; t: number }[]
+  pathfind?: PathfindSpan[]
+}
+
+export interface PathfindSpan {
+  startSample: number
+  endSample: number
+  fromWaypoint: number
+  toWaypoint: number
+  goalX: number
+  goalY: number
+  goalHeading: number
+  maxVelocityMps?: number
+  maxAccelerationMps2?: number
+  maxAngularVelocityDps?: number
+  estimatedS: number
 }
 
 export interface KeepOut { x: number; y: number; radiusM: number }
@@ -118,12 +145,14 @@ export interface ViewOptions {
   samples: boolean
   waypoints: boolean
   flipped: boolean
+  /** The band a pathfind segment's route can take. */
+  corridor: boolean
   gradient: Gradient
 }
 
 export const DEFAULT_VIEW: ViewOptions = {
   fieldStyle: "blueprint", robotColor: "#22d3ee",
-  field: true, grid: false, guess: true, trajectory: true, samples: false, waypoints: true, flipped: false, gradient: "velocity",
+  field: true, grid: false, guess: true, trajectory: true, samples: false, waypoints: true, flipped: false, corridor: true, gradient: "velocity",
 }
 
 export const GRADIENTS: { id: Gradient; label: string; hint: string }[] = [
@@ -377,3 +406,13 @@ export function shiftControls(w: Waypoint, dx: number, dy: number): Waypoint {
     nextControl: w.nextControl ? [w.nextControl[0] + dx, w.nextControl[1] + dy] : undefined,
   }
 }
+
+/** Sets how the segment from waypoint `i` to the next is made. */
+export function setSegmentMode(spec: PathSpec, i: number, mode: SegmentMode): PathSpec {
+  if (i < 0 || i >= spec.waypoints.length - 1) return spec
+  const base = setManual(spec, i, mode === "manual")
+  const ws = base.waypoints.map((w, j) => (j === i ? { ...w, pathfindNext: mode === "pathfind" ? (w.pathfindNext ?? {}) : undefined } : w))
+  return { ...base, waypoints: ws }
+}
+
+export const NEXT_MODE: Record<SegmentMode, SegmentMode> = { optimized: "manual", manual: "pathfind", pathfind: "optimized" }

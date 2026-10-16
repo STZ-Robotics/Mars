@@ -219,7 +219,10 @@ export default function FieldView(props: Props) {
     // The guess, thin and dashed.
     if (guess && opts.guess) {
       ctx.setLineDash([6, 5])
-      const pts = guess.samples.map(s => toScreen(s.x, s.y))
+      // Pathfind segments are not part of the guess: they get their own look.
+      const wt = guess.waypointTimes
+      const pf = (spec?.waypoints ?? []).map((w, j) => (w.pathfindNext && wt && wt[j + 1] !== undefined ? [wt[j], wt[j + 1]] : null)).filter(Boolean) as [number, number][]
+      const pts = guess.samples.filter(q => !pf.some(([a, b]) => q.t > a + 1e-9 && q.t < b - 1e-9)).map(s => toScreen(s.x, s.y))
       if (!plan) {
         ctx.setLineDash([])
         polyline(ctx, pts, "rgba(255,255,255,0.85)", 4)
@@ -233,12 +236,13 @@ export default function FieldView(props: Props) {
     if (generated && opts.trajectory) {
       ctx.globalAlpha = stale ? 0.35 : 1
       // On the photo, a white casing under the line so it reads over any color.
+      const spans = (generated.pathfind ?? []).map(p => [p.startSample, p.endSample] as [number, number])
       if (!plan) polyline(ctx, generated.samples.map(q => toScreen(q.x, q.y)), "rgba(255,255,255,0.9)", 7.5)
-      drawTrajectory(ctx, toScreen, generated, opts.gradient, topSpeed, 4)
+      drawTrajectory(ctx, toScreen, generated, opts.gradient, topSpeed, 4, spans)
       if (opts.flipped) {
         ctx.globalAlpha = stale ? 0.2 : 0.45
         const flip = (x: number, y: number) => toScreen(L - x, W - y)
-        drawTrajectory(ctx, flip, generated, opts.gradient, topSpeed, 3)
+        drawTrajectory(ctx, flip, generated, opts.gradient, topSpeed, 3, spans)
       }
       ctx.globalAlpha = 1
       if (opts.samples) {
@@ -301,6 +305,44 @@ export default function FieldView(props: Props) {
         const [sx, sy] = toScreen(x, y)
         const sel = (selected?.kind === "constraint" && selected.index === i) || (hovered?.kind === "constraint" && hovered.index === i)
         drawChip(ctx, sx, sy - 18 - k * 18, constraintChip(c), COLORS.constraint, sel)
+      })
+    }
+
+    // Pathfind segments: the route is found at run time. With a generated
+    // trajectory, Ares' estimate (green, dashed) in its corridor; without
+    // one, a straight dashed line. Either way, a question mark.
+    if (spec && opts.waypoints) {
+      const reachM = Math.hypot(robot.bumper.lengthM, robot.bumper.widthM) / 2
+      spec.waypoints.forEach((w, j) => {
+        const next = spec.waypoints[j + 1]
+        if (!w.pathfindNext || !next) return
+        const span = generated?.pathfind?.find(p => p.fromWaypoint === j)
+        const pts = span && generated
+          ? generated.samples.slice(span.startSample, span.endSample + 1).map(q => toScreen(q.x, q.y))
+          : [toScreen(w.x, w.y), toScreen(next.x, next.y)]
+        ctx.globalAlpha = stale && span ? 0.45 : 1
+        if (span && opts.corridor) polyline(ctx, pts, "rgba(22,163,74,0.13)", 2 * reachM * view.k)
+        if (!plan) polyline(ctx, pts, "rgba(255,255,255,0.9)", 6)
+        ctx.setLineDash([9, 6])
+        polyline(ctx, pts, PATHFIND, 3)
+        ctx.setLineDash([])
+        ctx.globalAlpha = 1
+        const mid = pts[Math.floor(pts.length / 2)]
+        const mx = pts.length === 2 ? (pts[0][0] + pts[1][0]) / 2 : mid[0]
+        const my = pts.length === 2 ? (pts[0][1] + pts[1][1]) / 2 : mid[1]
+        ctx.beginPath()
+        ctx.arc(mx, my, 11, 0, Math.PI * 2)
+        ctx.fillStyle = PATHFIND
+        ctx.fill()
+        ctx.strokeStyle = "#ffffff"
+        ctx.lineWidth = 2
+        ctx.stroke()
+        ctx.fillStyle = "#ffffff"
+        ctx.font = "800 14px 'Segoe UI', Arial, sans-serif"
+        ctx.textAlign = "center"
+        ctx.textBaseline = "middle"
+        ctx.fillText("?", mx, my + 1)
+        drawChip(ctx, mx, my + 22, span ? `pathfind ≈ ${span.estimatedS.toFixed(1)} s` : "pathfind · generate to estimate", PATHFIND, false)
       })
     }
 
@@ -623,6 +665,17 @@ export default function FieldView(props: Props) {
           lines.push(`peak wheel grip ${(100 * grip).toFixed(0)}% · ${amps.toFixed(0)} A`)
         }
         const generated = traj === p.generated
+        const idx = traj.samples.indexOf(best)
+        const span = generated ? p.generated?.pathfind?.find(q => idx >= q.startSample && idx <= q.endSample) : undefined
+        if (span) {
+          const lim = [span.maxVelocityMps && `≤ ${span.maxVelocityMps} m/s`, span.maxAccelerationMps2 && `≤ ${span.maxAccelerationMps2} m/s²`, span.maxAngularVelocityDps && `≤ ${span.maxAngularVelocityDps} °/s`].filter(Boolean).join(" · ")
+          return at(`Pathfind: waypoint ${span.fromWaypoint + 1} → ${span.toWaypoint + 1}`, [
+            "The robot finds this route itself at run time, from wherever it actually is.",
+            `Ares' estimate: about ${span.estimatedS.toFixed(2)} s around the keep-outs.`,
+            lim ? `Limits: ${lim}` : "Limits: what the robot can do",
+            ...lines,
+          ], "The green band is where it can go: a bumper's reach on each side of the estimate.")
+        }
         return at(generated ? (p.stale ? "Trajectory (out of date)" : "Trajectory") : "Guess (not optimized)", lines,
           generated ? undefined : "The spline through the waypoints, timed. Generate (Ctrl+G) to optimize it.")
       }
@@ -824,7 +877,9 @@ function drawShape(ctx: CanvasRenderingContext2D, toScreen: ToScreen, k: number,
   ctx.globalAlpha = 1
 }
 
-function drawTrajectory(ctx: CanvasRenderingContext2D, toScreen: ToScreen, t: Trajectory, gradient: ViewOptions["gradient"], topSpeed: number, width: number) {
+export const PATHFIND = "#16a34a"
+
+function drawTrajectory(ctx: CanvasRenderingContext2D, toScreen: ToScreen, t: Trajectory, gradient: ViewOptions["gradient"], topSpeed: number, width: number, skip: [number, number][] = []) {
   const s = t.samples
   if (s.length < 2) return
   const accMax = Math.max(1e-6, ...s.map(q => Math.hypot(q.ax, q.ay)))
@@ -847,6 +902,7 @@ function drawTrajectory(ctx: CanvasRenderingContext2D, toScreen: ToScreen, t: Tr
   ctx.lineWidth = width
   ctx.lineCap = "round"
   for (let i = 1; i < s.length; i++) {
+    if (skip.some(([a, b]) => i > a && i <= b)) continue
     const [x0, y0] = toScreen(s[i - 1].x, s[i - 1].y)
     const [x1, y1] = toScreen(s[i].x, s[i].y)
     ctx.beginPath()

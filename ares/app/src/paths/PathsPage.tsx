@@ -13,7 +13,7 @@ import { StopIcon, WaypointIcon, GLYPH } from "./glyphs"
 import {
   CONSTRAINTS, ConstraintType, DEFAULT_VIEW, EventMarker, FieldDoc, GRADIENTS, KeepOut, PathEntry, PathSpec, PlanResult,
   ScopedConstraint, Selection, Target, Tool, Trajectory, ViewOptions, Waypoint, WaypointKind, afterInsert, afterMove,
-  afterRemove, constraintMeta, kindOf, moveControl, newConstraint, newPathSpec, setManual, setWait, shiftControls, stopAt, toggleStop, waitAt,
+  afterRemove, constraintMeta, kindOf, moveControl, newConstraint, newPathSpec, NEXT_MODE, segmentMode, setSegmentMode, setWait, shiftControls, stopAt, toggleStop, waitAt,
 } from "./types"
 
 interface Props {
@@ -472,7 +472,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
           onHover={setHovered}
           onSetKind={setKind}
           onToggleStop={i => editSpec(s => toggleStop(s, i), true)}
-          onToggleManual={i => editSpec(s => setManual(s, i, !s.waypoints[i].manualNext), true)}
+          onCycleSegment={i => editSpec(s => setSegmentMode(s, i, NEXT_MODE[segmentMode(s.waypoints[i])]), true)}
           onMoveWaypoint={moveWaypoint}
           onDeleteWaypoint={deleteWaypoint}
           onToggleConstraint={i => editSpec(s => ({ ...s, scoped: s.scoped.map((c, j) => (j === i ? { ...c, enabled: c.enabled === false ? undefined : false } : c)) }), true)}
@@ -575,7 +575,8 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
               stopOn={i => stopAt(spec, i) >= 0}
               waitOn={i => waitAt(spec, i)}
               onSetWait={(i, w) => editSpec(s => setWait(s, i, w), true)}
-              onSetManual={(i, on) => editSpec(s => setManual(s, i, on), true)}
+              onSetSegment={(i, mode) => editSpec(s => setSegmentMode(s, i, mode), true)}
+              onPathfind={(i, patch) => editWaypoint(i, w => ({ ...w, pathfindNext: { ...w.pathfindNext, ...patch } }), true)}
               onConstraint={(i, patch) => editConstraint(i, patch, true)}
               onEvent={editEvent}
               onKeepOut={(i, patch) => editKeepOut(i, patch, true)}
@@ -641,6 +642,7 @@ function Legend() {
           <WaypointIcon kind="empty" color={GLYPH.mid} size={13} /><span>Empty: shapes the guess</span>
           <StopIcon size={13} /><span>Stops here</span>
           <i className="ti ti-pencil" style={{ color: "#e95420", fontSize: 13 }} /><span>Manual curve (drag its square handles)</span>
+          <span style={{ width: 13, height: 13, borderRadius: 7, background: "#16a34a", color: "#fff", fontSize: 9.5, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>?</span><span>Pathfind at run time (estimated route)</span>
           <span style={{ width: 12, height: 12, borderRadius: 6, background: GLYPH.start }} /><span>Start</span>
           <span style={{ width: 12, height: 12, borderRadius: 6, background: GLYPH.end }} /><span>End</span>
         </div>
@@ -657,6 +659,7 @@ const VIEW_HELP: Partial<Record<keyof ViewOptions, string>> = {
   samples: "A dot at every sample the optimizer solved for.",
   waypoints: "Waypoints, stops and constraint labels.",
   flipped: "The same trajectory as the other alliance would run it.",
+  corridor: "Around a pathfind estimate, the band the robot can use: a bumper's reach each side.",
 }
 
 function ViewPanel({ view, onChange, onClose }: { view: ViewOptions; onChange: (v: ViewOptions) => void; onClose: () => void }) {
@@ -695,7 +698,7 @@ function ViewPanel({ view, onChange, onClose }: { view: ViewOptions; onChange: (
       </PropertyRow>
       {([
         ["field", "Field"], ["grid", "Grid (1 m)"], ["guess", "Guess (spline)"], ["trajectory", "Trajectory"],
-        ["samples", "Samples"], ["waypoints", "Waypoints & constraints"], ["flipped", "Other alliance (mirror)"],
+        ["samples", "Samples"], ["waypoints", "Waypoints & constraints"], ["corridor", "Pathfind corridor"], ["flipped", "Other alliance (mirror)"],
       ] as [keyof ViewOptions, string][]).map(([key, label]) => (
         <div key={key} title={VIEW_HELP[key]}>
           <PropertyRow label={label}>

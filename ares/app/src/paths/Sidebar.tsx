@@ -1,7 +1,7 @@
 import { ReactNode, useState } from "react"
 import { GLYPH, StopIcon, WaypointIcon, positionColor } from "./glyphs"
 import {
-  PathEntry, PathSpec, Selection, WaypointKind, constraintChip, constraintMeta, kindOf, rangeOf, stopAt, targetLabel, waitAt,
+  PathEntry, PathSpec, SegmentMode, Selection, WaypointKind, constraintChip, constraintMeta, kindOf, rangeOf, segmentMode, stopAt, targetLabel, waitAt,
 } from "./types"
 
 interface Props {
@@ -18,7 +18,7 @@ interface Props {
   onHover: (s: Selection) => void
   onSetKind: (i: number, kind: WaypointKind) => void
   onToggleStop: (i: number) => void
-  onToggleManual: (i: number) => void
+  onCycleSegment: (i: number) => void
   onMoveWaypoint: (from: number, to: number) => void
   onDeleteWaypoint: (i: number) => void
   onToggleConstraint: (i: number) => void
@@ -101,15 +101,14 @@ export default function Sidebar(p: Props) {
                     {kind === "pose" && w.headingDeg !== undefined && <Dim sel={sel}> {Math.round(w.headingDeg)}°</Dim>}
                     {waitAt(spec, i) > 0 && <Dim sel={sel}> · waits {waitAt(spec, i)} s</Dim>}
                     {w.split && <Dim sel={sel}> · split</Dim>}
-                    {w.manualNext && <Dim sel={sel}> · ✎ manual →</Dim>}
+                    {segmentMode(w) === "manual" && <Dim sel={sel}> · ✎ manual →</Dim>}
+                    {segmentMode(w) === "pathfind" && <Dim sel={sel}> · ? pathfind →</Dim>}
                     {w.intervals !== undefined && <Dim sel={sel}> · {w.intervals} samples</Dim>}
                   </Label>
                   <span style={{ fontSize: 10.5, fontWeight: 600, width: 18, textAlign: "right", color: sel ? "#ffffff" : color }}>{i + 1}</span>
                   {i < n - 1 ? (
-                    <RowButton
-                      title={w.manualNext ? "The curve to the next waypoint is yours (manual). Click to let the optimizer shape it" : "The optimizer shapes the curve to the next waypoint. Click to draw it yourself (PathPlanner style)"}
-                      onClick={() => p.onToggleManual(i)}>
-                      <i className="ti ti-pencil" style={{ fontSize: 13, color: w.manualNext ? (sel ? "#ffffff" : "#e95420") : "var(--text-light)", opacity: w.manualNext ? 1 : 0.6 }} />
+                    <RowButton title={SEGMENT_HELP[segmentMode(w)]} onClick={() => p.onCycleSegment(i)}>
+                      <SegmentIcon mode={segmentMode(w)} sel={sel} />
                     </RowButton>
                   ) : <span style={{ width: 22 }} />}
                   <RowButton title={stop ? "Stops here. Click to keep moving" : "Does not stop. Click to stop here"} onClick={() => p.onToggleStop(i)}>
@@ -174,6 +173,22 @@ export default function Sidebar(p: Props) {
       {p.children}
     </div>
   )
+}
+
+const SEGMENT_HELP: Record<SegmentMode, string> = {
+  optimized: "To the next waypoint: the optimizer shapes the curve. Click to draw it yourself",
+  manual: "To the next waypoint: your curve (manual), the optimizer only times it. Click to pathfind there at run time instead",
+  pathfind: "To the next waypoint: the robot pathfinds at run time (?), Ares estimates the route. Click to let the optimizer shape it",
+}
+
+function SegmentIcon({ mode, sel }: { mode: SegmentMode; sel: boolean }) {
+  if (mode === "pathfind") {
+    return (
+      <span style={{ width: 15, height: 15, borderRadius: 8, background: "#16a34a", color: "#ffffff", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: sel ? "0 0 0 1.5px #ffffff" : undefined }}>?</span>
+    )
+  }
+  if (mode === "manual") return <i className="ti ti-pencil" style={{ fontSize: 13, color: sel ? "#ffffff" : "#e95420" }} />
+  return <i className="ti ti-wave-sine" style={{ fontSize: 13, color: sel ? "rgba(255,255,255,0.8)" : "var(--text-light)" }} />
 }
 
 function Heading({ label, count, children }: { label: string; count?: number; children?: ReactNode }) {
