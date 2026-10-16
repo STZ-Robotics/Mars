@@ -151,7 +151,7 @@ export default function RobotTurntable({ robot, derived, modelPath, spinning, sh
   return <div ref={host} style={{ position: "absolute", inset: 0, overflow: "hidden" }} />
 }
 
-function placeModel(instance: Group, model: ModelRef) {
+export function placeModel(instance: Group, model: ModelRef) {
   const [r, p, y] = model.rotationDeg
   instance.rotation.set(r * DEG, p * DEG, y * DEG, "ZYX")
   instance.scale.setScalar(model.scale)

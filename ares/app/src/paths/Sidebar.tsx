@@ -78,6 +78,7 @@ export default function Sidebar(p: Props) {
                 <Item
                   key={i}
                   active={sel}
+                  title={`Waypoint ${i + 1}: ${KIND_LABEL[kind]}${stop ? (waitAt(spec, i) > 0 ? `, stops ${waitAt(spec, i)} s` : ", stops") : ""}. Click to edit, drag to reorder.`}
                   onClick={() => p.onSelect({ kind: "waypoint", index: i })}
                   onMouseEnter={() => p.onHover({ kind: "waypoint", index: i })}
                   draggable
@@ -122,7 +123,7 @@ export default function Sidebar(p: Props) {
               const sel = p.selected?.kind === "constraint" && p.selected.index === i
               const on = c.enabled !== false
               return (
-                <Item key={i} active={sel} dim={!on}
+                <Item key={i} active={sel} dim={!on} title={`${meta.label}: ${meta.hint}`}
                   onClick={() => p.onSelect({ kind: "constraint", index: i })}
                   onMouseEnter={() => p.onHover({ kind: "constraint", index: i })}>
                   {c.type === "stopPoint" ? <StopIcon /> : <i className={`ti ${meta.icon}`} style={{ fontSize: 14, color: sel ? "#ffffff" : "#7c3aed" }} />}

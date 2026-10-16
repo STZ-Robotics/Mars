@@ -5,6 +5,7 @@ import {
   KeepOut, PathSpec, Sample, ScopedConstraint, Selection, Tool, Trajectory, ViewOptions, constraintChip, kindOf, rangeOf, sampleAt, stopAt, waitAt,
 } from "./types"
 import { GLYPH, drawChip, drawHeadingTriangle, drawStop, positionColor } from "./glyphs"
+import type { TopView } from "../robot/topView"
 
 interface Props {
   field: FieldConfig
@@ -26,6 +27,8 @@ interface Props {
   topSpeed: number
   playhead: number | null
   fitSignal: number
+  /** The robot's STL seen from above, when it has one. */
+  topView: TopView | null
   onSelect: (s: Selection) => void
   onMoveWaypoint: (i: number, x: number, y: number, final: boolean) => void
   onRotateWaypoint: (i: number, headingDeg: number, final: boolean) => void
@@ -97,7 +100,7 @@ const SPLIT_COLORS = ["#2f6fdb", "#c2410c", "#1f7a1f", "#7c3aed", "#0e7490", "#a
 // the events and the playback robot, and turns mouse gestures into edits it
 // hands back to the page.
 export default function FieldView(props: Props) {
-  const { field, robot, spec, guess, generated, stale, keepOut, selected, hovered, tool, view: opts, topSpeed, playhead, fitSignal } = props
+  const { field, robot, spec, guess, generated, stale, keepOut, selected, hovered, tool, view: opts, topSpeed, playhead, fitSignal, topView } = props
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const hostRef = useRef<HTMLDivElement>(null)
   const [view, setView] = useState<View>({ k: 50, ox: 0, oy: 0 })
@@ -105,6 +108,7 @@ export default function FieldView(props: Props) {
   const [image, setImage] = useState<HTMLImageElement | null>(null)
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null)
   const [hoverWp, setHoverWp] = useState<number | null>(null)
+  const [tip, setTip] = useState<{ sx: number; sy: number; title: string; lines: string[]; hint?: string } | null>(null)
   const drag = useRef<Drag | null>(null)
   const propsRef = useRef(props)
   propsRef.current = props
@@ -295,6 +299,9 @@ export default function FieldView(props: Props) {
           ctx.stroke()
           ctx.setLineDash([])
         }
+        if (topView && kind !== "empty") {
+          drawRobot(ctx, toScreen, view.k, w.x, w.y, headingOf(i), robot, topView, null, 0.45)
+        }
         if (kind === "pose") {
           const heading = headingOf(i)
           bumper(ctx, toScreen, w.x, w.y, heading, robot, color, [], isSel ? 2.4 : 1.6, isSel ? 0.2 : 0.12)
@@ -367,10 +374,10 @@ export default function FieldView(props: Props) {
     const traj = generated ?? guess
     if (traj && playhead !== null) {
       const s = sampleAt(traj, playhead)
-      bumper(ctx, toScreen, s.x, s.y, s.heading, robot, COLORS.ink, [], 2, 0.22)
+      drawRobot(ctx, toScreen, view.k, s.x, s.y, s.heading, robot, topView, PLAYBACK, 1)
       moduleVectors(ctx, toScreen, s, robot)
     }
-  }, [view, size, image, spec, guess, generated, stale, keepOut, selected, hovered, playhead, robot, field, opts, topSpeed, tool, hoverWp])
+  }, [view, size, image, spec, guess, generated, stale, keepOut, selected, hovered, playhead, robot, field, opts, topSpeed, tool, hoverWp, topView])
 
   // --- Interaction -----------------------------------------------------------
   const waypointAt = (sx: number, sy: number): number | null => {
@@ -476,7 +483,80 @@ export default function FieldView(props: Props) {
     if (p.tool.kind === "constraint" || p.tool.kind === "event") setHoverWp(waypointAt(sx, sy))
     else if (hoverWp !== null) setHoverWp(null)
     const d = drag.current
-    if (d) applyDrag(d, sx, sy, wx, wy, false)
+    if (d) { setTip(null); applyDrag(d, sx, sy, wx, wy, false) }
+    else setTip(describe(sx, sy))
+  }
+
+  // What is under the pointer, in words: what it is, its numbers, what the
+  // mouse does to it.
+  const describe = (sx: number, sy: number): { sx: number; sy: number; title: string; lines: string[]; hint?: string } | null => {
+    const p = propsRef.current
+    const at = (title: string, lines: string[], hint?: string) => ({ sx, sy, title, lines, hint })
+    const h = hit(sx, sy)
+    const n = p.spec?.waypoints.length ?? 0
+    if (h && p.spec) {
+      if (h.kind === "heading") {
+        const w = p.spec.waypoints[h.index]
+        return at(`Heading of waypoint ${h.index + 1}`, [`${(w.headingDeg ?? 0).toFixed(1)}° (0° faces +X, away from the blue wall)`], "Drag to turn the robot here. Hold Shift to snap to 15°.")
+      }
+      if (h.kind === "waypoint") return at(...waypointWords(p.spec, h.index, p.generated))
+      if (h.kind === "shape") {
+        const c = p.spec.scoped[h.index]
+        const what = h.handle === "radius" ? "Drag to change the radius." : h.handle === "corner" ? "Drag to resize." : "Drag to move."
+        return at(constraintTitle(c.type), [constraintLine(c, n)], what)
+      }
+      if (h.kind === "event") {
+        const e = (p.spec.events ?? [])[h.index]
+        const fired = p.generated?.events?.[h.index]
+        return at(`Event marker "${e.name}"`, [
+          `${e.offsetS >= 0 ? "+" : ""}${e.offsetS.toFixed(2)} s from waypoint ${resolveIdx(e.target, n) + 1}`,
+          fired ? `Fires at ${fired.t.toFixed(3)} s` : "Generate to see when it fires",
+        ], "Click to edit. The robot code runs a command at this moment.")
+      }
+    }
+    if (h && (h.kind === "keepout" || h.kind === "radius")) {
+      const c = p.keepOut[h.index]
+      return at("Keep-out (field)", [`r = ${c.radiusM.toFixed(2)} m at (${c.x.toFixed(2)}, ${c.y.toFixed(2)})`, "Every path keeps its bumper out of it."],
+        h.kind === "radius" ? "Drag to change the radius." : "Drag to move; select it to resize from the edge.")
+    }
+    // Constraint shapes that are not selected.
+    const [wx, wy] = toWorld(sx, sy)
+    if (p.spec) {
+      for (const c of p.spec.scoped) {
+        if (!("x" in c)) continue
+        const inside =
+          c.type === "keepInRectangle" ? wx >= c.x && wx <= c.x + c.widthM && wy >= c.y && wy <= c.y + c.heightM
+          : c.type === "pointAt" ? Math.hypot(wx - c.x, wy - c.y) * view.k <= 14
+          : Math.abs(Math.hypot(wx - c.x, wy - c.y) - c.radiusM) * view.k <= 6
+        if (inside) return at(constraintTitle(c.type), [constraintLine(c, n)], "Select it in the Constraints list to move it.")
+      }
+    }
+    // The trajectory: what the robot does at that point.
+    const traj = p.generated ?? p.guess
+    if (traj) {
+      let best: Sample | null = null, bd = 10
+      for (const q of traj.samples) {
+        const [qx, qy] = toScreen(q.x, q.y)
+        const d = Math.hypot(qx - sx, qy - sy)
+        if (d < bd) { bd = d; best = q }
+      }
+      if (best) {
+        const lines = [
+          `t = ${best.t.toFixed(3)} s · ${Math.hypot(best.vx, best.vy).toFixed(2)} m/s`,
+          `accel ${Math.hypot(best.ax, best.ay).toFixed(2)} m/s² · turning ${(best.omega * 180 / Math.PI).toFixed(0)} °/s`,
+          `heading ${(((best.heading * 180 / Math.PI) + 540) % 360 - 180).toFixed(0)}°`,
+        ]
+        if (best.modules.length) {
+          const grip = Math.max(...best.modules.map(m => m.gripUsed))
+          const amps = Math.max(...best.modules.map(m => Math.abs(m.currentA)))
+          lines.push(`peak wheel grip ${(100 * grip).toFixed(0)}% · ${amps.toFixed(0)} A`)
+        }
+        const generated = traj === p.generated
+        return at(generated ? (p.stale ? "Trajectory (out of date)" : "Trajectory") : "Guess (not optimized)", lines,
+          generated ? undefined : "The spline through the waypoints, timed. Generate (Ctrl+G) to optimize it.")
+      }
+    }
+    return null
   }
 
   const onPointerUp = (e: React.PointerEvent) => {
@@ -562,9 +642,19 @@ export default function FieldView(props: Props) {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
-        onPointerLeave={() => { setCursor(null); setHoverWp(null) }}
+        onPointerLeave={() => { setCursor(null); setHoverWp(null); setTip(null) }}
         onContextMenu={e => e.preventDefault()}
       />
+      {tip && (
+        <div style={{
+          position: "absolute", left: Math.min(tip.sx + 16, size.w - 290), top: Math.min(tip.sy + 16, size.h - 120), width: 270, pointerEvents: "none", zIndex: 8,
+          background: "rgba(28,28,31,0.94)", color: "#ececed", padding: "6px 9px", fontSize: 11, lineHeight: 1.5, boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
+        }}>
+          <div style={{ fontWeight: 600, color: "#ffffff", marginBottom: 2 }}>{tip.title}</div>
+          {tip.lines.map((l, i) => <div key={i} style={{ fontFamily: /\d/.test(l) ? "Consolas, 'Cascadia Mono', monospace" : undefined, fontSize: 10.5 }}>{l}</div>)}
+          {tip.hint && <div style={{ marginTop: 3, color: "#a0a1a8", fontSize: 10.5 }}>{tip.hint}</div>}
+        </div>
+      )}
       {cursor && (
         <div style={{ position: "absolute", right: 12, bottom: 66, fontSize: 10.5, fontFamily: "Consolas, 'Cascadia Mono', monospace", color: "var(--text-secondary)", background: "rgba(255,255,255,0.85)", padding: "1px 6px", border: "1px solid var(--border-light)" }}>
           x {cursor.x.toFixed(2)} m · y {cursor.y.toFixed(2)} m
@@ -720,6 +810,64 @@ function bumper(
   ctx.stroke()
 }
 
+const PLAYBACK = "#ff8c1a"
+
+/**
+ * The robot at a pose: its STL from above when there is one, otherwise a
+ * drawing (bumper, wheels, an arrow to the front) in colors that stand out
+ * on a dark field. `outline` adds a bumper outline in that color.
+ */
+function drawRobot(
+  ctx: CanvasRenderingContext2D, toScreen: ToScreen, k: number, x: number, y: number, heading: number,
+  robot: RobotConfig, top: TopView | null, outline: string | null, alpha: number,
+) {
+  const [sx, sy] = toScreen(x, y)
+  ctx.save()
+  ctx.globalAlpha = alpha
+  ctx.translate(sx, sy)
+  ctx.rotate(-heading)
+  const hl = robot.bumper.lengthM / 2 * k, hw = robot.bumper.widthM / 2 * k
+  if (top) {
+    const e = top.halfExtentM * k
+    ctx.drawImage(top.image, -e, -e, 2 * e, 2 * e)
+  } else {
+    // Bumper, frame, wheels, front arrow. Canvas Y is down: robot +Y is -y.
+    ctx.fillStyle = "rgba(255,140,26,0.35)"
+    ctx.fillRect(-hl, -hw, 2 * hl, 2 * hw)
+    ctx.fillStyle = "rgba(240,240,242,0.9)"
+    const inset = Math.min(hl, hw) * 0.18
+    ctx.fillRect(-hl + inset, -hw + inset, 2 * (hl - inset), 2 * (hw - inset))
+    const r = robot.drivetrain.wheelRadiusM * k
+    ctx.fillStyle = "#2b2c31"
+    for (const m of robot.drivetrain.modules) {
+      ctx.fillRect(m.xM * k - r, -m.yM * k - r * 0.45, 2 * r, 0.9 * r)
+    }
+    ctx.beginPath()
+    ctx.moveTo(hl * 0.75, 0)
+    ctx.lineTo(hl * 0.15, -hw * 0.35)
+    ctx.lineTo(hl * 0.15, hw * 0.35)
+    ctx.closePath()
+    ctx.fillStyle = "#ff8c1a"
+    ctx.fill()
+  }
+  if (outline) {
+    ctx.globalAlpha = 1
+    ctx.strokeStyle = "#ffffff"
+    ctx.lineWidth = 4
+    ctx.strokeRect(-hl, -hw, 2 * hl, 2 * hw)
+    ctx.strokeStyle = outline
+    ctx.lineWidth = 2
+    ctx.strokeRect(-hl, -hw, 2 * hl, 2 * hw)
+    // The front face, thicker.
+    ctx.beginPath()
+    ctx.moveTo(hl, -hw)
+    ctx.lineTo(hl, hw)
+    ctx.lineWidth = 4
+    ctx.stroke()
+  }
+  ctx.restore()
+}
+
 function pin(ctx: CanvasRenderingContext2D, x: number, y: number, color: string, label: string) {
   ctx.beginPath()
   ctx.moveTo(x, y)
@@ -785,4 +933,56 @@ function headingNear(traj: Trajectory | null, x: number, y: number): number {
     if (e < d) { d = e; best = s }
   }
   return best.heading
+}
+
+// --- Words for the tooltips -------------------------------------------------------
+
+const KIND_WORDS: Record<string, string> = {
+  pose: "Pose: the robot passes here facing the set heading.",
+  translation: "Translation: the robot passes here; the optimizer picks the heading.",
+  empty: "Empty: not a place the robot must reach; it only shapes the starting guess (around an obstacle, say).",
+}
+
+function resolveIdx(t: PathSpec["scoped"][number]["from"], n: number): number {
+  return t === "first" ? 0 : t === "last" ? n - 1 : Math.min(t.index, n - 1)
+}
+
+function waypointWords(spec: PathSpec, i: number, generated: Trajectory | null): [string, string[], string] {
+  const w = spec.waypoints[i]
+  const n = spec.waypoints.length
+  const kind = kindOf(w)
+  const lines = [KIND_WORDS[kind], `(${w.x.toFixed(2)}, ${w.y.toFixed(2)}) m${kind === "pose" ? ` · ${(w.headingDeg ?? 0).toFixed(1)}°` : ""}`]
+  const stop = stopAt(spec, i) >= 0
+  const wait = waitAt(spec, i)
+  lines.push(stop ? (wait > 0 ? `Stops and waits ${wait} s.` : "Stops here.") : "Passes through without stopping.")
+  for (const c of spec.scoped) {
+    if (c.type === "stopPoint" || c.enabled === false) continue
+    const [a, b] = rangeOf(c, n)
+    if (a <= i && i <= b) lines.push(`${constraintTitle(c.type)}: ${constraintChip(c)}${a === b ? "" : ` (waypoints ${a + 1}–${b + 1})`}`)
+  }
+  if (w.split) lines.push("The trajectory splits here.")
+  if (w.intervals !== undefined) lines.push(`${w.intervals} samples to the next waypoint.`)
+  const t = generated?.waypointTimes?.[i]
+  if (t !== undefined) lines.push(`Reached at ${t.toFixed(3)} s.`)
+  const role = i === 0 ? "start" : i === n - 1 ? "end" : `${i + 1} of ${n}`
+  return [`Waypoint ${i + 1} (${role})`, lines, kind === "pose" ? "Drag to move, drag the white dot to turn, click to edit." : "Drag to move, click to edit."]
+}
+
+function constraintTitle(type: ScopedConstraint["type"]): string {
+  return ({
+    stopPoint: "Stop point", maxVelocity: "Max velocity", maxAcceleration: "Max acceleration", maxAngularVelocity: "Max angular velocity",
+    pointAt: "Point at", keepInCircle: "Keep in circle", keepInRectangle: "Keep in rectangle", keepInLane: "Keep in lane", keepOutCircle: "Keep out circle",
+  } as const)[type]
+}
+
+function constraintLine(c: ScopedConstraint, n: number): string {
+  const [a, b] = rangeOf(c, n)
+  const scope = a === b ? `at waypoint ${a + 1}` : `from waypoint ${a + 1} to ${b + 1}`
+  switch (c.type) {
+    case "pointAt": return `The ${c.flip ? "back" : "front"} faces (${c.x.toFixed(2)}, ${c.y.toFixed(2)}) within ${c.toleranceDeg}°, ${scope}.`
+    case "keepInCircle": return `The bumper stays inside r = ${c.radiusM} m, ${scope}.`
+    case "keepInRectangle": return `The bumper stays inside ${c.widthM} × ${c.heightM} m, ${scope}.`
+    case "keepOutCircle": return `The bumper stays out of r = ${c.radiusM} m, ${scope}.`
+    default: return `${constraintChip(c)}, ${scope}.`
+  }
 }

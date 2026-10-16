@@ -4,6 +4,7 @@ import PropertyRow from "@desktop/components/common/PropertyRow"
 import { propertyInputStyle } from "@desktop/styles/pageForm"
 import { FIELDS } from "@desktop/utils/field/fieldImages"
 import type { RobotConfig } from "../robot/types"
+import { renderTopView, TopView } from "../robot/topView"
 import { Card, MiniButton, Q, Toggle } from "../ui/controls"
 import FieldView, { RAMP_CSS } from "./FieldView"
 import Sidebar, { IconButton } from "./Sidebar"
@@ -87,6 +88,19 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
   const topSpeed = usableSpeed(robot)
   const fieldDocRef = useRef(fieldDoc)
   fieldDocRef.current = fieldDoc
+
+  // The robot's STL from above, as the 2D robot.
+  const [topView, setTopView] = useState<TopView | null>(null)
+  const modelKey = JSON.stringify([robot.model, robot.bumper])
+  useEffect(() => {
+    if (!robot.model) { setTopView(null); return }
+    let alive = true
+    invoke<string>("resolve_model_path", { robotPath, modelPath: robot.model.path })
+      .then(path => renderTopView(robot, path))
+      .then(v => { if (alive) setTopView(v) })
+      .catch(() => { if (alive) setTopView(null) })
+    return () => { alive = false }
+  }, [modelKey, robotPath])
 
   // --- Files -----------------------------------------------------------------
   const refresh = useCallback(async () => {
@@ -487,18 +501,18 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
         <div style={{ height: 44, flexShrink: 0, display: "flex", alignItems: "center", gap: 4, padding: "0 10px", background: "var(--bg-menubar)", borderBottom: "1px solid var(--border-main)" }}>
-          <Toggle on={tool.kind === "select"} onClick={() => setTool({ kind: "select" })} icon="ti-pointer" label="Select" />
+          <span title={"Select (V, Esc)\nClick to select and edit, drag to move. Drag empty field, or right-drag anywhere, to pan; the wheel zooms."}><Toggle on={tool.kind === "select"} onClick={() => setTool({ kind: "select" })} icon="ti-pointer" label="Select" /></span>
           <Sep />
-          <ToolButton on={tool.kind === "waypoint" && tool.type === "pose"} onClick={() => setTool({ kind: "waypoint", type: "pose" })} label="Pose" k="1"><WaypointIcon kind="pose" color={GLYPH.mid} size={14} /></ToolButton>
-          <ToolButton on={tool.kind === "waypoint" && tool.type === "translation"} onClick={() => setTool({ kind: "waypoint", type: "translation" })} label="Translation" k="2"><WaypointIcon kind="translation" color={GLYPH.mid} size={14} /></ToolButton>
-          <ToolButton on={tool.kind === "waypoint" && tool.type === "empty"} onClick={() => setTool({ kind: "waypoint", type: "empty" })} label="Empty" k="3"><WaypointIcon kind="empty" color={GLYPH.mid} size={14} /></ToolButton>
+          <ToolButton on={tool.kind === "waypoint" && tool.type === "pose"} onClick={() => setTool({ kind: "waypoint", type: "pose" })} label="Pose" k="1" desc="Place a waypoint the robot passes facing a set heading. Click near the path to insert it, elsewhere to extend the path."><WaypointIcon kind="pose" color={GLYPH.mid} size={14} /></ToolButton>
+          <ToolButton on={tool.kind === "waypoint" && tool.type === "translation"} onClick={() => setTool({ kind: "waypoint", type: "translation" })} label="Translation" k="2" desc="Place a waypoint the robot passes at any heading (the optimizer picks it)."><WaypointIcon kind="translation" color={GLYPH.mid} size={14} /></ToolButton>
+          <ToolButton on={tool.kind === "waypoint" && tool.type === "empty"} onClick={() => setTool({ kind: "waypoint", type: "empty" })} label="Empty" k="3" desc="Place a guide point: not a place to reach, it only shapes the starting guess (to go around something)."><WaypointIcon kind="empty" color={GLYPH.mid} size={14} /></ToolButton>
           <Sep />
           <ConstraintMenu active={tool.kind === "constraint" ? tool.type : null} onPick={type => setTool({ kind: "constraint", type, from: null })} />
-          <ToolButton on={tool.kind === "event"} onClick={() => setTool({ kind: "event" })} label="Event" k="E"><i className="ti ti-map-pin-bolt" style={{ color: "#a1690a" }} /></ToolButton>
-          <ToolButton on={tool.kind === "keepout"} onClick={() => setTool({ kind: "keepout" })} label="Keep-out" k="K"><i className="ti ti-circle-off" style={{ color: "#c21c1c" }} /></ToolButton>
+          <ToolButton on={tool.kind === "event"} onClick={() => setTool({ kind: "event" })} label="Event" k="E" desc="Then click a waypoint: a named moment, timed from it, when the robot code runs a command."><i className="ti ti-map-pin-bolt" style={{ color: "#a1690a" }} /></ToolButton>
+          <ToolButton on={tool.kind === "keepout"} onClick={() => setTool({ kind: "keepout" })} label="Keep-out" k="K" desc="Place a circle that every path in the project keeps its bumper out of."><i className="ti ti-circle-off" style={{ color: "#c21c1c" }} /></ToolButton>
           <span style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
-            <Toggle on={viewOpen} onClick={() => setViewOpen(o => !o)} icon="ti-eye" label="View" />
-            <Toggle on={false} onClick={() => setFitSignal(s => s + 1)} icon="ti-maximize" label="Fit" />
+            <span title="What the field shows: the path gradient and the layers."><Toggle on={viewOpen} onClick={() => setViewOpen(o => !o)} icon="ti-eye" label="View" /></span>
+            <span title="Fit the whole field in view (F)."><Toggle on={false} onClick={() => setFitSignal(s => s + 1)} icon="ti-maximize" label="Fit" /></span>
             <GenerateButton state={genState.kind} stale={stale || !generated} onClick={generate} />
           </span>
         </div>
@@ -518,6 +532,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
             topSpeed={topSpeed}
             playhead={playhead}
             fitSignal={fitSignal}
+            topView={topView}
             onSelect={setSelected}
             onMoveWaypoint={(i, x, y, final) => editWaypoint(i, { x, y }, final)}
             onRotateWaypoint={(i, hd, final) => editWaypoint(i, { headingDeg: hd }, final)}
@@ -630,6 +645,16 @@ function Legend() {
   )
 }
 
+const VIEW_HELP: Partial<Record<keyof ViewOptions, string>> = {
+  field: "The field photo under everything.",
+  grid: "A line every meter.",
+  guess: "The dashed spline through the waypoints: what the optimizer starts from.",
+  trajectory: "The generated trajectory, colored by the gradient.",
+  samples: "A dot at every sample the optimizer solved for.",
+  waypoints: "Waypoints, stops and constraint labels.",
+  flipped: "The same trajectory as the other alliance would run it.",
+}
+
 function ViewPanel({ view, onChange, onClose }: { view: ViewOptions; onChange: (v: ViewOptions) => void; onClose: () => void }) {
   return (
     <div onPointerDown={e => e.stopPropagation()}
@@ -649,9 +674,11 @@ function ViewPanel({ view, onChange, onClose }: { view: ViewOptions; onChange: (
         ["field", "Field image"], ["grid", "Grid (1 m)"], ["guess", "Guess (spline)"], ["trajectory", "Trajectory"],
         ["samples", "Samples"], ["waypoints", "Waypoints & constraints"], ["flipped", "Other alliance (mirror)"],
       ] as [keyof ViewOptions, string][]).map(([key, label]) => (
-        <PropertyRow key={key} label={label}>
-          <input type="checkbox" checked={view[key] as boolean} onChange={e => onChange({ ...view, [key]: e.target.checked })} />
-        </PropertyRow>
+        <div key={key} title={VIEW_HELP[key]}>
+          <PropertyRow label={label}>
+            <input type="checkbox" checked={view[key] as boolean} onChange={e => onChange({ ...view, [key]: e.target.checked })} />
+          </PropertyRow>
+        </div>
       ))}
     </div>
   )
@@ -685,9 +712,9 @@ function ConstraintMenu({ active, onPick }: { active: ConstraintType | null; onP
   )
 }
 
-function ToolButton({ on, onClick, label, k, children }: { on: boolean; onClick: () => void; label: string; k: string; children: ReactNode }) {
+function ToolButton({ on, onClick, label, k, desc, children }: { on: boolean; onClick: () => void; label: string; k: string; desc: string; children: ReactNode }) {
   return (
-    <button onClick={onClick} title={`${label} (${k})`}
+    <button onClick={onClick} title={`${label} (${k})\n${desc}`}
       style={{
         display: "flex", alignItems: "center", gap: 5, fontSize: 11, padding: "3px 8px", height: 26, cursor: "pointer",
         border: "1px solid var(--btn-classic-border)", borderRadius: 2,
@@ -701,7 +728,7 @@ function ToolButton({ on, onClick, label, k, children }: { on: boolean; onClick:
 function GenerateButton({ state, stale, onClick }: { state: string; stale: boolean; onClick: () => void }) {
   const running = state === "running"
   return (
-    <button onClick={onClick} disabled={running} title="Generate the trajectory (Ctrl+G)"
+    <button onClick={onClick} disabled={running} title={"Generate (Ctrl+G)\nOptimize the trajectory for this path with the robot's physics, and save it to trajectories/ for the robot code. Blue: the path changed since the last one."}
       style={{
         display: "flex", alignItems: "center", gap: 6, height: 28, padding: "0 14px", fontSize: 12, fontWeight: 600, cursor: running ? "default" : "pointer",
         border: "1px solid", borderRadius: 2,
@@ -739,9 +766,18 @@ function PlaybackBar({ duration, playhead, playing, onToggle, onScrub, enabled, 
   )
 }
 
+const METRIC_HELP: Record<string, string> = {
+  "Time": "How long the generated trajectory takes, start to end.",
+  "vs guess": "How much faster than the spline through the waypoints the optimizer made it.",
+  "Top speed": "The fastest the chassis goes.",
+  "Peak current": "The most any drive motor draws (stator).",
+  "Peak grip": "The most of its grip any wheel uses. 100% is the edge of slipping.",
+  "Solved": "How long the optimizer took.",
+}
+
 function Metric({ label, value, strong, warn }: { label: string; value: string; strong?: boolean; warn?: boolean }) {
   return (
-    <span style={{ display: "flex", alignItems: "baseline", gap: 6, fontSize: 10.5, color: warn ? "var(--status-warning)" : "var(--text-muted)" }}>
+    <span title={METRIC_HELP[label] ?? (label.startsWith("Generated") ? "The path changed after this was generated: generate again." : "The spline through the waypoints, timed. Not optimized yet.")} style={{ display: "flex", alignItems: "baseline", gap: 6, fontSize: 10.5, color: warn ? "var(--status-warning)" : "var(--text-muted)" }}>
       {label}
       <span style={{ fontFamily: "Consolas, 'Cascadia Mono', monospace", fontSize: strong ? 12.5 : 11, fontWeight: strong ? 700 : 400, color: warn ? "var(--status-warning)" : "var(--text-primary)" }}>{value}</span>
     </span>
