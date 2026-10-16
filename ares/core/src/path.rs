@@ -44,6 +44,19 @@ pub struct Waypoint {
     /// separately (and do something in between).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub split: bool,
+    /// The segment to the next waypoint is drawn by hand, PathPlanner style:
+    /// a cubic Bézier through this waypoint's `next_control` and the next
+    /// one's `prev_control`. The optimizer keeps the robot on that curve and
+    /// only optimizes how fast it goes along it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub manual_next: bool,
+    /// Bézier control points, field coordinates (PathPlanner's prevControl
+    /// and nextControl). Used by manual segments; missing ones default to a
+    /// third of the chord along the automatic tangent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prev_control: Option<[f64; 2]>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_control: Option<[f64; 2]>,
 }
 
 /// Choreo's three waypoint types.
@@ -233,10 +246,19 @@ struct Segment {
     t1: Vec2,
     th0: f64,
     th1: f64,
+    /// A manual segment: the Bézier's inner control points.
+    bezier: Option<(Vec2, Vec2)>,
+}
+
+/// A cubic Bézier at `u`.
+pub fn bezier(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2, u: f64) -> Vec2 {
+    let v = 1.0 - u;
+    p0 * (v * v * v) + p1 * (3.0 * v * v * u) + p2 * (3.0 * v * u * u) + p3 * (u * u * u)
 }
 
 impl Segment {
-    /// Quintic Hermite with zero second derivatives at both ends.
+    /// Quintic Hermite with zero second derivatives at both ends, or the
+    /// user's Bézier for a manual segment.
     fn eval(&self, u: f64) -> (Vec2, f64) {
         let u3 = u * u * u;
         let u4 = u3 * u;
@@ -245,7 +267,10 @@ impl Segment {
         let h10 = u - 6.0 * u3 + 8.0 * u4 - 3.0 * u5;
         let h11 = -4.0 * u3 + 7.0 * u4 - 3.0 * u5;
         let h01 = 10.0 * u3 - 15.0 * u4 + 6.0 * u5;
-        let pos = self.p0 * h00 + self.t0 * h10 + self.t1 * h11 + self.p1 * h01;
+        let pos = match self.bezier {
+            Some((c1, c2)) => bezier(self.p0, c1, c2, self.p1, u),
+            None => self.p0 * h00 + self.t0 * h10 + self.t1 * h11 + self.p1 * h01,
+        };
         // The same smootherstep for the heading: zero angular velocity AND
         // acceleration at the waypoints, so the rotation is C2 too.
         let theta = self.th0 + (self.th1 - self.th0) * h01;
@@ -254,6 +279,38 @@ impl Segment {
 }
 
 impl PathSpec {
+    /// For each segment, its Bézier's inner control points if it is manual.
+    /// Missing controls default to a third of the chord along `dir`, the
+    /// automatic tangent, so turning a segment manual does not move it much.
+    fn bezier_controls(&self, dir: &[Vec2]) -> Vec<Option<(Vec2, Vec2)>> {
+        let w = &self.waypoints;
+        (0..w.len().saturating_sub(1))
+            .map(|j| {
+                if !w[j].manual_next {
+                    return None;
+                }
+                let (a, b) = (Vec2::new(w[j].x, w[j].y), Vec2::new(w[j + 1].x, w[j + 1].y));
+                let third = (b - a).norm() / 3.0;
+                let c1 = w[j].next_control.map_or(a + dir[j] * third, |c| Vec2::new(c[0], c[1]));
+                let c2 = w[j + 1].prev_control.map_or(b - dir[j + 1] * third, |c| Vec2::new(c[0], c[1]));
+                Some((c1, c2))
+            })
+            .collect()
+    }
+
+    /// The manual segments' Béziers, as (segment, [p0, p1, p2, p3]), with
+    /// the same defaults the path uses.
+    pub fn manual_curves(&self) -> Vec<(usize, [Vec2; 4])> {
+        let w = &self.waypoints;
+        let pts: Vec<Vec2> = w.iter().map(|p| Vec2::new(p.x, p.y)).collect();
+        let dir = catmull_rom_directions(&pts);
+        self.bezier_controls(&dir)
+            .into_iter()
+            .enumerate()
+            .filter_map(|(j, c)| c.map(|(c1, c2)| (j, [pts[j], c1, c2, pts[j + 1]])))
+            .collect()
+    }
+
     /// Headings at every waypoint, in radians, unwrapped so each step takes
     /// the short way round.
     fn resolved_headings(&self) -> Vec<f64> {
@@ -295,6 +352,27 @@ impl PathSpec {
     }
 }
 
+/// Catmull-Rom directions at each point, each segment scaled by its own
+/// chord: the classic tangent without the overshoot it gets when
+/// neighbouring segments have very different lengths.
+fn catmull_rom_directions(pts: &[Vec2]) -> Vec<Vec2> {
+    let n = pts.len();
+    (0..n)
+        .map(|k| {
+            let (a, b) = (if k == 0 { 0 } else { k - 1 }, if k + 1 == n { n - 1 } else { k + 1 });
+            let d = (pts[b] - pts[a]).normalized();
+            if d == Vec2::ZERO {
+                // A repeated point: borrow whichever neighbour moves.
+                let fwd = if k + 1 < n { (pts[k + 1] - pts[k]).normalized() } else { Vec2::ZERO };
+                let back = if k > 0 { (pts[k] - pts[k - 1]).normalized() } else { Vec2::ZERO };
+                if fwd != Vec2::ZERO { fwd } else { back }
+            } else {
+                d
+            }
+        })
+        .collect()
+}
+
 impl GeometricPath {
     /// `rho` weighs rotation against translation in the arc length (use the
     /// drive radius); `step` is the sampling step in meters of that length.
@@ -318,20 +396,23 @@ impl GeometricPath {
         // Catmull-Rom directions, each segment scaled by its own chord: the
         // classic tangent without the overshoot it gets when neighbouring
         // segments have very different lengths.
-        let dir: Vec<Vec2> = (0..n)
-            .map(|k| {
-                let (a, b) = (if k == 0 { 0 } else { k - 1 }, if k + 1 == n { n - 1 } else { k + 1 });
-                let d = (pts[b] - pts[a]).normalized();
-                if d == Vec2::ZERO {
-                    // A repeated point: borrow whichever neighbour moves.
-                    let fwd = if k + 1 < n { (pts[k + 1] - pts[k]).normalized() } else { Vec2::ZERO };
-                    let back = if k > 0 { (pts[k] - pts[k - 1]).normalized() } else { Vec2::ZERO };
-                    if fwd != Vec2::ZERO { fwd } else { back }
-                } else {
-                    d
+        let dir = catmull_rom_directions(&pts);
+        let controls = spec.bezier_controls(&dir);
+        // Where a manual segment meets an automatic one, the automatic one
+        // leaves (or arrives) along the Bézier's tangent: no kink.
+        let mut dir = dir;
+        for (j, c) in controls.iter().enumerate() {
+            if let Some((c1, c2)) = c {
+                let out = (*c1 - pts[j]).normalized();
+                let inn = (pts[j + 1] - *c2).normalized();
+                if out != Vec2::ZERO {
+                    dir[j] = out;
                 }
-            })
-            .collect();
+                if inn != Vec2::ZERO {
+                    dir[j + 1] = inn;
+                }
+            }
+        }
         let segments: Vec<Segment> = (0..n - 1)
             .map(|j| {
                 let len = (pts[j + 1] - pts[j]).norm();
@@ -342,6 +423,7 @@ impl GeometricPath {
                     t1: dir[j + 1] * len,
                     th0: headings[j],
                     th1: headings[j + 1],
+                    bezier: controls[j],
                 }
             })
             .collect();

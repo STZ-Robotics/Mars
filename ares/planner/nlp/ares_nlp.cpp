@@ -308,6 +308,37 @@ extern "C" int ares_nlp_solve(const AresNlpProblem* p, AresNlpResult* out) {
         const AresNlpConstraint& q = p->constraint[ci];
         const int from = std::max(0, std::min(q.from, samples - 1));
         const int to = std::max(from, std::min(q.to, samples - 1));
+        if (q.kind == ARES_C_ON_BEZIER) {
+          // A manual segment: every sample sits on the user's curve, at a
+          // parameter u that only moves forward. Only the timing is free.
+          auto bez = [&](double u, int axis) {
+            const double v = 1 - u;
+            return v * v * v * q.p[axis] + 3 * v * v * u * q.p[2 + axis] + 3 * v * u * u * q.p[4 + axis] + u * u * u * q.p[6 + axis];
+          };
+          Var prev;
+          double prev_guess = 0;
+          for (int k = from; k <= to; ++k) {
+            Var u = problem.decision_variable();
+            // Warm start: the nearest point of the curve to the guess, never
+            // behind the previous one.
+            double best = prev_guess, bd = 1e18;
+            for (int i = 0; i <= 400; ++i) {
+              const double t = i / 400.0;
+              const double d = std::hypot(bez(t, 0) - p->guess_x[k], bez(t, 1) - p->guess_y[k]);
+              if (d < bd && t >= prev_guess) { bd = d; best = t; }
+            }
+            u.set_value(k == from ? 0.0 : k == to ? 1.0 : best);
+            prev_guess = k == from ? 0.0 : best;
+            if (k == from) problem.subject_to(u == 0.0);
+            else problem.subject_to(u >= prev);
+            if (k == to) problem.subject_to(u == 1.0);
+            const Var v = 1.0 - u;
+            problem.subject_to(x[k] == v * v * v * q.p[0] + 3.0 * v * v * u * q.p[2] + 3.0 * v * u * u * q.p[4] + u * u * u * q.p[6]);
+            problem.subject_to(y[k] == v * v * v * q.p[1] + 3.0 * v * v * u * q.p[3] + 3.0 * v * u * u * q.p[5] + u * u * u * q.p[7]);
+            prev = u;
+          }
+          continue;
+        }
         for (int k = from; k <= to; ++k) {
           switch (q.kind) {
             case ARES_C_MAX_VELOCITY:

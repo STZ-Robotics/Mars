@@ -15,6 +15,7 @@ pub const C_KEEP_IN_CIRCLE: c_int = 5;
 pub const C_KEEP_IN_RECT: c_int = 6;
 pub const C_KEEP_IN_LANE: c_int = 7;
 pub const C_KEEP_OUT_CIRCLE: c_int = 8;
+pub const C_ON_BEZIER: c_int = 9;
 
 /// A constraint over samples `from..=to`; `p` as `ares_nlp.h` documents per kind.
 #[repr(C)]
@@ -23,7 +24,7 @@ pub struct Constraint {
     pub kind: c_int,
     pub from: c_int,
     pub to: c_int,
-    pub p: [c_double; 5],
+    pub p: [c_double; 8],
 }
 
 #[repr(C)]

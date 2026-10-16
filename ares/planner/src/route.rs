@@ -73,7 +73,8 @@ pub fn route(spec: &PathSpec, free: &Free, rho: f64) -> Routed {
         index_of.push(out.waypoints.len());
         out.waypoints.push(w.clone());
         let Some(next) = spec.waypoints.get(j + 1) else { break };
-        if !colliding.contains(&j) {
+        // A manual segment is the user's curve: never rerouted.
+        if !colliding.contains(&j) || w.manual_next {
             continue;
         }
         let (a, b) = (Vec2::new(w.x, w.y), Vec2::new(next.x, next.y));

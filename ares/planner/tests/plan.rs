@@ -294,3 +294,27 @@ fn a_wait_at_a_stop_holds_still_and_shifts_the_rest() {
     }
     assert_physical(&r, tb);
 }
+
+#[test]
+fn a_manual_segment_follows_the_users_curve_and_the_rest_is_free() {
+    use ares_core::geometry::Vec2;
+    use ares_core::path::bezier;
+    let r = robot();
+    let mut w = vec![wp(1.0, 1.0, Some(0.0)), wp(5.0, 1.0, None), wp(8.0, 4.0, Some(90.0))];
+    // A wide bulge the optimizer would never choose on its own.
+    w[0].manual_next = true;
+    w[0].next_control = Some([2.0, 3.5]);
+    w[1].prev_control = Some([4.0, 3.5]);
+    let s = spec(w);
+    let p = run(&r, &s, &Environment::default());
+    let t1 = p.trajectory.waypoint_times[1];
+    let (p0, p1, p2, p3) = (Vec2::new(1.0, 1.0), Vec2::new(2.0, 3.5), Vec2::new(4.0, 3.5), Vec2::new(5.0, 1.0));
+    let curve: Vec<Vec2> = (0..=2000).map(|i| bezier(p0, p1, p2, p3, i as f64 / 2000.0)).collect();
+    for q in p.trajectory.samples.iter().filter(|q| q.t <= t1 + 1e-9) {
+        let d = curve.iter().map(|c| (c.x - q.x).hypot(c.y - q.y)).fold(f64::MAX, f64::min);
+        assert!(d < 5e-3, "{d:.4} m off the curve at t = {:.3}", q.t);
+    }
+    // It really goes up the bulge.
+    assert!(p.trajectory.samples.iter().any(|q| q.t < t1 && q.y > 2.5));
+    assert_physical(&r, &p.trajectory);
+}

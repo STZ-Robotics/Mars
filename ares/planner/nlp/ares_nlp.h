@@ -32,13 +32,14 @@ enum {
   ARES_C_KEEP_IN_RECT = 6,     /* p0, p1 = bottom-left; p2, p3 = width, height */
   ARES_C_KEEP_IN_LANE = 7,     /* p0, p1 -> p2, p3 = the line; p4 = tolerance */
   ARES_C_KEEP_OUT_CIRCLE = 8,  /* p0, p1 = center; p2 = radius */
+  ARES_C_ON_BEZIER = 9,        /* p0..p7 = the cubic's four points; from/to = its ends */
 };
 
 typedef struct {
   int kind;
   int from;
   int to;
-  double p[5];
+  double p[8];
 } AresNlpConstraint;
 
 typedef struct {

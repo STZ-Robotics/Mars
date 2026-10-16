@@ -217,7 +217,7 @@ pub fn plan(
     for c in work.scoped.iter().filter(|c| c.enabled) {
         let (a, b) = c.range(n_wp);
         let (from, to) = (start[a] as i32, start[b] as i32);
-        let rec = |kind, p: [f64; 5]| ffi::Constraint { kind, from, to, p };
+        let rec = |kind, p: [f64; 5]| ffi::Constraint { kind, from, to, p: [p[0], p[1], p[2], p[3], p[4], 0.0, 0.0, 0.0] };
         match c.kind {
             ConstraintKind::StopPoint { .. } => {
                 for j in a..=b {
@@ -243,6 +243,16 @@ pub fn plan(
                 constraints.push(rec(ffi::C_KEEP_OUT_CIRCLE, [x, y, radius_m, 0.0, 0.0]))
             }
         }
+    }
+
+    // Manual segments: the robot stays on the user's curve.
+    for (j, pts) in work.manual_curves() {
+        constraints.push(ffi::Constraint {
+            kind: ffi::C_ON_BEZIER,
+            from: start[j] as i32,
+            to: start[j + 1] as i32,
+            p: [pts[0].x, pts[0].y, pts[1].x, pts[1].y, pts[2].x, pts[2].y, pts[3].x, pts[3].y],
+        });
     }
 
     let d = drive(robot);
