@@ -219,13 +219,21 @@ export default function FieldView(props: Props) {
     // The guess, thin and dashed.
     if (guess && opts.guess) {
       ctx.setLineDash([6, 5])
-      polyline(ctx, guess.samples.map(s => toScreen(s.x, s.y)), COLORS.guess, 1.3)
+      const pts = guess.samples.map(s => toScreen(s.x, s.y))
+      if (!plan) {
+        ctx.setLineDash([])
+        polyline(ctx, pts, "rgba(255,255,255,0.85)", 4)
+        ctx.setLineDash([6, 5])
+      }
+      polyline(ctx, pts, plan ? COLORS.guess : "#111114", 1.6)
       ctx.setLineDash([])
     }
 
     // The generated trajectory, by the chosen gradient, and its mirror.
     if (generated && opts.trajectory) {
       ctx.globalAlpha = stale ? 0.35 : 1
+      // On the photo, a white casing under the line so it reads over any color.
+      if (!plan) polyline(ctx, generated.samples.map(q => toScreen(q.x, q.y)), "rgba(255,255,255,0.9)", 7.5)
       drawTrajectory(ctx, toScreen, generated, opts.gradient, topSpeed, 4)
       if (opts.flipped) {
         ctx.globalAlpha = stale ? 0.2 : 0.45
@@ -305,8 +313,17 @@ export default function FieldView(props: Props) {
         ctx.beginPath()
         ctx.moveTo(...p0)
         ctx.bezierCurveTo(...p1, ...p2, ...p3)
+        if (!plan) {
+          ctx.strokeStyle = "rgba(255,255,255,0.9)"
+          ctx.lineWidth = 5.5
+          ctx.stroke()
+          ctx.strokeStyle = "rgba(255,255,255,0.9)"
+          ctx.lineWidth = 4.5
+          line(ctx, p0, p1)
+          line(ctx, p3, p2)
+        }
         ctx.strokeStyle = COLORS.constraint
-        ctx.lineWidth = 2
+        ctx.lineWidth = 2.5
         ctx.stroke()
         ctx.lineWidth = 1.2
         line(ctx, p0, p1)
