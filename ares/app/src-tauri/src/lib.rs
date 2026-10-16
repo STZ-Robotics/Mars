@@ -2,6 +2,8 @@
 //! computed here, with the same code the solver uses, so what the robot
 //! settings page shows is what the planner will assume.
 
+mod project;
+
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
@@ -253,7 +255,14 @@ pub fn run() {
             robot_save,
             resolve_model_path,
             startup_robot,
-            read_binary_file
+            read_binary_file,
+            project::paths_list,
+            project::path_save,
+            project::path_delete,
+            project::field_open,
+            project::field_save,
+            project::path_time,
+            project::path_plan
         ])
         .run(tauri::generate_context!())
         .expect("error while running Ares");

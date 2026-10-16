@@ -19,6 +19,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 ares-core = { path = "../../core" }
+ares-planner = { path = "../../planner" }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 serde = { version = "1.0", features = ["derive"] }

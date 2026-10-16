@@ -52,6 +52,7 @@ name = "ares-app"
 version = "0.1.0"
 dependencies = [
  "ares-core",
+ "ares-planner",
  "serde",
  "serde_json",
  "tauri",

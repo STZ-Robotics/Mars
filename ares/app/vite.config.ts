@@ -16,6 +16,8 @@ const host = process.env.TAURI_DEV_HOST;
 // instance from desktop/node_modules.
 export default defineConfig(async () => ({
   plugins: [react()],
+  // The field images and their calibration JSON are MARS Desktop's too.
+  publicDir: path.resolve(desktop, "../public"),
   resolve: {
     alias: { "@desktop": desktop },
     dedupe: ["react", "react-dom", "three", "@tauri-apps/api", "@tauri-apps/plugin-dialog"],

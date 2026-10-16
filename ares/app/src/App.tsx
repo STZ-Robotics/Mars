@@ -4,6 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window"
 import { open, save } from "@tauri-apps/plugin-dialog"
 import { fileNameOf } from "@desktop/utils/field/robotModel"
 import RobotSettingsPage from "./robot/RobotSettingsPage"
+import PathsPage from "./paths/PathsPage"
 import { newRobot, RobotConfig } from "./robot/types"
 
 type Page = "robot" | "paths" | "field"
@@ -107,7 +108,8 @@ export default function App() {
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
         <Rail page={page} onSelect={setPage} />
         {page === "robot" && <RobotSettingsPage robot={robot} onChange={setRobot} robotPath={robotPath} />}
-        {page !== "robot" && <ComingSoon page={page} />}
+        {page === "paths" && <PathsPage robot={robot} robotPath={robotPath} onSaveRobot={fileSave} />}
+        {page === "field" && <ComingSoon page={page} />}
       </div>
       <StatusBar robot={robot.name} dirty={dirty} status={status} />
     </div>
@@ -174,7 +176,7 @@ function MenuBar({ menus }: { menus: { label: string; items: MenuEntry[] }[] }) 
 
 const PAGES: { id: Page; label: string; icon: string; ready: boolean }[] = [
   { id: "robot", label: "Robot", icon: "ti-robot", ready: true },
-  { id: "paths", label: "Paths", icon: "ti-route", ready: false },
+  { id: "paths", label: "Paths", icon: "ti-route", ready: true },
   { id: "field", label: "Field", icon: "ti-map-2", ready: false },
 ]
 
@@ -201,10 +203,10 @@ function Rail({ page, onSelect }: { page: Page; onSelect: (p: Page) => void }) {
   )
 }
 
-function ComingSoon({ page }: { page: Page }) {
+function ComingSoon(_: { page: Page }) {
   return (
     <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 13, background: "var(--bg-page)" }}>
-      {page === "paths" ? "The path editor comes after the robot." : "The field comes with the path editor."}
+      The field editor is next: for now, keep-outs are drawn in Paths.
     </div>
   )
 }

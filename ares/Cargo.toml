@@ -5,3 +5,11 @@ members = ["core", "planner", "app/src-tauri"]
 [workspace.package]
 edition = "2021"
 license = "MIT"
+
+# The solver runs on every drag in the editor: even a dev build has to time a
+# path in milliseconds, not tenths of a second.
+[profile.dev.package.ares-core]
+opt-level = 3
+
+[profile.dev.package.ares-planner]
+opt-level = 3
