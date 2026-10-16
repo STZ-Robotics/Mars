@@ -488,3 +488,44 @@ mod tests {
         assert!(GeometricPath::build(&spec(vec![wp(0.0, f64::NAN, None), wp(1.0, 0.0, None)]), 0.4, 0.01).is_err());
     }
 }
+
+#[cfg(test)]
+mod format_tests {
+    use super::*;
+
+    #[test]
+    fn reads_what_the_editor_writes_and_writes_it_back() {
+        let text = r#"{
+          "name": "p",
+          "waypoints": [
+            {"x": 1, "y": 2, "headingDeg": 0, "kind": "pose"},
+            {"x": 3, "y": 4, "kind": "empty", "intervals": 12, "split": true},
+            {"x": 5, "y": 6, "kind": "translation"}
+          ],
+          "constraints": {},
+          "scoped": [
+            {"type": "stopPoint", "from": "first"},
+            {"type": "maxVelocity", "mps": 2, "from": {"index": 1}, "to": "last"},
+            {"type": "pointAt", "x": 8, "y": 4, "toleranceDeg": 5, "flip": true, "from": "first", "to": "last", "enabled": false}
+          ],
+          "events": [{"name": "intake", "target": {"index": 1}, "offsetS": -0.25}]
+        }"#;
+        let spec: PathSpec = serde_json::from_str(text).unwrap();
+        assert_eq!(spec.waypoints[1].kind(), WaypointKind::Empty);
+        assert_eq!(spec.waypoints[1].intervals, Some(12));
+        assert_eq!(spec.scoped[1].from, Target::Index(1));
+        assert_eq!(spec.scoped[1].to, Some(Target::Last));
+        assert!(!spec.scoped[2].enabled);
+        assert_eq!(spec.scoped[2].kind, ConstraintKind::PointAt { x: 8.0, y: 4.0, tolerance_deg: 5.0, flip: true });
+        let back: PathSpec = serde_json::from_str(&serde_json::to_string(&spec).unwrap()).unwrap();
+        assert_eq!(back, spec);
+    }
+
+    #[test]
+    fn old_files_stop_at_both_ends() {
+        let spec: PathSpec = serde_json::from_str(r#"{"name": "old", "waypoints": [{"x": 0, "y": 0}, {"x": 1, "y": 0, "headingDeg": 90}]}"#).unwrap();
+        assert_eq!(spec.scoped, default_scoped());
+        assert_eq!(spec.waypoints[1].kind(), WaypointKind::Pose);
+        assert_eq!(spec.waypoints[0].kind(), WaypointKind::Translation);
+    }
+}

@@ -138,6 +138,13 @@ pub fn path_delete(robot_path: String, name: String) -> Result<(), String> {
     fs::remove_file(path_file(&robot_path, &name)?).map_err(|e| e.to_string())
 }
 
+/// The trajectory last generated for a path, if there is one on disk.
+#[tauri::command]
+pub fn trajectory_open(robot_path: String, name: String) -> Option<Trajectory> {
+    let text = fs::read_to_string(traj_file(&robot_path, &name).ok()?).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
 #[tauri::command]
 pub fn field_open(robot_path: String) -> FieldDoc {
     fs::read_to_string(project_dir(&robot_path).join("field.json"))
