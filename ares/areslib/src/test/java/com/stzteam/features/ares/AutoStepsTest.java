@@ -104,6 +104,19 @@ class AutoStepsTest {
   }
 
   @Test
+  void pathPlannerStyleGroupsBehaveTheSame() throws Exception {
+    drive.pose = new Pose2d(9, 9, new Rotation2d());
+    double path = TrajectoryTest.main().duration();
+    assertEquals(path, run(ares.auto("GroupDeadline"), 10, 99), 0.08);
+    assertEquals(path, holds.get(0)[1], 0.08);
+    holds.clear();
+    assertEquals(0.5, run(ares.auto("GroupRace"), 5, 99), 0.05);
+    // A sequential group inside a parallel one: the mark comes 0.3 s in, the group lasts 0.8 s.
+    assertEquals(0.8, run(ares.auto("Nested groups"), 5, 99), 0.05);
+    assertEquals(0.3, marks.get(0), 0.05);
+  }
+
+  @Test
   void twoPathsAtOnceAreAnAlertNotACrash() throws Exception {
     drive.pose = new Pose2d(9, 9, new Rotation2d());
     double took = run(ares.auto("Clash"), 10, 99);

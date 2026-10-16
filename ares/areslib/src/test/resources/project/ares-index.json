@@ -282,6 +282,69 @@
           ]
         }
       ]
+    },
+    {
+      "name": "GroupDeadline",
+      "steps": [
+        {
+          "type": "deadline",
+          "steps": [
+            {
+              "type": "path",
+              "path": "Main"
+            },
+            {
+              "type": "command",
+              "name": "hold"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "GroupRace",
+      "steps": [
+        {
+          "type": "race",
+          "steps": [
+            {
+              "type": "wait",
+              "seconds": 0.5
+            },
+            {
+              "type": "command",
+              "name": "hold"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Nested groups",
+      "steps": [
+        {
+          "type": "parallel",
+          "steps": [
+            {
+              "type": "sequential",
+              "steps": [
+                {
+                  "type": "wait",
+                  "seconds": 0.3
+                },
+                {
+                  "type": "command",
+                  "name": "mark"
+                }
+              ]
+            },
+            {
+              "type": "wait",
+              "seconds": 0.8
+            }
+          ]
+        }
+      ]
     }
   ]
 }

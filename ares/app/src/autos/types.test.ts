@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { Auto, conditionsOf, duration, getList, legs, namesOf, Step, updateList } from "./types"
+import { Auto, conditionsOf, duration, getList, legs, migrate, moveStep, namesOf, Step, updateList } from "./types"
 
 const d = new Map([["A", 2], ["B", 3], ["C", 1.5], ["B@fast", 2.5]])
 const steps: Step[] = [
   { type: "path", path: "A" },
   { type: "command", name: "shoot", estimateS: 0.5 },
   { type: "if", condition: "hasNote", then: [{ type: "path", path: "B" }], else: [{ type: "path", path: "C" }, { type: "wait", seconds: 0.25 }] },
-  { type: "command", name: "intake", alongside: true },
 ]
 
 describe("autos", () => {
@@ -21,7 +20,7 @@ describe("autos", () => {
   })
   it("lay one way on a timeline", () => {
     const r = legs(steps, d, new Map(), c => c !== "hasNote")
-    expect(r.legs.map(l => l.label)).toEqual(["A", "shoot", "C", "wait 0.25 s", "intake"])
+    expect(r.legs.map(l => l.label)).toEqual(["A", "shoot", "C", "wait 0.25 s"])
     expect(r.end).toBeCloseTo(4.25)
   })
   it("nest autos without looping", () => {
@@ -31,48 +30,88 @@ describe("autos", () => {
     expect(conditionsOf(steps, autos)).toEqual(["hasNote"])
   })
   it("edit nested lists", () => {
-    const at = [2, "else"] as const
-    expect(getList(steps, [...at]).length).toBe(2)
-    const next = updateList(steps, [...at], l => [...l, { type: "wait", seconds: 1 }])
-    expect(getList(next, [...at]).length).toBe(3)
-    expect(getList(steps, [...at]).length).toBe(2)
+    expect(getList(steps, [2, "else"]).length).toBe(2)
+    const next = updateList(steps, [2, "else"], l => [...l, { type: "wait", seconds: 1 }])
+    expect(getList(next, [2, "else"]).length).toBe(3)
+    expect(getList(steps, [2, "else"]).length).toBe(2)
   })
 })
 
-describe("parallel and when", () => {
-  const group = (mode: "all" | "race" | "deadline"): Step => ({
-    type: "parallel", mode, branches: [[{ type: "path", path: "A" }], [{ type: "wait", seconds: 3 }]],
+describe("command groups", () => {
+  const group = (type: "parallel" | "deadline" | "race"): Step => ({
+    type, steps: [{ type: "path", path: "A" }, { type: "wait", seconds: 3 }],
   })
-  it("time a group by its mode", () => {
-    expect(duration([group("all")], d, new Map()).max).toBeCloseTo(3)
+  it("time a group by its type", () => {
+    expect(duration([group("parallel")], d, new Map()).max).toBeCloseTo(3)
     expect(duration([group("race")], d, new Map()).max).toBeCloseTo(2)
     expect(duration([group("deadline")], d, new Map()).max).toBeCloseTo(2)
+    const seq: Step = { type: "sequential", steps: [{ type: "path", path: "A" }, { type: "path", path: "C" }] }
+    expect(duration([{ type: "parallel", steps: [seq, { type: "wait", seconds: 1 }] }], d, new Map()).max).toBeCloseTo(3.5)
   })
   it("lay a group out, cutting what a race cuts", () => {
     const r = legs([group("race"), { type: "path", path: "C" }], d, new Map(), () => true)
     expect(r.end).toBeCloseTo(3.5)
-    const wait = r.legs.find(l => l.kind === "wait")!
-    expect(wait.end).toBeCloseTo(2)
+    expect(r.legs.find(l => l.kind === "wait")!.end).toBeCloseTo(2)
   })
-  it("a when step takes no time and lands at its time", () => {
-    const steps: Step[] = [
+  it("a when takes no time and lands at its time", () => {
+    const s: Step[] = [
       { type: "when", trigger: { kind: "time", atS: 1 }, steps: [{ type: "command", name: "spin", estimateS: 0.5 }] },
       { type: "path", path: "A" },
     ]
-    const r = legs(steps, d, new Map(), () => true)
+    const r = legs(s, d, new Map(), () => true)
     expect(r.end).toBeCloseTo(2)
     expect(r.legs.find(l => l.label === "spin")!.start).toBeCloseTo(1)
-    expect(duration(steps, d, new Map()).max).toBeCloseTo(2)
   })
-  it("edit lists inside groups and whens, and list what the robot code must have", () => {
-    const steps: Step[] = [group("all"), { type: "when", trigger: { kind: "condition", name: "seesTag" }, steps: [] }]
-    const next = updateList(steps, [1, "do"], l => [...l, { type: "command", name: "aim" }])
-    const n2 = updateList(next, [0, "b1"], l => [...l, { type: "command", name: "shoot" }])
-    expect(getList(n2, [0, "b1"]).length).toBe(2)
-    expect(getList(n2, [1, "do"]).length).toBe(1)
-    const names = namesOf(n2, new Map())
-    expect(names.commands.sort()).toEqual(["aim", "shoot"])
+  it("list what the robot code must have", () => {
+    const s: Step[] = [
+      { type: "deadline", steps: [{ type: "path", path: "A" }, { type: "command", name: "intake" }] },
+      { type: "when", trigger: { kind: "condition", name: "seesTag" }, steps: [{ type: "command", name: "aim" }] },
+    ]
+    const names = namesOf(s, new Map())
+    expect(names.commands.sort()).toEqual(["aim", "intake"])
     expect(names.conditions).toEqual(["seesTag"])
     expect(names.paths).toEqual(["A"])
+  })
+})
+
+describe("the old format", () => {
+  it("turns lists in parallel into groups", () => {
+    const old = [{ type: "parallel", mode: "deadline", branches: [[{ type: "path", path: "A" }], [{ type: "command", name: "x" }, { type: "wait", seconds: 1 }]] }] as unknown as Step[]
+    expect(migrate(old)).toEqual([{
+      type: "deadline", steps: [{ type: "path", path: "A" }, { type: "sequential", steps: [{ type: "command", name: "x" }, { type: "wait", seconds: 1 }] }],
+    }])
+  })
+  it("turns a command alongside the rest into a deadline on the rest", () => {
+    const old: Step[] = [{ type: "path", path: "A" }, { type: "command", name: "spin", alongside: true }, { type: "path", path: "B" }, { type: "path", path: "C" }]
+    expect(migrate(old)).toEqual([
+      { type: "path", path: "A" },
+      { type: "deadline", steps: [{ type: "sequential", steps: [{ type: "path", path: "B" }, { type: "path", path: "C" }] }, { type: "command", name: "spin" }] },
+    ])
+    // The timing is the same as before.
+    expect(duration(migrate(old), d, new Map()).max).toBeCloseTo(duration(old, d, new Map()).max)
+  })
+})
+
+describe("moving commands", () => {
+  const tree: Step[] = [
+    { type: "path", path: "A" },
+    { type: "parallel", steps: [{ type: "command", name: "x" }] },
+    { type: "path", path: "B" },
+  ]
+  const label = (s: Step) => (s.type === "path" ? s.path : s.type)
+  it("within a list, both ways", () => {
+    expect(moveStep(tree, [], 0, [], 3).map(label)).toEqual(["parallel", "B", "A"])
+    expect(moveStep(tree, [], 2, [], 0).map(label)).toEqual(["B", "A", "parallel"])
+  })
+  it("into a group after it and out to the root", () => {
+    const into = moveStep(tree, [], 0, [1, "steps"], 0)
+    expect(into.length).toBe(2)
+    expect(getList(into, [0, "steps"]).map(s => s.type)).toEqual(["path", "command"])
+    const out = moveStep(tree, [1, "steps"], 0, [], 3)
+    expect(out.map(s => s.type)).toEqual(["path", "parallel", "path", "command"])
+    expect(getList(out, [1, "steps"]).length).toBe(0)
+  })
+  it("never a group into itself", () => {
+    expect(moveStep(tree, [], 1, [1, "steps"], 0)).toBe(tree)
   })
 })

@@ -4,14 +4,15 @@ import { open } from "@tauri-apps/plugin-dialog"
 import { propertyInputStyle } from "@desktop/styles/pageForm"
 import { FIELDS } from "@desktop/utils/field/fieldImages"
 import type { RobotConfig } from "../robot/types"
-import { Card, MiniButton, Toggle } from "../ui/controls"
+import { Card, Toggle } from "../ui/controls"
 import { drawFieldBackground } from "../paths/FieldView"
 import { fieldSketch } from "../paths/fieldSketch"
 import { DEFAULT_VIEW, FieldDoc, PathEntry, PathStatus, PlanResult, PathSpec, Trajectory, ViewOptions, sampleAt } from "../paths/types"
 import { useVariables } from "../vars/context"
 import { useToast } from "../ui/toasts"
 import { applyScope, evaluateAll, withOverrides } from "../vars/variables"
-import { Auto, DEFAULT_BUDGET_S, Leg, ParallelMode, Step, StepPath, Trigger, children, conditionsOf, duration, legs, namesOf, newAuto, pathKey, updateList, zonesOf } from "./types"
+import { Auto, DEFAULT_BUDGET_S, Leg, Step, Trigger, children, conditionsOf, duration, legs, migrateAuto, namesOf, newAuto, pathKey, zonesOf } from "./types"
+import CommandTree, { RobotNames } from "./CommandTree"
 
 interface Props {
   robot: RobotConfig
@@ -19,9 +20,6 @@ interface Props {
 }
 
 const SIDEBAR_WIDTH = 400
-
-/** What the robot code registers (see src-tauri/src/robot_code.rs). */
-interface RobotNames { root: string | null; commands: string[]; conditions: string[]; events: string[]; files: number }
 
 const CODE_KEY = (robotPath: string) => `ares.robotCode:${robotPath}`
 const LEG_COLORS = ["#2f6fdb", "#e95420", "#16a34a", "#db2777", "#0e7490", "#ca8a04", "#7c8a00", "#a81818"]
@@ -75,7 +73,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
 
   const refresh = useCallback(async () => {
     const [list, entries] = await Promise.all([
-      invoke<Auto[]>("autos_list", { robotPath }).catch(() => [] as Auto[]),
+      invoke<Auto[]>("autos_list", { robotPath }).then(l => l.map(migrateAuto)).catch(() => [] as Auto[]),
       invoke<PathEntry[]>("paths_list", { robotPath }).catch(() => [] as PathEntry[]),
     ])
     setAutos(list)
@@ -135,11 +133,47 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
   }, [auto, autoMap, names, trajs])
 
   // --- Editing, saved shortly after -----------------------------------------
+  // Undo and redo, per auto (Ctrl+Z, Ctrl+Shift+Z or Ctrl+Y).
+  const history = useRef<{ name: string; undo: Auto[]; redo: Auto[] }>({ name: "", undo: [], redo: [] })
   const edit = (f: (a: Auto) => Auto) => {
-    setCurrent(c => (c ? { ...c, auto: f(c.auto) } : c))
+    setCurrent(c => {
+      if (!c) return c
+      const h = history.current
+      if (h.name !== c.auto.name) { h.name = c.auto.name; h.undo = []; h.redo = [] }
+      h.undo.push(c.auto)
+      if (h.undo.length > 100) h.undo.shift()
+      h.redo = []
+      return { ...c, auto: f(c.auto) }
+    })
     setCommit(c => c + 1)
   }
-  const editList = (at: StepPath, f: (l: Step[]) => Step[]) => edit(a => ({ ...a, steps: updateList(a.steps, at, f) }))
+  const travel = (dir: "undo" | "redo") => {
+    setCurrent(c => {
+      const h = history.current
+      if (!c || h.name !== c.auto.name) return c
+      const from = dir === "undo" ? h.undo : h.redo, to = dir === "undo" ? h.redo : h.undo
+      const prev = from.pop()
+      if (!prev) return c
+      to.push(c.auto)
+      return { ...c, auto: { ...prev, name: c.auto.name } }
+    })
+    setCommit(c => c + 1)
+  }
+  const travelRef = useRef(travel)
+  travelRef.current = travel
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement
+      if (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA") return
+      if (!(e.ctrlKey || e.metaKey)) return
+      const k = e.key.toLowerCase()
+      if (k === "z") { e.preventDefault(); travelRef.current(e.shiftKey ? "redo" : "undo") }
+      else if (k === "y") { e.preventDefault(); travelRef.current("redo") }
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [])
+  const [hoverPath, setHoverPath] = useState<string | null>(null)
   useEffect(() => {
     if (!commit || !current) return
     const t = setTimeout(async () => {
@@ -148,7 +182,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
         setCurrent(c => (c && c.auto.name === current.auto.name ? { ...c, savedName: current.auto.name } : c))
         setNote("Saved")
         const list = await invoke<Auto[]>("autos_list", { robotPath })
-        setAutos(list)
+        setAutos(list.map(migrateAuto))
       } catch (e) {
         setNote(String(e))
       }
@@ -279,17 +313,19 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
 
           {auto && (
             <>
-              <Heading label="Steps" />
-              <StepList
+              <Heading label="Commands">
+                <SmallIcon icon="ti-arrow-back-up" title="Undo (Ctrl+Z)" onClick={() => travel("undo")} />
+                <SmallIcon icon="ti-arrow-forward-up" title="Redo (Ctrl+Shift+Z)" onClick={() => travel("redo")} />
+              </Heading>
+              <CommandTree
                 steps={auto.steps}
-                at={[]}
-                depth={0}
+                onChange={steps => edit(a => ({ ...a, steps }))}
                 paths={paths}
                 autos={autos.filter(a => a.name !== auto.name)}
                 durations={durations}
                 status={status}
                 names={names?.root ? names : null}
-                onList={editList}
+                onHoverPath={setHoverPath}
               />
               <Heading label="Robot code">
                 <SmallIcon icon="ti-refresh" title="Read the robot code again" onClick={readNames} />
@@ -358,7 +394,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
           </span>
         </div>
         <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
-          <AutoField field={field} robot={robot} legs={timeline.legs} trajs={trajs} playhead={playhead} zones={zones} />
+          <AutoField field={field} robot={robot} legs={timeline.legs} trajs={trajs} playhead={playhead} zones={zones} hovered={hoverPath} />
         </div>
         <Timeline legs={timeline.legs} end={timeline.end} range={range} budget={budget} playhead={playhead} playing={playing}
           onPlay={() => { if (!playing && (playhead === null || playhead >= timeline.end - 1e-3)) setPlayhead(0); setPlaying(p => !p) }}
@@ -368,205 +404,13 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
   )
 }
 
-// --- The step editor -----------------------------------------------------------
-
-function StepList({ steps, at, depth, paths, autos, durations, status, names, onList }: {
-  steps: Step[]; at: StepPath; depth: number; paths: PathSpec[]; autos: Auto[]
-  durations: Map<string, number>; status: Record<string, PathStatus>
-  /** The robot code's names, when it was found: what is not in it is flagged. */
-  names: RobotNames | null
-  onList: (at: StepPath, f: (l: Step[]) => Step[]) => void
-}) {
-  const set = (i: number, s: Step) => onList(at, l => l.map((x, j) => (j === i ? s : x)))
-  const move = (i: number, d: number) => onList(at, l => {
-    const j = i + d
-    if (j < 0 || j >= l.length) return l
-    const out = [...l]
-    ;[out[i], out[j]] = [out[j], out[i]]
-    return out
-  })
-  const del = (i: number) => onList(at, l => l.filter((_, j) => j !== i))
-  const add = (s: Step) => onList(at, l => [...l, s])
-  const firstPath = paths[0]?.name ?? ""
-  const nested = (list: Step[], key: StepPath) => (
-    <StepList steps={list} at={key} depth={depth + 1} paths={paths} autos={autos} durations={durations} status={status} names={names} onList={onList} />
-  )
-  const missingCommand = (n: string) => (names && !names.commands.includes(n) ? `"${n}" is not registered in the robot code (ares.registerCommand)` : undefined)
-  const missingCondition = (n: string) => (names && !names.conditions.includes(n) ? `"${n}" is not registered in the robot code (ares.registerCondition)` : undefined)
-  return (
-    <div style={{ paddingLeft: depth ? 14 : 0, borderLeft: depth ? "2px solid rgba(219,39,119,0.35)" : undefined, marginLeft: depth ? 10 : 0 }}>
-      {steps.map((s, i) => (
-        <div key={i} style={{ borderBottom: "1px solid var(--border-light)", padding: "5px 6px 5px 8px", display: "flex", flexDirection: "column", gap: 4 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ fontSize: 10, color: "var(--text-muted)", width: 14, textAlign: "right" }}>{i + 1}</span>
-            <StepIcon s={s} />
-            <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
-              {s.type === "path" && (() => {
-                const p = paths.find(q => q.name === s.path)
-                const t = durations.get(pathKey(s))
-                const st = status[s.path]
-                return (
-                  <>
-                    <select style={{ ...propertyInputStyle, flex: 1, minWidth: 110 }} value={s.path} onChange={e => set(i, { type: "path", path: e.target.value })}>
-                      {!p && <option value={s.path}>{s.path} (missing)</option>}
-                      {paths.map(q => <option key={q.name} value={q.name}>{q.name}</option>)}
-                    </select>
-                    {(p?.variants?.length ?? 0) > 0 && (
-                      <select style={{ ...propertyInputStyle, width: 96 }} value={s.variant ?? ""} onChange={e => set(i, { ...s, variant: e.target.value || undefined })}>
-                        <option value="">Base</option>
-                        {p!.variants!.map(v => <option key={v.name} value={v.name}>◇ {v.name}</option>)}
-                      </select>
-                    )}
-                    <span style={{ fontSize: 10, fontFamily: "Consolas, 'Cascadia Mono', monospace", color: t === undefined ? "var(--status-error)" : st?.outdated ? "#d97706" : "var(--text-muted)" }}
-                      title={t === undefined ? "Not generated" : st?.outdated ? "Out of date" : "Up to date"}>
-                      {t === undefined ? "—" : `${t.toFixed(2)} s`}
-                    </span>
-                  </>
-                )
-              })()}
-              {s.type === "wait" && (
-                <><span style={{ fontSize: 11.5 }}>Wait</span><NumberField value={s.seconds} onCommit={v => set(i, { ...s, seconds: Math.max(0, v) })} /><span style={{ fontSize: 11 }}>s</span></>
-              )}
-              {s.type === "command" && (
-                <>
-                  <span title="A NamedCommand registered in the robot code."><TextField value={s.name} list="ares-commands" warn={missingCommand(s.name)} onCommit={name => set(i, { ...s, name })} /></span>
-                  <span title="How long you expect it to take, for the timeline (the robot code decides the real time)." style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10.5 }}>
-                    ≈<NumberField value={s.estimateS ?? 0} onCommit={v => set(i, { ...s, estimateS: v > 0 ? v : undefined })} />s
-                  </span>
-                  <label title="Runs alongside the next steps instead of waiting for it to finish (it takes no time on the timeline)." style={{ fontSize: 10.5, display: "flex", alignItems: "center", gap: 3 }}>
-                    <input type="checkbox" checked={!!s.alongside} onChange={e => set(i, { ...s, alongside: e.target.checked || undefined })} /> alongside
-                  </label>
-                </>
-              )}
-              {s.type === "if" && (
-                <><span style={{ fontSize: 11.5, fontWeight: 600, color: "#db2777" }}>If</span>
-                  <span title="A NamedCondition registered in the robot code."><TextField value={s.condition} list="ares-conditions" warn={missingCondition(s.condition)} onCommit={condition => set(i, { ...s, condition })} /></span></>
-              )}
-              {s.type === "auto" && (
-                <select style={{ ...propertyInputStyle, flex: 1 }} value={s.auto} onChange={e => set(i, { type: "auto", auto: e.target.value })}>
-                  {!autos.some(a => a.name === s.auto) && <option value={s.auto}>{s.auto} (missing)</option>}
-                  {autos.map(a => <option key={a.name} value={a.name}>{a.name}</option>)}
-                </select>
-              )}
-              {s.type === "parallel" && (
-                <>
-                  <span style={{ fontSize: 11.5, fontWeight: 600, color: "#0e7490" }}>Together</span>
-                  <select style={{ ...propertyInputStyle, width: 170 }} value={s.mode} title={PARALLEL_HELP[s.mode]}
-                    onChange={e => set(i, { ...s, mode: e.target.value as ParallelMode })}>
-                    <option value="all">until all finish</option>
-                    <option value="race">until the first finishes</option>
-                    <option value="deadline">until list 1 finishes</option>
-                  </select>
-                </>
-              )}
-              {s.type === "when" && (
-                <>
-                  <span style={{ fontSize: 11.5, fontWeight: 600, color: "#7c3aed" }}>When</span>
-                  <select style={{ ...propertyInputStyle, width: 112 }} value={s.trigger.kind}
-                    onChange={e => set(i, { ...s, trigger: defaultTrigger(e.target.value as Trigger["kind"]) })}>
-                    <option value="time">time reaches</option>
-                    <option value="zone">robot enters</option>
-                    <option value="condition">condition holds</option>
-                  </select>
-                  <TriggerFields trigger={s.trigger} warn={s.trigger.kind === "condition" ? missingCondition(s.trigger.name) : undefined} onChange={trigger => set(i, { ...s, trigger })} />
-                </>
-              )}
-            </div>
-            <SmallIcon icon="ti-arrow-up" title="Move up" onClick={() => move(i, -1)} />
-            <SmallIcon icon="ti-arrow-down" title="Move down" onClick={() => move(i, 1)} />
-            <SmallIcon icon="ti-trash" title="Delete step" onClick={() => del(i)} />
-          </div>
-          {s.type === "if" && (
-            <>
-              <div style={{ fontSize: 10, color: "#16a34a", fontWeight: 700, marginLeft: 22 }}>THEN (true)</div>
-              {nested(s.then, [...at, i, "then"])}
-              <div style={{ fontSize: 10, color: "#a81818", fontWeight: 700, marginLeft: 22 }}>ELSE (false)</div>
-              {nested(s.else, [...at, i, "else"])}
-            </>
-          )}
-          {s.type === "parallel" && (
-            <>
-              {s.branches.map((b, k) => (
-                <div key={k}>
-                  <div style={{ fontSize: 10, color: "#0e7490", fontWeight: 700, marginLeft: 22, display: "flex", alignItems: "center", gap: 6 }}>
-                    LIST {k + 1}{s.mode === "deadline" && k === 0 ? " (sets the end)" : ""}
-                    {s.branches.length > 2 && (
-                      <SmallIcon icon="ti-x" title="Remove this list" onClick={() => set(i, { ...s, branches: s.branches.filter((_, j) => j !== k) })} />
-                    )}
-                  </div>
-                  {nested(b, [...at, i, `b${k}`])}
-                </div>
-              ))}
-              <div style={{ marginLeft: 22 }}>
-                <MiniButton title="Another list that runs at the same time" onClick={() => set(i, { ...s, branches: [...s.branches, []] })}>+ List</MiniButton>
-              </div>
-            </>
-          )}
-          {s.type === "when" && (
-            <>
-              <div style={{ fontSize: 10, color: "#7c3aed", fontWeight: 700, marginLeft: 22 }}>DO (alongside the rest, once)</div>
-              {nested(s.steps, [...at, i, "do"])}
-            </>
-          )}
-        </div>
-      ))}
-      <div style={{ display: "flex", gap: 3, padding: "5px 8px", flexWrap: "wrap" }}>
-        <MiniButton title="Drive a path (or one of its variants)" onClick={() => firstPath && add({ type: "path", path: firstPath })}>+ Path</MiniButton>
-        <MiniButton title="Wait a fixed time" onClick={() => add({ type: "wait", seconds: 0.5 })}>+ Wait</MiniButton>
-        <MiniButton title="Run a NamedCommand from the robot code" onClick={() => add({ type: "command", name: names?.commands[0] ?? "shoot", estimateS: 0.5 })}>+ Command</MiniButton>
-        <MiniButton title="Take one list or the other on a NamedCondition from the robot code" onClick={() => add({ type: "if", condition: names?.conditions[0] ?? "hasNote", then: [], else: [] })}>+ If</MiniButton>
-        <MiniButton title="Run lists at the same time: until all finish, the first finishes, or list 1 finishes" onClick={() => add({ type: "parallel", mode: "deadline", branches: [[], []] })}>+ Together</MiniButton>
-        <MiniButton title="When a time comes, the robot enters a zone or a condition holds, run a list alongside the rest" onClick={() => add({ type: "when", trigger: defaultTrigger("time"), steps: [] })}>+ When</MiniButton>
-        <MiniButton title="Run another auto here" onClick={() => autos[0] && add({ type: "auto", auto: autos[0].name })}>+ Auto</MiniButton>
-      </div>
-    </div>
-  )
-}
-
-const PARALLEL_HELP: Record<ParallelMode, string> = {
-  all: "Every list runs to its end; the step ends with the last one (WPILib's parallel).",
-  race: "The step ends when the first list ends; the others are cut (WPILib's race).",
-  deadline: "List 1 sets the end: when it finishes the others are cut (WPILib's deadline). Put the path in list 1 and what happens during it in the others.",
-}
-
-function defaultTrigger(kind: Trigger["kind"]): Trigger {
-  if (kind === "zone") return { kind, x: 5, y: 2, widthM: 2, heightM: 2 }
-  if (kind === "condition") return { kind, name: "hasNote" }
-  return { kind: "time", atS: 10 }
-}
-
-function TriggerFields({ trigger, warn, onChange }: { trigger: Trigger; warn?: string; onChange: (t: Trigger) => void }) {
-  const unit = (text: string) => <span style={{ fontSize: 10.5, color: "var(--text-muted)" }}>{text}</span>
-  if (trigger.kind === "time") {
-    return <span title="Seconds since the auto started" style={{ display: "flex", alignItems: "center", gap: 3 }}><NumberField value={trigger.atS} onCommit={v => onChange({ ...trigger, atS: Math.max(0, v) })} />{unit("s")}</span>
-  }
-  if (trigger.kind === "condition") {
-    return <TextField value={trigger.name} list="ares-conditions" warn={warn} onCommit={name => onChange({ ...trigger, name })} />
-  }
-  return (
-    <span title="A rectangle on the field (blue's coordinates; flipped on red): x, y of its bottom-left corner, then its width and height" style={{ display: "flex", alignItems: "center", gap: 3, flexWrap: "wrap" }}>
-      {unit("x")}<NumberField value={trigger.x} onCommit={x => onChange({ ...trigger, x })} />
-      {unit("y")}<NumberField value={trigger.y} onCommit={y => onChange({ ...trigger, y })} />
-      {unit("w")}<NumberField value={trigger.widthM} onCommit={v => onChange({ ...trigger, widthM: Math.max(0.1, v) })} />
-      {unit("h")}<NumberField value={trigger.heightM} onCommit={v => onChange({ ...trigger, heightM: Math.max(0.1, v) })} />
-    </span>
-  )
-}
-
-function StepIcon({ s }: { s: Step }) {
-  const map: Record<Step["type"], [string, string]> = {
-    path: ["ti-route", "#2f6fdb"], wait: ["ti-clock-pause", "#68686f"], command: ["ti-terminal-2", "#e95420"], if: ["ti-arrows-split-2", "#db2777"], auto: ["ti-list-details", "#0e7490"],
-    parallel: ["ti-arrows-right", "#0e7490"], when: ["ti-bolt", "#7c3aed"],
-  }
-  const [icon, color] = map[s.type]
-  return <i className={`ti ${icon}`} style={{ fontSize: 14, color }} />
-}
-
 // --- The field, with the auto's paths in order ---------------------------------
 
-function AutoField({ field, robot, legs: lgs, trajs, playhead, zones }: {
+function AutoField({ field, robot, legs: lgs, trajs, playhead, zones, hovered }: {
   field: typeof FIELDS[number]; robot: RobotConfig; legs: Leg[]; trajs: Record<string, Trajectory | null>; playhead: number | null
   zones: Extract<Trigger, { kind: "zone" }>[]
+  /** The path under the pointer in the command tree: drawn on top, the rest faded. */
+  hovered: string | null
 }) {
   const host = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
@@ -628,8 +472,9 @@ function AutoField({ field, robot, legs: lgs, trajs, playhead, zones }: {
       n++
       if (!t) continue
       const pts = t.samples.map(q => toScreen(q.x, q.y))
+      ctx.globalAlpha = hovered && hovered !== leg.path ? 0.25 : 1
       ctx.strokeStyle = "rgba(255,255,255,0.9)"
-      ctx.lineWidth = 7
+      ctx.lineWidth = hovered === leg.path ? 10 : 7
       ctx.lineCap = "round"
       stroke(ctx, pts)
       ctx.strokeStyle = color
@@ -662,6 +507,7 @@ function AutoField({ field, robot, legs: lgs, trajs, playhead, zones }: {
       ctx.textBaseline = "middle"
       ctx.fillText(String(n), sx, sy + 0.5)
       label(ctx, sx, sy, leg.label, color, -18)
+      ctx.globalAlpha = 1
       prevEnd = { x: s1.x, y: s1.y, heading: s1.heading }
     }
 
@@ -690,7 +536,7 @@ function AutoField({ field, robot, legs: lgs, trajs, playhead, zones }: {
         ctx.restore()
       }
     }
-  }, [size, image, sketch, lgs, trajs, playhead, robot, field, view, zones])
+  }, [size, image, sketch, lgs, trajs, playhead, robot, field, view, zones, hovered])
 
   return (
     <div ref={host} style={{ position: "absolute", inset: 0 }}>

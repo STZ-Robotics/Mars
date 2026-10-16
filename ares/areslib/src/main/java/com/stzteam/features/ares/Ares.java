@@ -479,6 +479,11 @@ public final class Ares {
       if (s instanceof Step.Path p) return p.variant() == null ? p.path() : p.path() + "@" + p.variant();
       if (s instanceof Step.If) return null;
       if (s instanceof Step.When) continue;
+      if (s instanceof Step.Group g) {
+        var found = firstPath(g.steps(), seen);
+        if (found != null) return found;
+        continue;
+      }
       if (s instanceof Step.Parallel g) {
         for (var b : g.branches()) {
           var found = firstPath(b, seen);
@@ -577,6 +582,21 @@ public final class Ares {
       var then = build(f.then(), stack, started);
       var otherwise = build(f.otherwise(), stack, started);
       return Commands.either(then, otherwise, () -> condition(f.condition()));
+    }
+    if (s instanceof Step.Group g) {
+      if (g.type().equals("sequential")) return build(g.steps(), stack, started);
+      var members = g.steps();
+      if (members.isEmpty()) return Commands.none();
+      if (members.size() == 1) return build(members, stack, started);
+      return compose(stack, "a " + g.type() + " group", () -> {
+        var cmds = members.stream().map(m -> build(List.of(m), stack, started)).toArray(Command[]::new);
+        var others = java.util.Arrays.copyOfRange(cmds, 1, cmds.length);
+        return switch (g.type()) {
+          case "race" -> Commands.race(cmds);
+          case "deadline" -> Commands.deadline(cmds[0], others);
+          default -> Commands.parallel(cmds);
+        };
+      }, () -> build(List.of(members.get(0)), stack, started));
     }
     if (s instanceof Step.Parallel g) {
       var branches = g.branches();

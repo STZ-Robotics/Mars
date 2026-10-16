@@ -1,29 +1,25 @@
-// Autos: sequences of paths and robot commands, the parent of paths.
+// Autos: a tree of commands, as in PathPlanner's auto editor.
 //
-// Steps run in order. A path step drives a path (or one of its variants); a
-// wait waits; a command runs one of the robot code's NamedCommands (taking
-// the time you estimate, or none if it runs alongside what follows); an
-// if step takes one list or the other on a NamedCondition; an auto step
-// runs another auto. A parallel step runs several lists at once; a when
-// step arms a trigger and, when it fires, runs its list alongside whatever
-// the auto is doing then. The robot code reads them from ares-index.json.
+// The auto is a sequential group. Its commands are paths to follow, the robot
+// code's NamedCommands, waits, and groups that hold more commands:
+// sequential (one after another), parallel (all at once, until all end),
+// deadline (all at once, until the first ends) and race (all at once, until
+// any ends). Beyond PathPlanner: an if takes one list or the other on a
+// NamedCondition, a when runs its commands alongside the rest once a time
+// comes, the robot enters a zone or a condition holds, and an auto runs
+// another auto. The robot code reads them from ares-index.json.
+
+export type GroupType = "sequential" | "parallel" | "deadline" | "race"
 
 export type Step =
   | { type: "path"; path: string; variant?: string }
   | { type: "wait"; seconds: number }
+  /** A NamedCommand. `estimateS` only places it on the timeline; `alongside` is the old format (see migrate). */
   | { type: "command"; name: string; estimateS?: number; alongside?: boolean }
+  | { type: GroupType; steps: Step[] }
   | { type: "if"; condition: string; then: Step[]; else: Step[] }
-  | { type: "auto"; auto: string }
-  /**
-   * The lists at once. `all` ends when every one has (WPILib's parallel),
-   * `race` when the first one does, `deadline` when the first list does,
-   * cutting the others.
-   */
-  | { type: "parallel"; mode: ParallelMode; branches: Step[][] }
-  /** When the trigger fires (once, after this step is reached), its steps run alongside the rest. */
   | { type: "when"; trigger: Trigger; steps: Step[] }
-
-export type ParallelMode = "all" | "race" | "deadline"
+  | { type: "auto"; auto: string }
 
 export type Trigger =
   /** Seconds since the auto started (the match clock). */
@@ -37,6 +33,12 @@ export interface Auto { name: string; budgetS?: number; steps: Step[] }
 
 export const DEFAULT_BUDGET_S = 15
 
+export const GROUPS: GroupType[] = ["sequential", "parallel", "deadline", "race"]
+
+export function isGroup(s: Step): s is Extract<Step, { type: GroupType }> {
+  return (GROUPS as string[]).includes(s.type)
+}
+
 /** How long each path (or path@variant) takes, from its trajectory. */
 export type Durations = ReadonlyMap<string, number>
 
@@ -44,94 +46,180 @@ export function pathKey(s: { path: string; variant?: string }): string {
   return s.variant ? `${s.path}@${s.variant}` : s.path
 }
 
-export type ListKey = "then" | "else" | "do" | `b${number}`
+// --- The old format ----------------------------------------------------------
 
-/** The step lists inside a step, by key: then/else, b0, b1… (parallel), do (when). */
+type OldParallel = { type: "parallel"; mode: "all" | "race" | "deadline"; branches: Step[][] }
+
+/**
+ * Autos saved before the command tree: a parallel step held lists
+ * (`mode`, `branches`) and a command could run `alongside` the rest of its
+ * list. Both become groups, the way PathPlanner would write them.
+ */
+export function migrate(steps: Step[]): Step[] {
+  const out: Step[] = []
+  for (let i = 0; i < steps.length; i++) {
+    let s = steps[i] as Step | OldParallel
+    if (s.type === "parallel" && "branches" in s) {
+      const old = s as OldParallel
+      s = {
+        type: old.mode === "all" ? "parallel" : old.mode,
+        steps: old.branches.map(b => (b.length === 1 ? b[0] : { type: "sequential", steps: b } as Step)),
+      }
+    }
+    const step = s as Step
+    if (step.type === "command" && step.alongside) {
+      // It ran with everything after it and stopped with it: a deadline
+      // whose deadline is the rest.
+      const { alongside: _, ...cmd } = step
+      const rest = migrate(steps.slice(i + 1))
+      out.push(rest.length ? { type: "deadline", steps: [rest.length === 1 ? rest[0] : { type: "sequential", steps: rest }, cmd] } : cmd)
+      break
+    }
+    out.push(withLists(step, migrate))
+  }
+  return out
+}
+
+function withLists(s: Step, f: (l: Step[]) => Step[]): Step {
+  if (s.type === "if") return { ...s, then: f(s.then), else: f(s.else) }
+  if (isGroup(s) || s.type === "when") return { ...s, steps: f(s.steps) }
+  return s
+}
+
+export function migrateAuto(a: Auto): Auto {
+  return { ...a, steps: migrate(a.steps ?? []) }
+}
+
+// --- Nested lists ------------------------------------------------------------
+
+export type ListKey = "then" | "else" | "steps"
+
+/** The command lists inside a command. */
 export function children(s: Step): [ListKey, Step[]][] {
   if (s.type === "if") return [["then", s.then], ["else", s.else]]
-  if (s.type === "parallel") return s.branches.map((b, k) => [`b${k}` as ListKey, b])
-  if (s.type === "when") return [["do", s.steps]]
+  if (isGroup(s) || s.type === "when") return [["steps", s.steps]]
   return []
 }
 
 function childList(s: Step, key: ListKey): Step[] | null {
   if (s.type === "if" && (key === "then" || key === "else")) return s[key]
-  if (s.type === "parallel" && key.startsWith("b")) return s.branches[Number(key.slice(1))] ?? null
-  if (s.type === "when" && key === "do") return s.steps
+  if ((isGroup(s) || s.type === "when") && key === "steps") return s.steps
   return null
 }
 
 function withChild(s: Step, key: ListKey, list: Step[]): Step {
   if (s.type === "if" && (key === "then" || key === "else")) return { ...s, [key]: list }
-  if (s.type === "parallel" && key.startsWith("b")) {
-    const k = Number(key.slice(1))
-    return { ...s, branches: s.branches.map((b, j) => (j === k ? list : b)) }
-  }
-  if (s.type === "when" && key === "do") return { ...s, steps: list }
+  if ((isGroup(s) || s.type === "when") && key === "steps") return { ...s, steps: list }
   return s
 }
 
+/** A list in the tree, addressed by (index, key) pairs from the root list. */
+export type StepPath = (number | ListKey)[]
+
+export function getList(steps: Step[], at: StepPath): Step[] {
+  let list = steps
+  for (let k = 0; k < at.length; k += 2) {
+    const s = list[at[k] as number]
+    const next = s ? childList(s, at[k + 1] as ListKey) : null
+    if (!next) return []
+    list = next
+  }
+  return list
+}
+
+/** `steps` with the list at `at` replaced by `f(list)`. */
+export function updateList(steps: Step[], at: StepPath, f: (list: Step[]) => Step[]): Step[] {
+  if (at.length === 0) return f(steps)
+  const [i, key, ...rest] = at as [number, ListKey, ...StepPath]
+  return steps.map((s, j) => {
+    if (j !== i) return s
+    const list = childList(s, key)
+    return list ? withChild(s, key, updateList(list, rest, f)) : s
+  })
+}
+
+/** Whether list `inner` is `outer` or inside one of its commands. */
+function within(inner: StepPath, outer: StepPath): boolean {
+  return outer.length <= inner.length && outer.every((x, i) => x === inner[i])
+}
+
 /**
- * The time a list of steps takes: [shortest, longest] over the conditions'
- * outcomes, and whether some path in it has no trajectory yet.
+ * Moves the command at `from[index]` to position `toIndex` of list `to`
+ * (positions counted before the move). A group cannot go inside itself.
+ */
+export function moveStep(steps: Step[], from: StepPath, fromIndex: number, to: StepPath, toIndex: number): Step[] {
+  if (within(to, [...from, fromIndex])) return steps
+  const moving = getList(steps, from)[fromIndex]
+  if (!moving) return steps
+  const sameList = to.length === from.length && within(to, from)
+  // Taking it out first shifts what comes after it in its own list, and the
+  // address of a list after it in the same parent.
+  let target = [...to]
+  let at = toIndex
+  if (sameList && fromIndex < toIndex) at--
+  if (!sameList && within(to, from) && to.length > from.length && (to[from.length] as number) > fromIndex) {
+    target = [...to]
+    target[from.length] = (to[from.length] as number) - 1
+  }
+  const removed = updateList(steps, from, l => l.filter((_, j) => j !== fromIndex))
+  return updateList(removed, target, l => [...l.slice(0, at), moving, ...l.slice(at)])
+}
+
+// --- Time ----------------------------------------------------------------------
+
+/**
+ * The time a list of commands takes in sequence: [shortest, longest] over the
+ * conditions' outcomes, and the paths in it with no trajectory yet.
  */
 export function duration(steps: Step[], d: Durations, autos: ReadonlyMap<string, Auto>, seen: Set<string> = new Set()): { min: number; max: number; missing: string[] } {
   let min = 0, max = 0
   const missing: string[] = []
   for (const s of steps) {
-    switch (s.type) {
-      case "path": {
-        const t = d.get(pathKey(s))
-        if (t === undefined) missing.push(pathKey(s))
-        min += t ?? 0
-        max += t ?? 0
-        break
-      }
-      case "wait":
-        min += s.seconds
-        max += s.seconds
-        break
-      case "command":
-        if (!s.alongside) { min += s.estimateS ?? 0; max += s.estimateS ?? 0 }
-        break
-      case "if": {
-        const a = duration(s.then, d, autos, seen), b = duration(s.else, d, autos, seen)
-        min += Math.min(a.min, b.min)
-        max += Math.max(a.max, b.max)
-        missing.push(...a.missing, ...b.missing)
-        break
-      }
-      case "auto": {
-        const inner = autos.get(s.auto)
-        if (!inner || seen.has(s.auto)) break
-        const r = duration(inner.steps, d, autos, new Set([...seen, s.auto]))
-        min += r.min
-        max += r.max
-        missing.push(...r.missing)
-        break
-      }
-      case "parallel": {
-        const rs = s.branches.map(b => duration(b, d, autos, seen))
-        rs.forEach(r => missing.push(...r.missing))
-        if (!rs.length) break
-        const g = groupSpan(s.mode, rs.map(r => r.min), rs.map(r => r.max))
-        min += g[0]
-        max += g[1]
-        break
-      }
-      case "when":
-        // It runs alongside: the timeline does not wait for it.
-        missing.push(...duration(s.steps, d, autos, seen).missing)
-        break
-    }
+    const r = durationOf(s, d, autos, seen)
+    min += r.min
+    max += r.max
+    missing.push(...r.missing)
   }
   return { min, max, missing }
 }
 
-/** How long a parallel group lasts, from its branches' shortest and longest. */
-function groupSpan(mode: ParallelMode, mins: number[], maxs: number[]): [number, number] {
-  if (mode === "deadline") return [mins[0], maxs[0]]
-  if (mode === "race") return [Math.min(...mins), Math.min(...maxs)]
+function durationOf(s: Step, d: Durations, autos: ReadonlyMap<string, Auto>, seen: Set<string>): { min: number; max: number; missing: string[] } {
+  switch (s.type) {
+    case "path": {
+      const t = d.get(pathKey(s))
+      return { min: t ?? 0, max: t ?? 0, missing: t === undefined ? [pathKey(s)] : [] }
+    }
+    case "wait":
+      return { min: s.seconds, max: s.seconds, missing: [] }
+    case "command":
+      return s.alongside ? { min: 0, max: 0, missing: [] } : { min: s.estimateS ?? 0, max: s.estimateS ?? 0, missing: [] }
+    case "sequential":
+      return duration(s.steps, d, autos, seen)
+    case "parallel": case "deadline": case "race": {
+      const rs = s.steps.map(c => durationOf(c, d, autos, seen))
+      const missing = rs.flatMap(r => r.missing)
+      if (!rs.length) return { min: 0, max: 0, missing }
+      const [min, max] = groupSpan(s.type, rs.map(r => r.min), rs.map(r => r.max))
+      return { min, max, missing }
+    }
+    case "if": {
+      const a = duration(s.then, d, autos, seen), b = duration(s.else, d, autos, seen)
+      return { min: Math.min(a.min, b.min), max: Math.max(a.max, b.max), missing: [...a.missing, ...b.missing] }
+    }
+    case "when":
+      // It runs alongside: the timeline does not wait for it.
+      return { min: 0, max: 0, missing: duration(s.steps, d, autos, seen).missing }
+    case "auto": {
+      const inner = autos.get(s.auto)
+      if (!inner || seen.has(s.auto)) return { min: 0, max: 0, missing: [] }
+      return duration(inner.steps, d, autos, new Set([...seen, s.auto]))
+    }
+  }
+}
+
+function groupSpan(type: GroupType, mins: number[], maxs: number[]): [number, number] {
+  if (type === "deadline") return [mins[0], maxs[0]]
+  if (type === "race") return [Math.min(...mins), Math.min(...maxs)]
   return [Math.max(...mins), Math.max(...maxs)]
 }
 
@@ -139,50 +227,59 @@ function groupSpan(mode: ParallelMode, mins: number[], maxs: number[]): [number,
 export interface Leg { kind: "path" | "wait" | "command"; label: string; start: number; end: number; path?: string; depth: number }
 
 /**
- * Walks the steps in time order, taking each condition's then (or else, per
- * `assume`), and lays them on a timeline.
+ * Walks the commands in time order, taking each condition's then (or else,
+ * per `assume`), and lays them on a timeline.
  */
 export function legs(steps: Step[], d: Durations, autos: ReadonlyMap<string, Auto>, assume: (condition: string) => boolean, t0 = 0, depth = 0, seen: Set<string> = new Set()): { legs: Leg[]; end: number } {
   const out: Leg[] = []
   let t = t0
   for (const s of steps) {
-    if (s.type === "path") {
-      const len = d.get(pathKey(s)) ?? 0
-      out.push({ kind: "path", label: pathKey(s), start: t, end: t + len, path: pathKey(s), depth })
-      t += len
-    } else if (s.type === "wait") {
-      out.push({ kind: "wait", label: `wait ${s.seconds} s`, start: t, end: t + s.seconds, depth })
-      t += s.seconds
-    } else if (s.type === "command") {
-      const len = s.alongside ? 0 : s.estimateS ?? 0
-      out.push({ kind: "command", label: s.name, start: t, end: t + len, depth })
-      t += len
-    } else if (s.type === "if") {
-      const r = legs(assume(s.condition) ? s.then : s.else, d, autos, assume, t, depth + 1, seen)
-      out.push(...r.legs)
-      t = r.end
-    } else if (s.type === "auto") {
-      const inner = autos.get(s.auto)
-      if (!inner || seen.has(s.auto)) continue
-      const r = legs(inner.steps, d, autos, assume, t, depth + 1, new Set([...seen, s.auto]))
-      out.push(...r.legs)
-      t = r.end
-    } else if (s.type === "parallel") {
-      if (!s.branches.length) continue
-      const rs = s.branches.map(b => legs(b, d, autos, assume, t, depth + 1, seen))
-      const ends = rs.map(r => r.end)
-      const end = s.mode === "deadline" ? ends[0] : s.mode === "race" ? Math.min(...ends) : Math.max(...ends)
-      // What a race or a deadline cuts short is drawn cut short.
-      for (const r of rs) out.push(...r.legs.filter(l => l.start < end - 1e-9 || l.end === l.start).map(l => ({ ...l, end: Math.min(l.end, end) })))
-      t = end
-    } else if (s.type === "when") {
-      // Laid where it would fire if it fired as soon as it can (or at its time).
-      const at = s.trigger.kind === "time" ? Math.max(t, s.trigger.atS) : t
-      out.push(...legs(s.steps, d, autos, assume, at, depth + 1, seen).legs)
-    }
+    const r = legsOf(s, d, autos, assume, t, depth, seen)
+    out.push(...r.legs)
+    t = r.end
   }
   return { legs: out, end: t }
 }
+
+function legsOf(s: Step, d: Durations, autos: ReadonlyMap<string, Auto>, assume: (c: string) => boolean, t: number, depth: number, seen: Set<string>): { legs: Leg[]; end: number } {
+  switch (s.type) {
+    case "path": {
+      const len = d.get(pathKey(s)) ?? 0
+      return { legs: [{ kind: "path", label: pathKey(s), start: t, end: t + len, path: pathKey(s), depth }], end: t + len }
+    }
+    case "wait":
+      return { legs: [{ kind: "wait", label: `wait ${s.seconds} s`, start: t, end: t + s.seconds, depth }], end: t + s.seconds }
+    case "command": {
+      const len = s.alongside ? 0 : s.estimateS ?? 0
+      return { legs: [{ kind: "command", label: s.name, start: t, end: t + len, depth }], end: t + len }
+    }
+    case "sequential":
+      return legs(s.steps, d, autos, assume, t, depth + 1, seen)
+    case "parallel": case "deadline": case "race": {
+      if (!s.steps.length) return { legs: [], end: t }
+      const rs = s.steps.map(c => legsOf(c, d, autos, assume, t, depth + 1, seen))
+      const ends = rs.map(r => r.end)
+      const end = s.type === "deadline" ? ends[0] : s.type === "race" ? Math.min(...ends) : Math.max(...ends)
+      // What a race or a deadline cuts short is drawn cut short.
+      const out = rs.flatMap(r => r.legs.filter(l => l.start < end - 1e-9 || l.end === l.start).map(l => ({ ...l, end: Math.min(l.end, end) })))
+      return { legs: out, end }
+    }
+    case "if":
+      return legs(assume(s.condition) ? s.then : s.else, d, autos, assume, t, depth + 1, seen)
+    case "when": {
+      // Laid where it would fire if it fired as soon as it can (or at its time).
+      const at = s.trigger.kind === "time" ? Math.max(t, s.trigger.atS) : t
+      return { legs: legs(s.steps, d, autos, assume, at, depth + 1, seen).legs, end: t }
+    }
+    case "auto": {
+      const inner = autos.get(s.auto)
+      if (!inner || seen.has(s.auto)) return { legs: [], end: t }
+      return legs(inner.steps, d, autos, assume, t, depth + 1, new Set([...seen, s.auto]))
+    }
+  }
+}
+
+// --- What an auto uses ---------------------------------------------------------
 
 /** Every condition an auto checks with an if, in order of appearance (nested too). */
 export function conditionsOf(steps: Step[], autos: ReadonlyMap<string, Auto>, seen: Set<string> = new Set()): string[] {
@@ -212,7 +309,7 @@ export function namesOf(steps: Step[], autos: ReadonlyMap<string, Auto>): { comm
   return { commands: [...commands], conditions: [...conditions], paths: [...paths] }
 }
 
-/** The zones the auto's when steps watch, for drawing. */
+/** The zones the auto's when commands watch, for drawing. */
 export function zonesOf(steps: Step[]): Extract<Trigger, { kind: "zone" }>[] {
   const out: Extract<Trigger, { kind: "zone" }>[] = []
   for (const s of steps) {
@@ -220,31 +317,6 @@ export function zonesOf(steps: Step[]): Extract<Trigger, { kind: "zone" }>[] {
     for (const [, l] of children(s)) out.push(...zonesOf(l))
   }
   return out
-}
-
-/** Every step list in an auto, addressed by a path of (step index, list key) pairs, for editing. */
-export type StepPath = (number | ListKey)[]
-
-export function getList(steps: Step[], at: StepPath): Step[] {
-  let list = steps
-  for (let k = 0; k < at.length; k += 2) {
-    const s = list[at[k] as number]
-    const next = s ? childList(s, at[k + 1] as ListKey) : null
-    if (!next) return []
-    list = next
-  }
-  return list
-}
-
-/** `steps` with the list at `at` replaced by `f(list)`. */
-export function updateList(steps: Step[], at: StepPath, f: (list: Step[]) => Step[]): Step[] {
-  if (at.length === 0) return f(steps)
-  const [i, key, ...rest] = at as [number, ListKey, ...StepPath]
-  return steps.map((s, j) => {
-    if (j !== i) return s
-    const list = childList(s, key)
-    return list ? withChild(s, key, updateList(list, rest, f)) : s
-  })
 }
 
 export function newAuto(name: string): Auto {

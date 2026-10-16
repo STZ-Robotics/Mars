@@ -53,7 +53,14 @@ public final class AresIndex {
 
     record RunAuto(String auto) implements Step {}
 
-    /** Lists at once: until all end ("all"), the first ends ("race"), or list 1 ends ("deadline"). */
+    /**
+     * A command group, as PathPlanner's: "sequential" (one after another),
+     * "parallel" (all, until all end), "deadline" (all, until the first ends)
+     * or "race" (all, until any ends). Each of {@code steps} is one member.
+     */
+    record Group(String type, List<Step> steps) implements Step {}
+
+    /** The format before command groups: lists at once ("all", "race" or "deadline"). */
     record Parallel(String mode, List<List<Step>> branches) implements Step {}
 
     /** Once the trigger fires, the steps run alongside the rest of the auto. */
@@ -146,10 +153,14 @@ public final class AresIndex {
             s.path("name").asText(), s.path("estimateS").asDouble(0), s.path("alongside").asBoolean(false)));
         case "if" -> out.add(new Step.If(s.path("condition").asText(), steps(s.path("then")), steps(s.path("else"))));
         case "auto" -> out.add(new Step.RunAuto(s.path("auto").asText()));
-        case "parallel" -> {
-          var branches = new ArrayList<List<Step>>();
-          for (var b : s.path("branches")) branches.add(steps(b));
-          out.add(new Step.Parallel(s.path("mode").asText("all"), List.copyOf(branches)));
+        case "parallel", "sequential", "deadline", "race" -> {
+          if (s.has("branches")) {
+            var branches = new ArrayList<List<Step>>();
+            for (var b : s.path("branches")) branches.add(steps(b));
+            out.add(new Step.Parallel(s.path("mode").asText("all"), List.copyOf(branches)));
+          } else {
+            out.add(new Step.Group(s.path("type").asText(), steps(s.path("steps"))));
+          }
         }
         case "when" -> {
           var t = s.path("trigger");
