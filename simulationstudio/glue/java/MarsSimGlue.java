@@ -1,35 +1,36 @@
-// Copiar a src/main/java/frc/robot/modules/swerve/MarsSimGlue.java
+// Copy to src/main/java/frc/robot/modules/swerve/MarsSimGlue.java
 //
-// Qué es
-// ======
-// Cambia el motor de simulación del swerve. CTRE simula los módulos con
-// cinemática: integra la pose a partir de las velocidades que pide el código.
-// No hay fricción, ni masa, ni colisiones --- el robot atraviesa las paredes.
+// What it is
+// ==========
+// It swaps the swerve's simulation engine. CTRE simulates the modules with
+// kinematics: it integrates the pose from the velocities the code asks for.
+// There is no friction, no mass, no collisions --- the robot goes through walls.
 //
-// Esta clase sustituye esa simulación por la de Gazebo. El robot pasa a tener
-// masa, las ruedas patinan, y si choca contra algo se para.
+// This class replaces that simulation with Gazebo's. The robot now has mass,
+// the wheels slip, and if it hits something it stops.
 //
-// Lo que NO cambia
-// ================
-// NADA de tu lógica de swerve. TunerConstants, SwerveRequestFactory,
-// DriverBindings, las ganancias de Slot0Configs: todo igual. No hay una segunda
-// implementación del swerve en ningún sitio. Lo único que cambia es de dónde
-// salen los valores de los encoders.
+// What does NOT change
+// ====================
+// NONE of your swerve logic. TunerConstants, SwerveRequestFactory,
+// DriverBindings, the Slot0Configs gains: all the same. There is no second
+// swerve implementation anywhere. The only thing that changes is where the
+// encoder values come from.
 //
-// Y si el Studio no está corriendo, esta clase se aparta sola y deja que CTRE
-// simule como siempre. Trabajar sin la simulación no requiere tocar nada.
+// And if the Studio is not running, this class steps aside on its own and lets
+// CTRE simulate as always. Working without the simulation requires touching
+// nothing.
 //
 // Lockstep
 // ========
-// Con la variable de entorno MARS_LOCKSTEP=127.0.0.1:5811 (y el bridge con
-// --lockstep-port 5811 sobre un mundo con real_time_factor 0) el robot deja de
-// correr en tiempo real: el tiempo de WPILib se pausa y avanza un paso de
-// física a la vez. Cada corrida sale igual (±0.6% medido, contra ±10% en tiempo
-// real) y va a ~1.1x tiempo real. MARS_LOCKSTEP_SETTLE_MS (2.5 por defecto)
-// cambia velocidad por fidelidad: 1.0 va a ~2x con un sesgo de ~10%.
+// With the environment variable MARS_LOCKSTEP=127.0.0.1:5811 (and the bridge with
+// --lockstep-port 5811 on a world with real_time_factor 0) the robot stops
+// running in real time: WPILib's time is paused and advances one physics step at
+// a time. Every run comes out the same (±0.6% measured, against ±10% in real
+// time) and it runs at ~1.1x real time. MARS_LOCKSTEP_SETTLE_MS (2.5 by default)
+// trades speed for fidelity: 1.0 runs at ~2x with a ~10% bias.
 //
-// Usa NetworkIO de ForgeMini para todo el tráfico de NT, no la API cruda: es la
-// convención del proyecto y ya está probada en él.
+// It uses ForgeMini's NetworkIO for all NT traffic, not the raw API: it is the
+// project's convention and it is already proven there.
 
 package frc.robot.modules.swerve;
 
@@ -62,307 +63,309 @@ import java.nio.ByteOrder;
 import frc.robot.configuration.constants.TunerConstants;
 
 public final class MarsSimGlue {
-  /** Tablas del contrato. Ver sim/protocol/topics.toml, sección [[glue]]. */
-  private static final String SALIDA = "MARS/Glue/out";
-  private static final String ENTRADA = "MARS/Glue/in";
-  /** Diagnóstico del propio glue: dice si esta clase vive y si su hilo corre. */
+  /** The contract's tables. See sim/protocol/topics.toml, section [[glue]]. */
+  private static final String OUTPUT = "MARS/Glue/out";
+  private static final String INPUT = "MARS/Glue/in";
+  /** The glue's own diagnostics: says whether this class is alive and whether its thread runs. */
   private static final String DIAG = "MARS/Glue/diag";
 
-  private static final double DOS_PI = 2.0 * Math.PI;
+  private static final double TWO_PI = 2.0 * Math.PI;
 
-  /** El orden TIENE que ser el del robot-map, y el de createDrivetrain(). */
-  private static final String[] MODULOS = {"fl", "fr", "bl", "br"};
+  /** The order HAS to be the robot-map's, and createDrivetrain()'s. */
+  private static final String[] MODULES = {"fl", "fr", "bl", "br"};
 
   /**
-   * Ciclos sin latido nuevo antes de dar la simulación por ausente. A 250 Hz
-   * son 0.4 s: bastante para no parpadear con un mensaje tardío, poco para que
-   * abrir el Studio a mitad de sesión se note enseguida.
+   * Cycles without a new heartbeat before declaring the simulation absent. At
+   * 250 Hz that is 0.4 s: enough not to flicker with a late message, little
+   * enough that opening the Studio mid-session shows right away.
    */
-  private static final int CICLOS_PARA_DARLA_POR_MUERTA = 100;
+  private static final int CYCLES_UNTIL_DEAD = 100;
 
   private final SwerveDrivetrain<TalonFX, TalonFX, CANcoder> drivetrain;
-  private final double reduccionDireccion;
-  private final double acoplamiento;
+  private final double steerReduction;
+  private final double coupling;
 
-  private double ultimoInstante = Utils.getCurrentTimeSeconds();
-  private double ultimoLatido = -1.0;
-  private int ciclosSinLatido = Integer.MAX_VALUE;
-  private boolean conectado = false;
-  private boolean reventado = false;
+  private double lastInstant = Utils.getCurrentTimeSeconds();
+  private double lastHeartbeat = -1.0;
+  private int cyclesWithoutHeartbeat = Integer.MAX_VALUE;
+  private boolean isConnected = false;
+  private boolean crashed = false;
   private long ticks = 0;
 
-  private final double[] mandos = new double[8];
-  private final boolean[] hayObjetivo = new boolean[4];
+  private final double[] commands = new double[8];
+  private final boolean[] hasTarget = new boolean[4];
 
   // --- lockstep -------------------------------------------------------------
   /**
-   * Con MARS_LOCKSTEP=host:puerto el robot deja de correr en tiempo real: el
-   * tiempo de WPILib se pausa y este glue lo avanza paso a paso, pidiéndole a
-   * la física (mars-bridge --lockstep-port) exactamente un paso de 4 ms cada
-   * vez. Cada corrida sale igual y una PC lenta va más lenta en vez de
-   * degradar la física.
+   * With MARS_LOCKSTEP=host:port the robot stops running in real time: WPILib's
+   * time is paused and this glue advances it step by step, asking the physics
+   * (mars-bridge --lockstep-port) for exactly one 4 ms step each time. Every
+   * run comes out the same and a slow PC runs slower instead of degrading the
+   * physics.
    *
-   * <p>Lo que NO se puede pausar es el firmware simulado del TalonFX: Phoenix
-   * corre en el reloj de pared (medido: tarda 1.5 ms de mediana y 2.2 ms como
-   * mucho en reaccionar a un cambio de sensor). Por eso cada paso espera
-   * MARS_LOCKSTEP_SETTLE_MS (2.5 por defecto) de pared antes de leer los
-   * voltajes. Es lo que limita la velocidad a ~1-1.5x tiempo real.
+   * <p>What can NOT be paused is the TalonFX's simulated firmware: Phoenix
+   * runs on the wall clock (measured: it takes 1.5 ms median and 2.2 ms at
+   * most to react to a sensor change). That is why each step waits
+   * MARS_LOCKSTEP_SETTLE_MS (2.5 by default) of wall time before reading the
+   * voltages. It is what limits the speed to ~1-1.5x real time.
    */
   private static final String LOCKSTEP = System.getenv("MARS_LOCKSTEP");
-  private static final double PASO_S = 0.004;
-  private static final int MAGIA = 0x4D4C5331; // "MLS1", ver bridge/src/lockstep.rs
-  private volatile boolean lockstepActivo = false;
-  private StructPublisher<Pose2d> verdad;
+  private static final double STEP_S = 0.004;
+  private static final int MAGIC = 0x4D4C5331; // "MLS1", ver bridge/src/lockstep.rs
+  private volatile boolean lockstepActive = false;
+  private StructPublisher<Pose2d> truth;
 
   public MarsSimGlue(SwerveDrivetrain<TalonFX, TalonFX, CANcoder> drivetrain) {
     this.drivetrain = drivetrain;
 
-    // Se leen de TunerConstants en vez de escribirlas otra vez: si alguien
-    // cambia la reducción allí, esto la sigue sin que nadie se acuerde.
-    this.reduccionDireccion = TunerConstants.FrontLeft.SteerMotorGearRatio;
-    this.acoplamiento = TunerConstants.FrontLeft.CouplingGearRatio;
+    // They are read from TunerConstants instead of being written again: if
+    // someone changes the reduction there, this follows without anyone
+    // remembering.
+    this.steerReduction = TunerConstants.FrontLeft.SteerMotorGearRatio;
+    this.coupling = TunerConstants.FrontLeft.CouplingGearRatio;
 
-    configurarSimState();
+    configureSimState();
 
-    // Dos señales de vida --- consola y NetworkTables --- porque no siempre se
-    // está mirando la consola. Si `MARS/Glue/diag/creado` no aparece en el
-    // árbol de NT, esta clase no llegó a construirse, y entonces el problema
-    // está en el `if` que decide crearla y no aquí dentro.
-    System.out.println("[MARS] glue creado, publicando en /" + SALIDA + "/");
-    NetworkIO.set(DIAG, "creado", true);
-    NetworkIO.set(DIAG, "reduccionDireccion", reduccionDireccion);
-    NetworkIO.set(DIAG, "acoplamiento", acoplamiento);
+    // Two signs of life --- console and NetworkTables --- because the console is
+    // not always being watched. If `MARS/Glue/diag/created` does not show up in
+    // the NT tree, this class never got built, and then the problem is in the
+    // `if` that decides to create it and not in here.
+    System.out.println("[MARS] glue created, publishing to /" + OUTPUT + "/");
+    NetworkIO.set(DIAG, "created", true);
+    NetworkIO.set(DIAG, "steerReduction", steerReduction);
+    NetworkIO.set(DIAG, "coupling", coupling);
 
     if (LOCKSTEP != null && !LOCKSTEP.isBlank()) {
-      iniciarLockstep(LOCKSTEP.trim());
+      startLockstep(LOCKSTEP.trim());
     }
   }
 
   /**
-   * Orientación de cada motor y offset de cada CANcoder, como lo hace
-   * SimSwerveDrivetrain de CTRE. Sin esto las posiciones que se escriben se leen
-   * como CRUDAS: el CANcoder reporta crudo + offset del imán (el módulo FL salía
-   * en -135.7° estando en 0°) y los motores invertidos ven su sentido al revés.
+   * Each motor's orientation and each CANcoder's offset, the way CTRE's
+   * SimSwerveDrivetrain does it. Without this the positions written are read
+   * as RAW: the CANcoder reports raw + the magnet offset (the FL module came
+   * out at -135.7° while at 0°) and the inverted motors see their direction
+   * reversed.
    *
-   * <p>En tiempo real esto quedaba oculto por casualidad: el glue arrancaba con
-   * la sim de CTRE mientras Gazebo no contestaba, y updateSimState() dejaba
-   * estos campos puestos (getSimState() devuelve siempre la misma instancia).
-   * En lockstep Gazebo contesta desde el primer paso y nunca pasaba.
+   * <p>In real time this stayed hidden by chance: the glue started with CTRE's
+   * sim while Gazebo did not answer, and updateSimState() left these fields
+   * set (getSimState() always returns the same instance). In lockstep Gazebo
+   * answers from the first step and it never happened.
    */
-  private void configurarSimState() {
-    var constantes =
+  private void configureSimState() {
+    var moduleConstants =
         new com.ctre.phoenix6.swerve.SwerveModuleConstants<?, ?, ?>[] {
           TunerConstants.FrontLeft, TunerConstants.FrontRight,
           TunerConstants.BackLeft, TunerConstants.BackRight
         };
     for (int i = 0; i < 4; i++) {
-      var c = constantes[i];
-      var modulo = drivetrain.getModule(i);
-      modulo.getDriveMotor().getSimState().Orientation =
+      var c = moduleConstants[i];
+      var module = drivetrain.getModule(i);
+      module.getDriveMotor().getSimState().Orientation =
           c.DriveMotorInverted ? ChassisReference.Clockwise_Positive : ChassisReference.CounterClockwise_Positive;
-      modulo.getSteerMotor().getSimState().Orientation =
+      module.getSteerMotor().getSimState().Orientation =
           c.SteerMotorInverted ? ChassisReference.Clockwise_Positive : ChassisReference.CounterClockwise_Positive;
-      var encoder = modulo.getEncoder().getSimState();
+      var encoder = module.getEncoder().getSimState();
       encoder.Orientation =
           c.EncoderInverted ? ChassisReference.Clockwise_Positive : ChassisReference.CounterClockwise_Positive;
       encoder.SensorOffset = c.EncoderOffset;
     }
   }
 
-  /** Si la física de MARS está alimentando al robot ahora mismo. */
-  public boolean conectado() {
-    return conectado;
+  /** Whether MARS's physics is feeding the robot right now. */
+  public boolean isConnected() {
+    return isConnected;
   }
 
   /**
-   * Sustituye a {@code updateSimState}. Llamar desde el hilo de simulación del
-   * drivetrain, a la misma tasa a la que se llamaba a aquel.
+   * Replaces {@code updateSimState}. Call from the drivetrain's simulation
+   * thread, at the same rate that one was called.
    */
   public void update() {
-    // En lockstep el que mueve la física es el hilo de lockstep, no este
-    // Notifier (que de todas formas solo dispara cuando ese hilo avanza el
-    // tiempo de WPILib).
-    if (lockstepActivo) {
+    // In lockstep the lockstep thread is the one moving the physics, not this
+    // Notifier (which anyway only fires when that thread advances WPILib's
+    // time).
+    if (lockstepActive) {
       return;
     }
-    // Un Notifier cuyo callback lanza se muere SIN DECIR NADA: el robot se
-    // queda quieto y no hay ni una línea en la consola. Atrapar y avisar una
-    // vez convierte ese fallo mudo en uno que se puede leer.
+    // A Notifier whose callback throws dies WITHOUT SAYING ANYTHING: the robot
+    // stands still and there is not a single line on the console. Catching and
+    // warning once turns that silent failure into one that can be read.
     try {
-      actualizar();
+      refresh();
     } catch (Throwable e) {
-      if (!reventado) {
-        reventado = true;
-        System.err.println("[MARS] el glue fallo y se apaga: " + e);
+      if (!crashed) {
+        crashed = true;
+        System.err.println("[MARS] the glue failed and shuts down: " + e);
         e.printStackTrace();
         NetworkIO.set(DIAG, "error", e.toString());
       }
     }
   }
 
-  private void actualizar() {
-    final double ahora = Utils.getCurrentTimeSeconds();
-    final double dt = ahora - ultimoInstante;
-    ultimoInstante = ahora;
+  private void refresh() {
+    final double now = Utils.getCurrentTimeSeconds();
+    final double dt = now - lastInstant;
+    lastInstant = now;
 
-    // Contador de vida del hilo. Si `MARS/Glue/diag/ticks` no sube en el árbol
-    // de NT, este hilo no está corriendo --- que es un problema distinto de que
-    // la simulación no conteste, y se arregla en otro sitio.
+    // The thread's life counter. If `MARS/Glue/diag/ticks` does not go up in the
+    // NT tree, this thread is not running --- which is a different problem from
+    // the simulation not answering, and is fixed somewhere else.
     NetworkIO.set(DIAG, "ticks", (double) (++ticks));
 
     final double bus = RobotController.getBatteryVoltage();
-    NetworkIO.set(SALIDA, "enabled", DriverStation.isEnabled());
+    NetworkIO.set(OUTPUT, "enabled", DriverStation.isEnabled());
 
-    // Publicar SIEMPRE, incluso desconectado: es lo que hace que arrancar MARS
-    // Sim a mitad de sesión funcione sin reiniciar el robot.
-    publicarMandos(bus);
+    // Publish ALWAYS, even disconnected: it is what makes starting MARS Sim in
+    // the middle of a session work without restarting the robot.
+    publishCommands(bus);
 
-    if (!hayDatos()) {
-      // Sin simulación, la de CTRE. Trabajar sin abrir el Studio queda
-      // exactamente como antes de instalar nada de esto.
-      if (conectado) {
-        conectado = false;
-        System.out.println("[MARS] simulacion ausente; volviendo a la de CTRE");
-        NetworkIO.set(DIAG, "conectado", false);
+    if (!hasData()) {
+      // Without a simulation, CTRE's. Working without opening the Studio stays
+      // exactly as it was before installing any of this.
+      if (isConnected) {
+        isConnected = false;
+        System.out.println("[MARS] simulation absent; going back to CTRE's");
+        NetworkIO.set(DIAG, "connected", false);
       }
       drivetrain.updateSimState(dt, bus);
       return;
     }
 
-    if (!conectado) {
-      conectado = true;
-      System.out.println("[MARS] simulacion conectada; la fisica manda");
-      NetworkIO.set(DIAG, "conectado", true);
+    if (!isConnected) {
+      isConnected = true;
+      System.out.println("[MARS] simulation connected; the physics is in charge");
+      NetworkIO.set(DIAG, "connected", true);
     }
-    inyectarFisica(bus);
+    injectPhysics(bus);
   }
 
-  /** Lo que el código del robot le está pidiendo a cada motor, publicado por NT4. */
-  private void publicarMandos(double bus) {
-    leerMandos(bus, mandos);
+  /** What the robot code is asking of each motor, published over NT4. */
+  private void publishCommands(double bus) {
+    readCommands(bus, commands);
     for (int i = 0; i < 4; i++) {
-      NetworkIO.set(SALIDA, MODULOS[i] + "_drive/duty", mandos[2 * i]);
-      if (hayObjetivo[i]) {
-        NetworkIO.set(SALIDA, MODULOS[i] + "_steer/setpoint", mandos[2 * i + 1]);
+      NetworkIO.set(OUTPUT, MODULES[i] + "_drive/duty", commands[2 * i]);
+      if (hasTarget[i]) {
+        NetworkIO.set(OUTPUT, MODULES[i] + "_steer/setpoint", commands[2 * i + 1]);
       }
     }
   }
 
   /**
-   * Lee lo que el código del robot le pide a cada motor, en el orden del
-   * robot-map: duty de tracción y consigna de dirección en rad del MOTOR. Un
-   * módulo sin objetivo todavía conserva su consigna anterior.
+   * Reads what the robot code asks of each motor, in the robot-map's order:
+   * drive duty and steer setpoint in MOTOR rad. A module with no target yet
+   * keeps its previous setpoint.
    */
-  private void leerMandos(double bus, double[] valores) {
-    var estado = drivetrain.getState();
+  private void readCommands(double bus, double[] values) {
+    var state = drivetrain.getState();
 
     for (int i = 0; i < 4; i++) {
-      var modulo = drivetrain.getModule(i);
-      var traccion = modulo.getDriveMotor().getSimState();
-      var direccion = modulo.getSteerMotor().getSimState();
+      var module = drivetrain.getModule(i);
+      var drive = module.getDriveMotor().getSimState();
+      var steer = module.getSteerMotor().getSimState();
 
-      // Phoenix necesita saber el voltaje de bus antes de poder decir qué está
-      // aplicando. Sin esto getMotorVoltage() devuelve cero y el robot no se
-      // mueve, sin ningún error en ninguna parte.
-      traccion.setSupplyVoltage(bus);
-      direccion.setSupplyVoltage(bus);
+      // Phoenix needs to know the bus voltage before it can say what it is
+      // applying. Without this getMotorVoltage() returns zero and the robot does
+      // not move, with no error anywhere.
+      drive.setSupplyVoltage(bus);
+      steer.setSupplyVoltage(bus);
 
-      valores[2 * i] = traccion.getMotorVoltage() / bus;
+      values[2 * i] = drive.getMotorVoltage() / bus;
 
-      // El ángulo objetivo del módulo, que es lo que tu swerve ya calculó --- y
-      // ya optimizado, o sea que nunca pide girar más de 90 grados.
-      hayObjetivo[i] = estado.ModuleTargets != null && estado.ModuleTargets.length > i;
-      if (hayObjetivo[i]) {
-        double vueltasModulo = estado.ModuleTargets[i].angle.getRotations();
-        valores[2 * i + 1] = vueltasModulo * DOS_PI * reduccionDireccion;
+      // The module's target angle, which is what your swerve already computed ---
+      // and already optimized, i.e. it never asks to turn more than 90 degrees.
+      hasTarget[i] = state.ModuleTargets != null && state.ModuleTargets.length > i;
+      if (hasTarget[i]) {
+        double moduleRotations = state.ModuleTargets[i].angle.getRotations();
+        values[2 * i + 1] = moduleRotations * TWO_PI * steerReduction;
       }
     }
   }
 
-  /** Lo que la física devolvió por NT4 (modo tiempo real), metido en los sensores del robot. */
-  private void inyectarFisica(double bus) {
+  /** What the physics returned over NT4 (real-time mode), put into the robot's sensors. */
+  private void injectPhysics(double bus) {
     double[] pos = new double[8];
     double[] vel = new double[8];
     for (int i = 0; i < 4; i++) {
-      pos[2 * i] = NetworkIO.get(ENTRADA, MODULOS[i] + "_drive/position", 0.0);
-      vel[2 * i] = NetworkIO.get(ENTRADA, MODULOS[i] + "_drive/velocity", 0.0);
-      pos[2 * i + 1] = NetworkIO.get(ENTRADA, MODULOS[i] + "_steer/position", 0.0);
-      vel[2 * i + 1] = NetworkIO.get(ENTRADA, MODULOS[i] + "_steer/velocity", 0.0);
+      pos[2 * i] = NetworkIO.get(INPUT, MODULES[i] + "_drive/position", 0.0);
+      vel[2 * i] = NetworkIO.get(INPUT, MODULES[i] + "_drive/velocity", 0.0);
+      pos[2 * i + 1] = NetworkIO.get(INPUT, MODULES[i] + "_steer/position", 0.0);
+      vel[2 * i + 1] = NetworkIO.get(INPUT, MODULES[i] + "_steer/velocity", 0.0);
     }
-    inyectar(pos, vel, NetworkIO.get(ENTRADA, "gyro/yaw", 0.0), bus);
+    inject(pos, vel, NetworkIO.get(INPUT, "gyro/yaw", 0.0), bus);
   }
 
   /**
-   * Mete en los sensores simulados de Phoenix el estado de la física. Lo usan
-   * los dos modos: tiempo real (por NT4) y lockstep (por TCP).
+   * Puts the physics' state into Phoenix's simulated sensors. Both modes use
+   * it: real time (over NT4) and lockstep (over TCP).
    *
-   * @param pos posición en rad del MOTOR, en el orden del robot-map: fl_drive,
+   * @param pos position in MOTOR rad, in the robot-map's order: fl_drive,
    *     fl_steer, fr_drive, fr_steer, bl_drive, bl_steer, br_drive, br_steer
-   * @param vel lo mismo en rad/s
-   * @param yawGrados el yaw real del chasis, en grados
+   * @param vel the same in rad/s
+   * @param yawDegrees the chassis' true yaw, in degrees
    */
-  private void inyectar(double[] pos, double[] vel, double yawGrados, double bus) {
+  private void inject(double[] pos, double[] vel, double yawDegrees, double bus) {
     for (int i = 0; i < 4; i++) {
-      var modulo = drivetrain.getModule(i);
-      var traccion = modulo.getDriveMotor().getSimState();
-      var direccion = modulo.getSteerMotor().getSimState();
-      var encoder = modulo.getEncoder().getSimState();
+      var module = drivetrain.getModule(i);
+      var drive = module.getDriveMotor().getSimState();
+      var steer = module.getSteerMotor().getSimState();
+      var encoder = module.getEncoder().getSimState();
       encoder.setSupplyVoltage(bus);
 
-      // El contrato entrega radianes y rad/s del eje del MOTOR; Phoenix quiere
-      // vueltas y vueltas por segundo del ROTOR, que es el mismo eje.
-      double vueltasDireccion = pos[2 * i + 1] / DOS_PI;
-      double vueltasDireccionSeg = vel[2 * i + 1] / DOS_PI;
-      double vueltasModulo = vueltasDireccion / reduccionDireccion;
-      double vueltasModuloSeg = vueltasDireccionSeg / reduccionDireccion;
+      // The contract delivers radians and rad/s of the MOTOR's axis; Phoenix wants
+      // rotations and rotations per second of the ROTOR, which is the same axis.
+      double steerRotations = pos[2 * i + 1] / TWO_PI;
+      double steerRps = vel[2 * i + 1] / TWO_PI;
+      double moduleRotations = steerRotations / steerReduction;
+      double moduleRps = steerRps / steerReduction;
 
-      direccion.setRawRotorPosition(Rotations.of(vueltasDireccion));
-      direccion.setRotorVelocity(RotationsPerSecond.of(vueltasDireccionSeg));
+      steer.setRawRotorPosition(Rotations.of(steerRotations));
+      steer.setRotorVelocity(RotationsPerSecond.of(steerRps));
 
-      // El CANcoder mide el MÓDULO, no el rotor: hay que deshacer la reducción.
-      // Y hay que alimentarlo aunque parezca redundante, porque la dirección
-      // usa FusedCANcoder: si el CANcoder no se mueve, el control cree que el
-      // módulo está clavado y satura.
-      encoder.setRawPosition(Rotations.of(vueltasModulo));
-      encoder.setVelocity(RotationsPerSecond.of(vueltasModuloSeg));
+      // The CANcoder measures the MODULE, not the rotor: the reduction has to be
+      // undone. And it has to be fed even if it seems redundant, because the steer
+      // uses FusedCANcoder: if the CANcoder does not move, the control thinks the
+      // module is stuck and saturates.
+      encoder.setRawPosition(Rotations.of(moduleRotations));
+      encoder.setVelocity(RotationsPerSecond.of(moduleRps));
 
-      // ACOPLAMIENTO. En un MK4, girar el azimut arrastra el motor de tracción:
-      // kCoupleRatio vueltas de motor por vuelta de módulo. Gazebo no lo modela
-      // --- sus dos joints son independientes --- así que se suma aquí, que es
-      // donde se convierte a unidades de rotor.
+      // COUPLING. On an MK4, turning the azimuth drags the drive motor along:
+      // kCoupleRatio motor rotations per module rotation. Gazebo does not model it
+      // --- its two joints are independent --- so it is added here, which is where
+      // it is converted to rotor units.
       //
-      // Sin esto el encoder de tracción no se movería al girar los módulos, y
-      // la odometría del robot simulado sería MÁS limpia que la del real justo
-      // en la maniobra donde peor se porta.
-      double vueltasTraccion = pos[2 * i] / DOS_PI + vueltasModulo * acoplamiento;
-      double vueltasTraccionSeg = vel[2 * i] / DOS_PI + vueltasModuloSeg * acoplamiento;
+      // Without this the drive encoder would not move when turning the modules, and
+      // the simulated robot's odometry would be CLEANER than the real one's right in
+      // the maneuver where it behaves worst.
+      double driveRotations = pos[2 * i] / TWO_PI + moduleRotations * coupling;
+      double driveRps = vel[2 * i] / TWO_PI + moduleRps * coupling;
 
-      traccion.setRawRotorPosition(Rotations.of(vueltasTraccion));
-      traccion.setRotorVelocity(RotationsPerSecond.of(vueltasTraccionSeg));
+      drive.setRawRotorPosition(Rotations.of(driveRotations));
+      drive.setRotorVelocity(RotationsPerSecond.of(driveRps));
     }
 
-    // El giroscopio sale de la física, no de integrar las velocidades. Esa es
-    // justamente la diferencia: si la odometría se equivoca, aquí se nota.
-    drivetrain.getPigeon2().getSimState().setRawYaw(Degrees.of(yawGrados));
+    // The gyro comes from the physics, not from integrating the velocities. That
+    // is exactly the difference: if the odometry is wrong, it shows here.
+    drivetrain.getPigeon2().getSimState().setRawYaw(Degrees.of(yawDegrees));
   }
 
   /**
-   * Si la simulación está publicando de verdad.
+   * Whether the simulation is really publishing.
    *
-   * Se mira el LATIDO --- un contador que el bridge sube en cada ciclo --- y no
-   * el valor de los sensores: un robot parado publica ceros que no se
-   * distinguen de un canal muerto, y con eso el robot se quedaría congelado al
-   * arrancar sin que nada lo explicara.
+   * It looks at the HEARTBEAT --- a counter the bridge raises every cycle ---
+   * and not at the sensor values: a stopped robot publishes zeros that cannot
+   * be told apart from a dead channel, and with that the robot would freeze on
+   * startup with nothing explaining it.
    */
-  private boolean hayDatos() {
-    double latido = NetworkIO.get(ENTRADA, "heartbeat", -1.0);
-    if (latido != ultimoLatido) {
-      ultimoLatido = latido;
-      ciclosSinLatido = 0;
+  private boolean hasData() {
+    double heartbeat = NetworkIO.get(INPUT, "heartbeat", -1.0);
+    if (heartbeat != lastHeartbeat) {
+      lastHeartbeat = heartbeat;
+      cyclesWithoutHeartbeat = 0;
       return true;
     }
-    if (ciclosSinLatido < CICLOS_PARA_DARLA_POR_MUERTA) {
-      ciclosSinLatido++;
+    if (cyclesWithoutHeartbeat < CYCLES_UNTIL_DEAD) {
+      cyclesWithoutHeartbeat++;
       return true;
     }
     return false;
@@ -370,10 +373,10 @@ public final class MarsSimGlue {
 
   // --- lockstep -------------------------------------------------------------
 
-  private void iniciarLockstep(String destino) {
-    String[] partes = destino.split(":");
-    String host = partes[0];
-    int puerto = partes.length > 1 ? Integer.parseInt(partes[1]) : 5811;
+  private void startLockstep(String target) {
+    String[] parts = target.split(":");
+    String host = parts[0];
+    int port = parts.length > 1 ? Integer.parseInt(parts[1]) : 5811;
     double settleMs = 2.5;
     String settle = System.getenv("MARS_LOCKSTEP_SETTLE_MS");
     if (settle != null && !settle.isBlank()) {
@@ -381,10 +384,10 @@ public final class MarsSimGlue {
     }
 
     Socket socket = null;
-    long limite = System.nanoTime() + 15_000_000_000L;
-    while (socket == null && System.nanoTime() < limite) {
+    long limit = System.nanoTime() + 15_000_000_000L;
+    while (socket == null && System.nanoTime() < limit) {
       try {
-        socket = new Socket(host, puerto);
+        socket = new Socket(host, port);
       } catch (IOException e) {
         try {
           Thread.sleep(250);
@@ -396,8 +399,8 @@ public final class MarsSimGlue {
     }
     if (socket == null) {
       System.err.println(
-          "[MARS] lockstep: no hay bridge en " + destino + " (mars-bridge --lockstep-port "
-              + puerto + "); sigo en tiempo real");
+          "[MARS] lockstep: no bridge at " + target + " (mars-bridge --lockstep-port "
+              + port + "); staying in real time");
       NetworkIO.set(DIAG, "lockstep", false);
       return;
     }
@@ -405,97 +408,97 @@ public final class MarsSimGlue {
     try {
       socket.setTcpNoDelay(true);
     } catch (IOException e) {
-      // No es fatal: solo mas latencia por paso.
+      // Not fatal: just more latency per step.
     }
-    verdad =
+    truth =
         NetworkTableInstance.getDefault()
             .getStructTopic("/MARS/Sim/truthPose", Pose2d.struct)
             .publish();
 
-    lockstepActivo = true;
+    lockstepActive = true;
     SimHooks.pauseTiming();
     System.out.println(
-        "[MARS] lockstep conectado a " + destino + "; el tiempo de WPILib lo marca la fisica");
+        "[MARS] lockstep connected to " + target + "; the physics sets WPILib's time");
     NetworkIO.set(DIAG, "lockstep", true);
 
-    final Socket conexion = socket;
+    final Socket connection = socket;
     final long settleNs = (long) (settleMs * 1e6);
-    Thread hilo = new Thread(() -> lazoLockstep(conexion, settleNs), "mars-lockstep");
-    hilo.setDaemon(true);
-    hilo.start();
+    Thread thread = new Thread(() -> lockstepLoop(connection, settleNs), "mars-lockstep");
+    thread.setDaemon(true);
+    thread.start();
   }
 
-  private void lazoLockstep(Socket socket, long settleNs) {
+  private void lockstepLoop(Socket socket, long settleNs) {
     final int n = 8;
-    ByteBuffer peticion =
+    ByteBuffer request =
         ByteBuffer.allocate(4 + 8 + 1 + 4 + 4 + 8 * n).order(ByteOrder.LITTLE_ENDIAN);
-    ByteBuffer cabecera = ByteBuffer.allocate(4 + 8 + 8 * 4 + 4).order(ByteOrder.LITTLE_ENDIAN);
-    ByteBuffer cuerpo = ByteBuffer.allocate(16 * n).order(ByteOrder.LITTLE_ENDIAN);
+    ByteBuffer header = ByteBuffer.allocate(4 + 8 + 8 * 4 + 4).order(ByteOrder.LITTLE_ENDIAN);
+    ByteBuffer body = ByteBuffer.allocate(16 * n).order(ByteOrder.LITTLE_ENDIAN);
     double[] pos = new double[n];
     double[] vel = new double[n];
     long seq = 0;
 
     try (socket;
-        DataOutputStream salida =
+        DataOutputStream output =
             new DataOutputStream(new BufferedOutputStream(socket.getOutputStream()));
-        DataInputStream entrada =
+        DataInputStream input =
             new DataInputStream(new BufferedInputStream(socket.getInputStream()))) {
       while (true) {
         double bus = RobotController.getBatteryVoltage();
-        leerMandos(bus, mandos);
+        readCommands(bus, commands);
 
         seq++;
-        peticion.clear();
-        peticion.putInt(MAGIA).putLong(seq);
-        peticion.put((byte) (DriverStation.isEnabled() ? 1 : 0));
-        peticion.putInt(1).putInt(n);
-        for (double v : mandos) {
-          peticion.putDouble(v);
+        request.clear();
+        request.putInt(MAGIC).putLong(seq);
+        request.put((byte) (DriverStation.isEnabled() ? 1 : 0));
+        request.putInt(1).putInt(n);
+        for (double v : commands) {
+          request.putDouble(v);
         }
-        salida.write(peticion.array(), 0, peticion.position());
-        salida.flush();
+        output.write(request.array(), 0, request.position());
+        output.flush();
 
-        entrada.readFully(cabecera.array());
-        cabecera.rewind();
-        if (cabecera.getInt() != MAGIA || cabecera.getLong() != seq) {
-          throw new IOException("respuesta de lockstep fuera de orden");
+        input.readFully(header.array());
+        header.rewind();
+        if (header.getInt() != MAGIC || header.getLong() != seq) {
+          throw new IOException("lockstep response out of order");
         }
-        cabecera.getDouble(); // tiempo de simulacion
-        double x = cabecera.getDouble();
-        double y = cabecera.getDouble();
-        double yaw = cabecera.getDouble();
-        int recibidos = cabecera.getInt();
-        if (recibidos != n) {
-          throw new IOException("el bridge mando " + recibidos + " actuadores, espero " + n);
+        header.getDouble(); // tiempo de simulacion
+        double x = header.getDouble();
+        double y = header.getDouble();
+        double yaw = header.getDouble();
+        int received = header.getInt();
+        if (received != n) {
+          throw new IOException("the bridge sent " + received + " actuators, expected " + n);
         }
-        entrada.readFully(cuerpo.array());
-        cuerpo.rewind();
+        input.readFully(body.array());
+        body.rewind();
         for (int i = 0; i < n; i++) {
-          pos[i] = cuerpo.getDouble();
-          vel[i] = cuerpo.getDouble();
+          pos[i] = body.getDouble();
+          vel[i] = body.getDouble();
         }
 
-        inyectar(pos, vel, Math.toDegrees(yaw), bus);
-        verdad.set(new Pose2d(x, y, new Rotation2d(yaw)));
+        inject(pos, vel, Math.toDegrees(yaw), bus);
+        truth.set(new Pose2d(x, y, new Rotation2d(yaw)));
 
-        // El robot corre su ciclo (cada 5 pasos) y los Notifiers que toquen.
-        SimHooks.stepTiming(PASO_S);
+        // The robot runs its cycle (every 5 steps) and whatever Notifiers are due.
+        SimHooks.stepTiming(STEP_S);
 
-        // El firmware del TalonFX no se pausa: darle tiempo de pared para que
-        // reaccione a los sensores y a los mandos nuevos antes de leerlos.
-        long hasta = System.nanoTime() + settleNs;
-        while (System.nanoTime() < hasta) {
+        // The TalonFX's firmware does not pause: give it wall time to react to the
+        // new sensors and commands before reading them.
+        long until = System.nanoTime() + settleNs;
+        while (System.nanoTime() < until) {
           Thread.onSpinWait();
         }
 
         NetworkIO.set(DIAG, "ticks", (double) (++ticks));
       }
     } catch (Throwable e) {
-      // Sin lockstep el robot se quedaria con el tiempo congelado para siempre.
-      // Mejor volver al tiempo real y decirlo.
-      System.err.println("[MARS] lockstep terminado: " + e + "; vuelvo a tiempo real");
+      // Without lockstep the robot would be left with time frozen forever. Better
+      // to go back to real time and say so.
+      System.err.println("[MARS] lockstep ended: " + e + "; back to real time");
       NetworkIO.set(DIAG, "error", e.toString());
-      lockstepActivo = false;
+      lockstepActive = false;
       SimHooks.resumeTiming();
     }
   }

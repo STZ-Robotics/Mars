@@ -1,196 +1,200 @@
-# Conectar el código del robot a la simulación
+# Connecting the robot code to the simulation
 
-Dos archivos:
+Two files:
 
-- [`java/MarsSimGlue.java`](java/MarsSimGlue.java) — se copia al proyecto del robot.
-- [`java/CommandSwerveDrivetrain.patch.md`](java/CommandSwerveDrivetrain.patch.md) — las dos líneas que cambian.
+- [`java/MarsSimGlue.java`](java/MarsSimGlue.java) — copied into the robot project.
+- [`java/CommandSwerveDrivetrain.patch.md`](java/CommandSwerveDrivetrain.patch.md) — the two lines that change.
 
 ---
 
-## Lo que hay que entender primero
+## What to understand first
 
-Tu swerve **ya está simulado**. `CommandSwerveDrivetrain` arranca un `Notifier`
-a 250 Hz que llama a `updateSimState(...)`, y eso es la simulación de CTRE:
-modela los motores, aplica tus ganancias e integra la pose con la cinemática del
-swerve.
+Your swerve **is already simulated**. `CommandSwerveDrivetrain` starts a
+`Notifier` at 250 Hz that calls `updateSimState(...)`, and that is CTRE's
+simulation: it models the motors, applies your gains and integrates the pose
+with the swerve's kinematics.
 
-Es una simulación **cinemática**. El robot va exactamente a donde las ecuaciones
-dicen que iría. No tiene masa que acelerar, las ruedas no patinan, y atraviesa
-las paredes — no porque esté mal hecha, sino porque no es su trabajo.
+It is a **kinematic** simulation. The robot goes exactly where the equations
+say it would. It has no mass to accelerate, the wheels do not slip, and it
+goes through walls — not because it is badly made, but because that is not
+its job.
 
-**MARS no añade una segunda simulación: reemplaza esa.** Se cambia una llamada y
-los valores de los encoders pasan a salir de un robot con masa apoyado en un
-suelo con fricción. Todo lo demás de tu código sigue igual: `TunerConstants`,
-`SwerveRequestFactory`, `DriverBindings`, las ganancias de `Slot0Configs`. No
-hay ninguna lógica de swerve duplicada en ningún sitio.
+**MARS does not add a second simulation: it replaces that one.** One call is
+swapped and the encoder values start coming from a robot with mass resting on
+a floor with friction. Everything else in your code stays the same:
+`TunerConstants`, `SwerveRequestFactory`, `DriverBindings`, the `Slot0Configs`
+gains. There is no duplicated swerve logic anywhere.
 
 ```
-      ANTES                              DESPUÉS
+      BEFORE                             AFTER
  ┌──────────────────┐              ┌──────────────────┐
- │ tu código swerve │              │ tu código swerve │   ← igual
+ │ your swerve code │              │ your swerve code │   ← the same
  └────────┬─────────┘              └────────┬─────────┘
           │                                 │
    updateSimState()                   MarsSimGlue
-   cinemática de CTRE                       │
+   CTRE kinematics                          │
           │                                 ▼
-          ▼                          física de Gazebo
-   pose calculada                    masa, fricción, choques
+          ▼                          Gazebo physics
+   computed pose                     mass, friction, collisions
 ```
 
 ---
 
-## El workflow
+## The workflow
 
-Hay **cuatro procesos**, y solo uno es "el servidor".
+There are **four processes**, and only one is "the server".
 
-### El servidor NT4 lo levanta tu código del robot
+### Your robot code brings up the NT4 server
 
-No nosotros. Eso no es cosa de la simulación: es cómo funciona un robot de
-verdad. El roboRIO corre el servidor de NetworkTables y todo lo demás — el
-dashboard, Shuffleboard, AdvantageScope — se conecta como cliente.
+Not us. That is not a simulation thing: it is how a real robot works. The
+roboRIO runs the NetworkTables server and everything else — the dashboard,
+Shuffleboard, AdvantageScope — connects as a client.
 
-En simulación pasa igual: `./gradlew simulateJava` levanta el servidor en
-`localhost:5810`. **Tu código del robot es el dueño de los datos**; MARS Simulation Studio,
-el bridge y mars-desktop son clientes suyos.
+In simulation it is the same: `./gradlew simulateJava` brings up the server on
+`localhost:5810`. **Your robot code owns the data**; MARS Simulation Studio,
+the bridge and mars-desktop are its clients.
 
-|  | ¿servidor NT4? |
+|  | NT4 server? |
 |---|---|
-| Tu código del robot | **Sí** |
-| mars-desktop | no, cliente |
-| El bridge | no, cliente |
-| MARS Simulation Studio | no habla NT4 |
+| Your robot code | **Yes** |
+| mars-desktop | no, client |
+| The bridge | no, client |
+| MARS Simulation Studio | does not speak NT4 |
 
-Por eso el bridge **espera** en vez de morir cuando el servidor no está: vos
-recompilás veinte veces por tarde y la física no tiene por qué reiniciarse con
-cada compilación.
+That is why the bridge **waits** instead of dying when the server is not
+there: you rebuild twenty times an afternoon and the physics has no reason to
+restart with every build.
 
-### Los cuatro procesos
+### The four processes
 
-| | qué hace |
+| | what it does |
 |---|---|
-| **mars-sim-server** | Gazebo sin ventana. La física, a 250 Hz. No sabe nada de WPILib. |
-| **mars-sim-gui** | La ventana del mundo. Se *conecta* al servidor; se puede cerrar y reabrir sin tocar la física. |
-| **mars-bridge** | El traductor. El único que habla los dos idiomas. |
-| **MARS Simulation Studio** | Lanza los tres con el entorno correcto y los mata al cerrar. |
+| **mars-sim-server** | Gazebo without a window. The physics, at 250 Hz. Knows nothing about WPILib. |
+| **mars-sim-gui** | The world's window. It *connects* to the server; it can be closed and reopened without touching the physics. |
+| **mars-bridge** | The translator. The only one that speaks both languages. |
+| **MARS Simulation Studio** | Launches the three with the right environment and kills them on close. |
 
-Los lanza todos el botón *Arrancar*.
+The *Start* button launches them all.
 
-### El orden de arranque no importa
+### The startup order does not matter
 
-1. **Simulation Studio** desde el Sidebar de mars-desktop → *Start simulation*. Aparece tu mundo.
-2. **Tu robot**: `./gradlew simulateJava`.
+1. **Simulation Studio** from mars-desktop's Sidebar → *Start simulation*. Your world shows up.
+2. **Your robot**: `./gradlew simulateJava`.
 3. **mars-desktop**: *Connect Sim*.
 
-Si abrís la simulación primero, el bridge espera. Si reiniciás el robot a mitad
-de partido, se vuelve a enganchar solo.
+If you open the simulation first, the bridge waits. If you restart the robot
+mid-match, it hooks back on by itself.
 
 ---
 
-## Los dos flujos de datos
+## The two data flows
 
-**Telemetría — funciona sin tocar tu código.** La pose real, el tiempo de
-simulación, el real-time factor. Se publica en `/MARS/Sim/truthPose` y en
-`/SmartDashboard/Field/Robot`.
+**Telemetry — works without touching your code.** The true pose, the
+simulation time, the real-time factor. Published to `/MARS/Sim/truthPose` and
+to `/SmartDashboard/Field/Robot`.
 
-Ojo con el nombre: `truthPose` es la pose **real** según la física. Nunca la
-metas en tu odometría. Compará tu odometría contra ella — para eso está.
+Mind the name: `truthPose` is the **real** pose according to the physics.
+Never feed it into your odometry. Compare your odometry against it — that is
+what it is for.
 
-**Hardware — este necesita el glue.** Sin él, el motor de la simulación
-mantiene par cero, igual que un robot real con el Driver Station apagado.
+**Hardware — this one needs the glue.** Without it, the simulation's engine
+keeps zero torque, just like a real robot with the Driver Station off.
 
 ---
 
-## Los dos modos de motor
+## The two motor modes
 
-| | quién cierra el lazo | qué publica el glue |
+| | who closes the loop | what the glue publishes |
 |---|---|---|
-| tracción | nadie, lazo abierto | el voltaje aplicado / 12 |
-| dirección | **el motor de la simulación** | el ángulo objetivo del módulo |
+| drive | nobody, open loop | the applied voltage / 12 |
+| steer | **the simulation's engine** | the module's target angle |
 
-Una dirección 26:1 con Kraken tiene demasiado par para el tiempo que tarda un
-mensaje en ir y volver: cerrar ese lazo por la red no funciona, y lo comprobamos
-a 50 Hz y a 250 Hz. Un TalonFX real tampoco lo hace así — cierra posición
-**dentro** del controlador, a 1 kHz. La simulación hace lo mismo.
+A 26:1 steer with a Kraken has too much torque for the time a message takes to
+go and come back: closing that loop over the network does not work, and we
+checked it at 50 Hz and at 250 Hz. A real TalonFX does not do it that way
+either — it closes position **inside** the controller, at 1 kHz. The
+simulation does the same.
 
 ---
 
-## Que los números coincidan
+## Making the numbers match
 
-`MarsSimGlue` lee las reducciones de `TunerConstants`, así que ese lado se
-mantiene solo. Pero el mundo tiene los suyos, en
-[`sim/worlds/gen_swerve.py`](../worlds/gen_swerve.py), y esos hay que
-mantenerlos a mano:
+`MarsSimGlue` reads the reductions from `TunerConstants`, so that side keeps
+itself in sync. But the world has its own, in
+[`sim/worlds/gen_swerve.py`](../worlds/gen_swerve.py), and those have to be
+kept by hand:
 
 | gen_swerve.py | TunerConstants.java |
 |---|---|
-| `RED_TRACCION` | `kDriveGearRatio` |
-| `RED_DIRECCION` | `kSteerGearRatio` |
-| `R_RUEDA` | `kWheelRadius` |
+| `DRIVE_RATIO` | `kDriveGearRatio` |
+| `STEER_RATIO` | `kSteerGearRatio` |
+| `WHEEL_RADIUS` | `kWheelRadius` |
 | `POS` | `kFrontLeftXPos` / `YPos` |
 
-Están puestos con los valores de tu robot. Si cambian allí, cambiálos aquí y
-volvé a correr `python sim/worlds/gen_swerve.py`. Una simulación con otra
-reducción da velocidades que no son las tuyas, y afinar contra eso no sirve de
-nada.
+They are set to your robot's values. If they change there, change them here
+and run `python sim/worlds/gen_swerve.py` again. A simulation with another
+reduction gives velocities that are not yours, and tuning against that is
+useless.
 
-Los **nombres** de módulo (`fl`, `fr`, `bl`, `br`) tienen que coincidir con los
-del `robot-map.json`. Un nombre mal escrito no da error en ninguna parte: el
-motor no recibe nada y se queda quieto. Es el fallo más silencioso del sistema,
-así que si un módulo no se mueve, mirá el árbol de NetworkTables bajo
-`/MARS/Glue/`.
+The module **names** (`fl`, `fr`, `bl`, `br`) have to match the ones in
+`robot-map.json`. A misspelled name gives no error anywhere: the engine gets
+nothing and stays still. It is the system's quietest failure, so if a module
+does not move, look at the NetworkTables tree under `/MARS/Glue/`.
 
 ---
 
 ## Lockstep
 
-En tiempo real, el robot y la física corren cada uno con su reloj. Funciona,
-pero cada corrida sale distinta (±10% medido con el autotune de trayectoria de
-Offseason2026) y una PC cargada degrada la física en vez de ir más lenta.
+In real time, the robot and the physics each run on their own clock. It
+works, but every run comes out different (±10% measured with Offseason2026's
+trajectory autotune) and a loaded PC degrades the physics instead of going
+slower.
 
-En **lockstep** el código del robot marca el paso: el tiempo de WPILib se pausa,
-y cada paso de 4 ms el glue manda los comandos, la física avanza exactamente ese
-paso y el robot no sigue hasta tener el estado resultante. La misma corrida da
-el mismo resultado (±0.6% medido).
+In **lockstep** the robot code sets the pace: WPILib's time is paused, and
+every 4 ms step the glue sends the commands, the physics advances exactly that
+step and the robot does not continue until it has the resulting state. The
+same run gives the same result (±0.6% measured).
 
 ```powershell
-# 1. el mundo (con real_time_factor 0) y el bridge en modo lockstep
+# 1. the world (with real_time_factor 0) and the bridge in lockstep mode
 .\simulationstudio\lockstep.ps1 -World worlds\offseason2026_lockstep.sdf `
     -RobotMap models\offseason2026\robot-map.json -Gui
 
-# 2. el robot, en su proyecto
+# 2. the robot, in its project
 $env:MARS_LOCKSTEP = "127.0.0.1:5811"; ./gradlew simulateJava
 ```
 
-Cómo funciona, de punta a punta:
+How it works, end to end:
 
-| | qué hace |
+| | what it does |
 |---|---|
-| glue (Java) | pausa el tiempo de WPILib; por paso: lee los voltajes, manda los comandos por TCP, inyecta el estado, `SimHooks.stepTiming(0.004)` |
-| bridge | `--lockstep-port`: recibe por TCP, publica el comando con `header.data["seq"]`, espera los joints con ese mismo seq |
-| MarsLink | con comandos que traen `seq`, cada paso espera en `PreUpdate` al siguiente; publica joints y pose estampados con él |
+| glue (Java) | pauses WPILib's time; per step: reads the voltages, sends the commands over TCP, injects the state, `SimHooks.stepTiming(0.004)` |
+| bridge | `--lockstep-port`: receives over TCP, publishes the command with `header.data["seq"]`, waits for the joints with that same seq |
+| MarsLink | with commands carrying `seq`, each step waits in `PreUpdate` for the next one; publishes joints and pose stamped with it |
 
-**Por qué TCP y no NT4:** NT4 entrega como mucho cada 5 ms, o sea ≥10 ms por ida
-y vuelta para un paso de 4 ms. Un socket local tarda microsegundos.
+**Why TCP and not NT4:** NT4 delivers at most every 5 ms, i.e. ≥10 ms per
+round trip for a 4 ms step. A local socket takes microseconds.
 
-**El límite de velocidad es Phoenix, no Gazebo.** El firmware simulado del
-TalonFX corre en el reloj de pared y no se puede pausar (medido: tarda 1.5 ms
-de mediana y 2.2 ms como mucho en reaccionar a un cambio de sensor). Cada paso
-espera `MARS_LOCKSTEP_SETTLE_MS` de pared antes de leer los voltajes:
+**The speed limit is Phoenix, not Gazebo.** The TalonFX's simulated firmware
+runs on the wall clock and cannot be paused (measured: it takes 1.5 ms median
+and 2.2 ms at most to react to a sensor change). Every step waits
+`MARS_LOCKSTEP_SETTLE_MS` of wall time before reading the voltages:
 
-| `MARS_LOCKSTEP_SETTLE_MS` | velocidad | efecto |
+| `MARS_LOCKSTEP_SETTLE_MS` | speed | effect |
 |---|---|---|
-| 2.5 (defecto) | ~1.1x | fiel: el TalonFX siempre alcanzó a reaccionar |
-| 1.0 | ~2x | ~10% de sesgo: a veces lee el voltaje de un paso atrás |
-| 0.3 | ~3.4x | ~30%: demasiado retraso artificial para tunear |
+| 2.5 (default) | ~1.1x | faithful: the TalonFX always got to react |
+| 1.0 | ~2x | ~10% bias: sometimes it reads the voltage from one step back |
+| 0.3 | ~3.4x | ~30%: too much artificial delay for tuning |
 
-Gazebo solo, con este robot, da ~3x tiempo real; sin el firmware de Phoenix de
-por medio el lockstep podría acercarse a eso.
+Gazebo alone, with this robot, gives ~3x real time; without Phoenix's firmware
+in between, lockstep could get close to that.
 
-## Orientación y offsets de los sensores
+## Sensor orientation and offsets
 
-El glue configura en el constructor `Orientation` de cada TalonFX y CANcoder y
-el `SensorOffset` del CANcoder, igual que `SimSwerveDrivetrain` de CTRE. Sin eso
-el CANcoder reporta la posición cruda más el offset del imán: un módulo en 0°
-aparecía en -135.7°. En tiempo real el bug quedaba oculto por casualidad, porque
-el glue arranca con la sim de CTRE mientras Gazebo no contesta y esa sim deja
-los campos puestos. En lockstep Gazebo contesta desde el primer paso.
+In its constructor the glue configures each TalonFX's and CANcoder's
+`Orientation` and the CANcoder's `SensorOffset`, just like CTRE's
+`SimSwerveDrivetrain`. Without that the CANcoder reports the raw position plus
+the magnet offset: a module at 0° showed up at -135.7°. In real time the bug
+stayed hidden by chance, because the glue starts with CTRE's sim while Gazebo
+does not answer and that sim leaves the fields set. In lockstep Gazebo answers
+from the first step.

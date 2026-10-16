@@ -1,14 +1,14 @@
-# El cambio en `CommandSwerveDrivetrain.java`
+# The change in `CommandSwerveDrivetrain.java`
 
-Dos sitios. Nada más de tu código cambia.
+Two places. Nothing else in your code changes.
 
-## 1. El campo y los constructores
+## 1. The field and the constructors
 
 ```java
 +   MarsSimGlue m_marsGlue;
 ```
 
-En **cada uno** de los tres constructores, dentro del `if` que ya tienes:
+In **each** of the three constructors, inside the `if` you already have:
 
 ```java
     if (Utils.isSimulation()) {
@@ -17,7 +17,7 @@ En **cada uno** de los tres constructores, dentro del `if` que ya tienes:
     }
 ```
 
-## 2. El hilo de simulación
+## 2. The simulation thread
 
 ```java
     private void startSimThread() {
@@ -29,85 +29,84 @@ En **cada uno** de los tres constructores, dentro del `if` que ya tienes:
 
 -           double deltaTime = currentTime - m_lastSimTime;
 -           updateSimState(deltaTime, RobotController.getBatteryVoltage());
-+           // La física la resuelve Gazebo cuando MARS Simulation Studio está corriendo; si
-+           // no, el glue llama a updateSimState por su cuenta. El delta lo
-+           // calcula él, así que aquí ya no hace falta.
++           // Gazebo solves the physics when MARS Simulation Studio is running;
++           // if not, the glue calls updateSimState on its own. It computes the
++           // delta itself, so it is no longer needed here.
 +           m_marsGlue.update();
         });
         m_simNotifier.startPeriodic(kSimLoopPeriod);
     }
 ```
 
-`RobotController` puede quedarse sin usar en este archivo. Es solo un aviso del
-compilador, pero conviene quitar el import.
+`RobotController` may end up unused in this file. It is only a compiler
+warning, but the import is worth removing.
 
-## Por qué esto y no otra cosa
+## Why this and not something else
 
-`updateSimState` es donde CTRE simula los módulos: modela los motores, aplica
-sus ganancias e integra la pose con la cinemática del swerve. Es una simulación
-*cinemática* — el robot va exactamente a donde las ecuaciones dicen que iría,
-sin masa que acelerar, sin ruedas que patinen y sin paredes contra las que
-chocar.
+`updateSimState` is where CTRE simulates the modules: it models the motors,
+applies their gains and integrates the pose with the swerve's kinematics. It
+is a *kinematic* simulation — the robot goes exactly where the equations say
+it would, with no mass to accelerate, no wheels to slip and no walls to hit.
 
-Sustituir esa llamada basta porque es el único punto donde entra el estado
-simulado del hardware. Todo lo de encima — las peticiones de
-`SwerveRequestFactory`, el lazo de dirección de Phoenix, la odometría, tu
-binding del control — sigue igual, porque los encoders y el giroscopio siguen
-dando valores; solo que ahora salen de un robot con masa apoyado en el suelo.
+Replacing that call is enough because it is the only point where the
+hardware's simulated state comes in. Everything above it — the
+`SwerveRequestFactory` requests, Phoenix's steer loop, the odometry, your
+controller binding — stays the same, because the encoders and the gyro keep
+giving values; only now they come from a robot with mass resting on the floor.
 
-## Trabajar sin la simulación
+## Working without the simulation
 
-`m_marsGlue.update()` detecta si MARS Simulation Studio está publicando. Si no lo está, llama
-a `updateSimState` él mismo y todo se comporta como antes de instalar nada.
-Arrancar o cerrar MARS Simulation Studio a mitad de sesión funciona sin reiniciar el robot, y
-lo dice en la consola:
+`m_marsGlue.update()` detects whether MARS Simulation Studio is publishing. If
+it is not, it calls `updateSimState` itself and everything behaves as before
+installing anything. Starting or closing MARS Simulation Studio mid-session
+works without restarting the robot, and it says so on the console:
 
 ```
-[MARS] simulacion conectada; la fisica manda
-[MARS] simulacion ausente; volviendo a la de CTRE
+[MARS] simulation connected; the physics is in charge
+[MARS] simulation absent; going back to CTRE's
 ```
 
-Se mira la **marca de tiempo** de los datos, no su valor: un robot parado
-publica ceros que no se distinguen de "nadie publicó nunca", y con eso el robot
-se quedaría congelado al arrancar sin que nada lo explicara.
+It looks at the data's **heartbeat**, not its value: a stopped robot publishes
+zeros that cannot be told apart from "nobody ever published", and with that the
+robot would freeze on startup with nothing explaining it.
 
-## Si no pasa nada: el árbol de diagnóstico
+## If nothing happens: the diagnostics tree
 
-El glue publica su propio estado en `MARS/Glue/diag`. Mira ese nodo en el árbol
-de NetworkTables de mars-desktop y lee la tabla de abajo. Cada fila descarta un
-tramo distinto del camino, así que la primera que falle es la causa.
+The glue publishes its own state to `MARS/Glue/diag`. Look at that node in
+mars-desktop's NetworkTables tree and read the table below. Each row rules out
+a different stretch of the path, so the first one that fails is the cause.
 
-| en `MARS/Glue/diag` | qué significa |
+| in `MARS/Glue/diag` | what it means |
 |---|---|
-| no existe el nodo | La clase **no se construyó**. El `if (Utils.isSimulation())` no entró, o el robot que corre es de antes de recompilar. |
-| `creado = true`, `ticks` **no sube** | Se construyó pero el hilo no corre: `startSimThread()` no se llamó, o el `Notifier` murió. Mira `error`. |
-| hay `error` | `update()` lanzó. El texto y el stack están en la consola del robot. |
-| `ticks` sube, `conectado = false` | El glue va bien; **la que no contesta es la simulación**. Revisa que MARS Simulation Studio esté arrancada y que el bridge diga `NT4 conectado`. |
-| `ticks` sube y `conectado = true` | El lazo está cerrado. Si aun así no se mueve, es un problema de nombres o de unidades. |
+| the node does not exist | The class **was not built**. The `if (Utils.isSimulation())` was not entered, or the running robot predates the rebuild. |
+| `created = true`, `ticks` **does not go up** | It was built but the thread does not run: `startSimThread()` was not called, or the `Notifier` died. Look at `error`. |
+| there is an `error` | `update()` threw. The text and the stack are on the robot's console. |
+| `ticks` goes up, `connected = false` | The glue is fine; **it is the simulation that does not answer**. Check that MARS Simulation Studio is started and that the bridge says `NT4 connected`. |
+| `ticks` goes up and `connected = true` | The loop is closed. If it still does not move, it is a naming or units problem. |
 
-`creado` aparece también en la consola del robot como `[MARS] glue creado`.
+`created` also shows up on the robot's console as `[MARS] glue created`.
 
-## Cómo se comprueba que funciona
+## How to check it works
 
-Con la simulación corriendo y el robot en teleoperado:
+With the simulation running and the robot in teleop:
 
-1. **El robot se mueve en la ventana de MARS Simulation Studio.** Si no, mirá el árbol de
-   NetworkTables bajo `/MARS/Glue/` — el fallo más común es un nombre de módulo
-   que no coincide con el robot-map.
-2. **Acelerá a fondo desde parado.** Las ruedas patinan y la odometría se
-   adelanta a la pose real. Comparar `/MARS/Sim/truthPose` contra la pose de tu
-   odometría es exactamente lo que esta simulación existe para enseñarte, y lo
-   que ninguna simulación cinemática puede mostrar.
-3. **Chocá contra algo** (cuando el mundo tenga perímetro). Con `updateSimState`
-   lo atraviesa; con esto se para.
+1. **The robot moves in MARS Simulation Studio's window.** If not, look at the
+   NetworkTables tree under `/MARS/Glue/` — the most common failure is a module
+   name that does not match the robot-map.
+2. **Floor it from a standstill.** The wheels slip and the odometry runs ahead
+   of the true pose. Comparing `/MARS/Sim/truthPose` against your odometry's
+   pose is exactly what this simulation exists to show you, and what no
+   kinematic simulation can.
+3. **Hit something** (once the world has a perimeter). With `updateSimState`
+   it goes through; with this it stops.
 
-## El acoplamiento
+## Coupling
 
-`kCoupleRatio = 3.375` del `TunerConstants`: en un MK4, girar el azimut arrastra
-el motor de tracción. Gazebo no lo modela — sus dos joints son independientes —
-así que el glue lo suma al convertir a unidades de rotor.
+`kCoupleRatio = 3.375` from `TunerConstants`: on an MK4, turning the azimuth
+drags the drive motor along. Gazebo does not model it — its two joints are
+independent — so the glue adds it when converting to rotor units.
 
-Sin eso, el encoder de tracción no se movería al girar los módulos y la
-odometría del robot simulado saldría **más limpia** que la del real justo en la
-maniobra donde peor se porta. Una simulación que miente a favor es peor que
-ninguna.
+Without it, the drive encoder would not move when turning the modules and the
+simulated robot's odometry would come out **cleaner** than the real one's right
+in the maneuver where it behaves worst. A simulation that lies in your favor
+is worse than none.

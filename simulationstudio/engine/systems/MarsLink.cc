@@ -1,7 +1,7 @@
-// MarsLink: el único system propio del motor. Traduce entre el ECS de gz-sim
-// y los tópicos de sim/protocol/topics.toml.
+// MarsLink: the engine's only system of our own. Translates between gz-sim's
+// ECS and the topics of sim/protocol/topics.toml.
 //
-// Se adjunta a un modelo desde el SDF del mundo:
+// It is attached to a model from the world's SDF:
 //
 //   <plugin filename="MarsLink" name="mars::MarsLink">
 //     <actuator joint="fl_drive_joint" motor="kraken_x60" gearRatio="6.75"
@@ -9,10 +9,10 @@
 //     ...
 //   </plugin>
 //
-// El ORDEN de los <actuator> es el contrato: es el índice dentro del campo
-// `normalized` de gz.msgs.Actuators. El robot-map del bridge lista sus
-// actuadores en el mismo orden, y sim/protocol/check.py verifica que las dos
-// listas coincidan.
+// The ORDER of the <actuator> elements is the contract: it is the index inside
+// gz.msgs.Actuators' `normalized` field. The bridge's robot-map lists its
+// actuators in the same order, and sim/protocol/check.py verifies that both
+// lists match.
 
 #include <algorithm>
 #include <chrono>
@@ -47,10 +47,10 @@ namespace mars
 constexpr const char *kProtocolVersion = "0.1.0";
 constexpr double kNominalVoltage = 12.0;
 
-/// Modelo DC de un motor de FRC, el mismo que usa WPILib: el par sale de la
-/// corriente, y la corriente de la diferencia entre el voltaje aplicado y la
-/// fuerza contraelectromotriz. Sin esto un actuador daría par constante a
-/// cualquier velocidad y el robot simulado aceleraría para siempre.
+/// DC model of an FRC motor, the same one WPILib uses: the torque comes from the
+/// current, and the current from the difference between the applied voltage and
+/// the back-EMF. Without this an actuator would give constant torque at any
+/// speed and the simulated robot would accelerate forever.
 struct Motor
 {
   double stallTorque{0.0};   // Nm
@@ -78,40 +78,39 @@ const std::unordered_map<std::string, Motor> kMotors = {
   {"cim",        {2.41, 131.0, Rpm(5330.0), 2.7}},
 };
 
-/// Como interpreta el actuador su comando.
+/// How the actuator interprets its command.
 ///
-/// `Duty` toma el valor de `normalized` (-1..1) y lo aplica tal cual.
-/// `Posicion` toma `position` (radianes DEL JOINT) como consigna y cierra un PD
-/// aqui, a la tasa de la fisica.
+/// `Duty` takes the value of `normalized` (-1..1) and applies it as is.
+/// `Position` takes `position` (JOINT radians) as the setpoint and closes a PD
+/// here, at the physics rate.
 ///
-/// El modo posicion no es una comodidad: es la unica forma de simular un motor
-/// CAN con fidelidad. Un TalonFX cierra su lazo de posicion DENTRO del
-/// controlador, a ~1 kHz, y el codigo del robot solo le manda la consigna.
-/// Intentar cerrar ese lazo desde el codigo del robot, sobre la red, no
-/// funciona: una direccion de swerve 12.8:1 con Kraken tiene 90 N*m sobre 0.008
-/// kg*m2, o sea 10700 rad/s^2, y ningun lazo a 50 Hz -- ni a 250 -- tiene
-/// autoridad sobre eso.
-enum class Modo
+/// Position mode is not a convenience: it is the only way to simulate a CAN
+/// motor faithfully. A TalonFX closes its position loop INSIDE the controller,
+/// at ~1 kHz, and the robot code only sends it the setpoint. Trying to close
+/// that loop from the robot code, over the network, does not work: a 12.8:1
+/// swerve steer with a Kraken has 90 N*m over 0.008 kg*m2, i.e. 10700 rad/s^2,
+/// and no loop at 50 Hz -- nor at 250 -- has authority over that.
+enum class ControlMode
 {
   Duty,
-  Posicion
+  Position
 };
 
-/// Que hace el motor cuando NO se le pide nada.
+/// What the motor does when NOTHING is asked of it.
 ///
-/// `Coast` es circuito abierto: no circula corriente y la rueda gira libre.
-/// `Brake` cortocircuita el motor, y su propia contraelectromotriz lo frena.
+/// `Coast` is an open circuit: no current flows and the wheel spins free.
+/// `Brake` shorts the motor, and its own back-EMF brakes it.
 ///
-/// Esto NO es un detalle de acabado. El modelo DC de aqui, con comando cero,
-/// calcula corriente = -omega / (Kv * R), o sea que frena SIEMPRE --- estaba
-/// simulando un motor en cortocircuito permanente sin haberlo elegido. Medido
-/// con `bridge/src/bin/swerve-step.rs` sobre el swerve: al soltar el gas a 5.6
-/// m/s el robot frenaba a 8.8 m/s^2, que es el limite de agarre de la alfombra.
-/// Un frenazo de emergencia cada vez que el piloto suelta el stick se siente
-/// como un robot pesadisimo, y es justo lo contrario: es un freno, no inercia.
+/// This is NOT a finishing detail. The DC model here, with a zero command,
+/// computes current = -omega / (Kv * R), i.e. it ALWAYS brakes --- it was
+/// simulating a permanently shorted motor without having chosen to. Measured
+/// with `bridge/src/bin/swerve-step.rs` on the swerve: letting off the throttle
+/// at 5.6 m/s the robot braked at 8.8 m/s^2, which is the carpet's grip limit.
+/// An emergency stop every time the driver lets go of the stick feels like a
+/// very heavy robot, and it is exactly the opposite: it is a brake, not inertia.
 ///
-/// El defecto es Coast porque es el de fabrica de un TalonFX.
-enum class Neutro
+/// The default is Coast because it is a TalonFX's factory default.
+enum class NeutralMode
 {
   Coast,
   Brake
@@ -125,32 +124,31 @@ struct Actuator
   double gearRatio{1.0};
   bool inverted{false};
 
-  /// Límite de corriente de ESTATOR, en amperios. 0 = sin límite.
+  /// STATOR current limit, in amps. 0 = no limit.
   ///
-  /// Es la diferencia entre un motor de libro y el que lleva tu robot. Sin
-  /// límite, el modelo DC entrega la corriente de calado entera --- 366 A en un
-  /// Kraken --- y con eso una tracción 5.27:1 sobre ruedas de 2" da 736 N por
-  /// rueda, casi seis veces el agarre que hay contra la alfombra. El robot
-  /// simulado arranca patinando siempre, y el real no lo hace porque su TalonFX
-  /// tiene configurado un límite que ningún lado de esta simulación conocía.
+  /// It is the difference between a textbook motor and the one on your robot.
+  /// Without a limit, the DC model delivers the whole stall current --- 366 A on
+  /// a Kraken --- and with that a 5.27:1 drive on 2" wheels gives 736 N per
+  /// wheel, almost six times the grip there is against the carpet. The simulated
+  /// robot always starts out slipping, and the real one does not because its
+  /// TalonFX has a configured limit that no side of this simulation knew about.
   ///
-  /// El número que hay que poner es la CORRIENTE DE DESLIZAMIENTO, la misma que
-  /// CTRE llama kSlipCurrent en TunerConstants: la que hace que la rueda
-  /// entregue justo la fuerza que el suelo aguanta.
+  /// The number to put here is the SLIP CURRENT, the same one CTRE calls
+  /// kSlipCurrent in TunerConstants: the one that makes the wheel deliver just
+  /// the force the floor can take.
   ///
-  ///   I_slip = mu * m * g / n_ruedas * r_rueda / (Kt * reduccion)
+  ///   I_slip = mu * m * g / n_wheels * r_wheel / (Kt * reduction)
   ///
-  /// Se aplica también a la corriente NEGATIVA, y eso no es un detalle: con
-  /// duty cero el modelo frena con la contraelectromotriz entera (363 A a
-  /// velocidad máxima, o sea un frenazo que ningún motor real da). El límite lo
-  /// vuelve un frenado de motor de verdad.
+  /// It also applies to NEGATIVE current, and that is not a detail: with zero
+  /// duty the model brakes with the whole back-EMF (363 A at top speed, i.e. a
+  /// stop no real motor gives). The limit turns it into real motor braking.
   double currentLimit{0.0};
 
-  Neutro neutro{Neutro::Coast};
+  NeutralMode neutral{NeutralMode::Coast};
 
-  Modo modo{Modo::Duty};
-  // Ganancias del PD de posicion, en duty por radian y por rad/s DEL JOINT.
-  // Solo se usan en modo posicion.
+  ControlMode mode{ControlMode::Duty};
+  // Position PD gains, in duty per JOINT radian and per JOINT rad/s.
+  // Only used in position mode.
   double kp{0.1};
   double kd{0.01};
 };
@@ -175,8 +173,8 @@ public:
 private:
   void OnActuators(const gz::msgs::Actuators &_msg);
 
-  /// En lockstep, el seq del comando con el que corrio este paso.
-  void EstamparSeq(gz::msgs::Header &_h)
+  /// In lockstep, the seq of the command this step ran with.
+  void StampSeq(gz::msgs::Header &_h)
   {
     std::lock_guard<std::mutex> lock(this->cmdMutex);
     if (!this->lockstep)
@@ -195,30 +193,30 @@ private:
   gz::transport::Node::Publisher jointPub;
   gz::transport::Node::Publisher helloPub;
 
-  // Los callbacks de gz-transport llegan en un hilo distinto al de PreUpdate,
-  // así que el buffer de comandos va bajo mutex. Es el único estado que cruza
-  // hilos.
+  // gz-transport's callbacks arrive on a different thread than PreUpdate's, so
+  // the command buffer is under a mutex. It is the only state that crosses
+  // threads.
   std::mutex cmdMutex;
-  std::vector<double> commands;    // normalized, para modo duty
-  std::vector<double> setpoints;   // position, para modo posicion
+  std::vector<double> commands;    // normalized, for duty mode
+  std::vector<double> setpoints;   // position, for position mode
   int matchState{0};  // 0=disabled; ver /mars/cmd/match en topics.toml
 
-  // LOCKSTEP. Si los comandos traen header.data["seq"], cada paso de fisica
-  // espera en PreUpdate al comando con el siguiente seq y PostUpdate publica
-  // el estado con ese mismo seq. Asi el codigo del robot marca el paso sin
-  // pausas ni servicios: un paso por comando, y el bridge sabe exactamente a
-  // que comando responde cada estado. Ver bridge/src/lockstep.rs.
+  // LOCKSTEP. If the commands carry header.data["seq"], each physics step
+  // waits in PreUpdate for the command with the next seq and PostUpdate
+  // publishes the state with that same seq. That way the robot code sets the
+  // pace with no pauses or services: one step per command, and the bridge
+  // knows exactly which command each state answers. See bridge/src/lockstep.rs.
   std::condition_variable cmdCv;
   bool lockstep{false};
-  std::uint64_t cmdSeq{0};    // el ultimo seq recibido
-  std::uint64_t stepSeq{0};   // el seq con el que corrio este paso
-  int esperasVacias{0};       // timeouts seguidos sin comando
+  std::uint64_t cmdSeq{0};    // the last seq received
+  std::uint64_t stepSeq{0};   // the seq this step ran with
+  int emptyWaits{0};       // consecutive timeouts without a command
   bool sawActuators{false};
 
-  // Un reloj por topico: topics.toml declara tasas distintas y no son un
-  // detalle. Las poses van a la app para dibujar, y 50 Hz sobran para eso; los
-  // joints alimentan los encoders del codigo del robot, cuyo ciclo es de 20 ms,
-  // y ahi 200 Hz garantiza que nunca lea un valor de mas de un paso de antiguedad.
+  // One clock per topic: topics.toml declares different rates and they are not
+  // a detail. The poses go to the app for drawing, and 50 Hz is plenty for that;
+  // the joints feed the robot code's encoders, whose cycle is 20 ms, and there
+  // 200 Hz guarantees it never reads a value more than one step old.
   std::chrono::steady_clock::duration lastPose{0};
   std::chrono::steady_clock::duration lastJoints{0};
 };
@@ -236,15 +234,15 @@ void MarsLink::Configure(const gz::sim::Entity &_entity,
   }
 
   auto sdf = _sdf->Clone();
-  for (auto el = sdf->GetElement("actuator"); el;
-       el = el->GetNextElement("actuator"))
+  for (auto elem = sdf->GetElement("actuator"); elem;
+       elem = elem->GetNextElement("actuator"))
   {
     Actuator a;
-    a.jointName = el->Get<std::string>("joint", "").first;
-    a.gearRatio = el->Get<double>("gearRatio", 1.0).first;
-    a.inverted = el->Get<bool>("inverted", false).first;
+    a.jointName = elem->Get<std::string>("joint", "").first;
+    a.gearRatio = elem->Get<double>("gearRatio", 1.0).first;
+    a.inverted = elem->Get<bool>("inverted", false).first;
 
-    const auto motorName = el->Get<std::string>("motor", "kraken_x60").first;
+    const auto motorName = elem->Get<std::string>("motor", "kraken_x60").first;
     const auto it = kMotors.find(motorName);
     if (it == kMotors.end())
     {
@@ -253,7 +251,7 @@ void MarsLink::Configure(const gz::sim::Entity &_entity,
     }
     a.motor = it->second;
 
-    a.currentLimit = el->Get<double>("currentLimit", 0.0).first;
+    a.currentLimit = elem->Get<double>("currentLimit", 0.0).first;
     if (a.currentLimit < 0.0)
     {
       gzerr << "[MarsLink] currentLimit cannot be negative: " << a.currentLimit
@@ -261,36 +259,36 @@ void MarsLink::Configure(const gz::sim::Entity &_entity,
       return;
     }
 
-    const auto neutro = el->Get<std::string>("neutralMode", "coast").first;
-    if (neutro == "coast")
+    const auto neutral = elem->Get<std::string>("neutralMode", "coast").first;
+    if (neutral == "coast")
     {
-      a.neutro = Neutro::Coast;
+      a.neutral = NeutralMode::Coast;
     }
-    else if (neutro == "brake")
+    else if (neutral == "brake")
     {
-      a.neutro = Neutro::Brake;
+      a.neutral = NeutralMode::Brake;
     }
     else
     {
-      gzerr << "[MarsLink] unknown neutralMode: " << neutro
+      gzerr << "[MarsLink] unknown neutralMode: " << neutral
             << " (expected coast or brake)" << std::endl;
       return;
     }
 
-    const auto modo = el->Get<std::string>("control", "duty").first;
-    if (modo == "duty")
+    const auto mode = elem->Get<std::string>("control", "duty").first;
+    if (mode == "duty")
     {
-      a.modo = Modo::Duty;
+      a.mode = ControlMode::Duty;
     }
-    else if (modo == "position")
+    else if (mode == "position")
     {
-      a.modo = Modo::Posicion;
-      a.kp = el->Get<double>("kp", 0.1).first;
-      a.kd = el->Get<double>("kd", 0.01).first;
+      a.mode = ControlMode::Position;
+      a.kp = elem->Get<double>("kp", 0.1).first;
+      a.kd = elem->Get<double>("kd", 0.01).first;
     }
     else
     {
-      gzerr << "[MarsLink] unknown control mode: " << modo
+      gzerr << "[MarsLink] unknown control mode: " << mode
             << " (expected duty or position)" << std::endl;
       return;
     }
@@ -303,8 +301,8 @@ void MarsLink::Configure(const gz::sim::Entity &_entity,
       return;
     }
 
-    // Sin crear estos componentes el ECS no calcula posición ni velocidad de
-    // joint, y PostUpdate publicaría ceros sin ningún error visible.
+    // Without creating these components the ECS does not compute joint position
+    // or velocity, and PostUpdate would publish zeros without any visible error.
     if (!_ecm.Component<gz::sim::components::JointPosition>(a.joint))
       _ecm.CreateComponent(a.joint, gz::sim::components::JointPosition());
     if (!_ecm.Component<gz::sim::components::JointVelocity>(a.joint))
@@ -324,25 +322,25 @@ void MarsLink::Configure(const gz::sim::Entity &_entity,
   this->node.Subscribe("/mars/cmd/actuators", &MarsLink::OnActuators, this);
   this->node.Subscribe("/mars/cmd/match", &MarsLink::OnMatch, this);
 
-  size_t enPosicion = 0;
-  size_t conLimite = 0;
+  size_t inPosition = 0;
+  size_t withLimit = 0;
   for (const auto &a : this->actuators)
   {
-    if (a.modo == Modo::Posicion)
-      ++enPosicion;
+    if (a.mode == ControlMode::Position)
+      ++inPosition;
     if (a.currentLimit > 0.0)
-      ++conLimite;
+      ++withLimit;
   }
   gzmsg << "[MarsLink] protocol " << kProtocolVersion << ", "
-        << this->actuators.size() << " actuators (" << enPosicion
-        << " in position mode, " << conLimite << " current limited)"
+        << this->actuators.size() << " actuators (" << inPosition
+        << " in position mode, " << withLimit << " current limited)"
         << std::endl;
-  if (conLimite < this->actuators.size())
+  if (withLimit < this->actuators.size())
   {
-    // Un actuador sin limite entrega la corriente de calado entera. Para una
-    // traccion son varias veces el agarre disponible: el robot arranca
-    // patinando y nadie sabe por que.
-    gzwarn << "[MarsLink] " << (this->actuators.size() - conLimite)
+    // An actuator without a limit delivers the whole stall current. For a drive
+    // that is several times the available grip: the robot starts out slipping
+    // and nobody knows why.
+    gzwarn << "[MarsLink] " << (this->actuators.size() - withLimit)
            << " actuator(s) without currentLimit: they will deliver full stall"
               " current, which no real motor controller allows"
            << std::endl;
@@ -351,8 +349,8 @@ void MarsLink::Configure(const gz::sim::Entity &_entity,
 
 void MarsLink::OnActuators(const gz::msgs::Actuators &_msg)
 {
-  // Solo el primero: confirma que el camino de comandos cruza de verdad. Un
-  // log por mensaje a 200 Hz seria inutilizable.
+  // Only the first one: it confirms the command path really goes through. A
+  // log per message at 200 Hz would be unusable.
   if (!this->sawActuators)
   {
     this->sawActuators = true;
@@ -362,9 +360,9 @@ void MarsLink::OnActuators(const gz::msgs::Actuators &_msg)
 
   std::lock_guard<std::mutex> lock(this->cmdMutex);
 
-  // Los tres campos de gz.msgs.Actuators comparten indexacion. Cada actuador
-  // lee el que le toca segun su modo; el bridge llena solo el que corresponde,
-  // asi que el otro llega vacio o en cero y se ignora.
+  // The three fields of gz.msgs.Actuators share indexing. Each actuator reads
+  // the one its mode calls for; the bridge only fills the matching one, so the
+  // other arrives empty or zeroed and is ignored.
   const int n = std::min<int>(_msg.normalized_size(),
                               static_cast<int>(this->commands.size()));
   for (int i = 0; i < n; ++i)
@@ -375,9 +373,9 @@ void MarsLink::OnActuators(const gz::msgs::Actuators &_msg)
   for (int i = 0; i < m; ++i)
     this->setpoints[i] = _msg.position(i);
 
-  // LOCKSTEP: un comando con seq despierta al paso que lo espera en
-  // PreUpdate. Un seq repetido (el bridge reenvia si no ve respuesta) no
-  // cuenta como comando nuevo, asi que no se cuela un paso de mas.
+  // LOCKSTEP: a command with a seq wakes the step waiting for it in
+  // PreUpdate. A repeated seq (the bridge resends if it sees no response) does
+  // not count as a new command, so no extra step slips in.
   for (const auto &d : _msg.header().data())
   {
     if (d.key() == "seq" && d.value_size() > 0)
@@ -385,8 +383,8 @@ void MarsLink::OnActuators(const gz::msgs::Actuators &_msg)
       const std::uint64_t seq = std::stoull(d.value(0));
       if (seq < this->cmdSeq)
       {
-        // Un seq MENOR es un bridge nuevo que empieza a contar de 1 sobre un
-        // mundo que siguio vivo: se reinicia la cuenta para no ignorarlo.
+        // A LOWER seq is a new bridge that starts counting from 1 on a world
+        // that stayed alive: the count is reset so it is not ignored.
         this->stepSeq = seq - 1;
       }
       this->cmdSeq = seq;
@@ -396,7 +394,7 @@ void MarsLink::OnActuators(const gz::msgs::Actuators &_msg)
         gzmsg << "[MarsLink] lockstep: physics now waits for each command"
               << std::endl;
       }
-      this->esperasVacias = 0;
+      this->emptyWaits = 0;
       this->cmdCv.notify_all();
       break;
     }
@@ -423,17 +421,17 @@ void MarsLink::PreUpdate(const gz::sim::UpdateInfo &_info,
     std::unique_lock<std::mutex> lock(this->cmdMutex);
     if (this->lockstep)
     {
-      // Espera acotada: si el robot se va (fin de un test, recompilar) el
-      // mundo no puede quedarse colgado para siempre. Tres esperas vacias
-      // seguidas y se vuelve a correr libre hasta el proximo comando con seq.
-      const bool hay = this->cmdCv.wait_for(
+      // A bounded wait: if the robot goes away (end of a test, a rebuild) the
+      // world cannot stay hung forever. Three empty waits in a row and it goes
+      // back to running free until the next command with a seq.
+      const bool got = this->cmdCv.wait_for(
           lock, std::chrono::seconds(1),
           [this] { return this->cmdSeq > this->stepSeq; });
-      if (hay)
+      if (got)
       {
         this->stepSeq = this->cmdSeq;
       }
-      else if (++this->esperasVacias >= 3)
+      else if (++this->emptyWaits >= 3)
       {
         this->lockstep = false;
         gzmsg << "[MarsLink] lockstep: no commands for 3 s, running free"
@@ -465,35 +463,35 @@ void MarsLink::PreUpdate(const gz::sim::UpdateInfo &_info,
       posJoint = comp->Data()[0];
     }
 
-    // El comando en bruto: duty directo, o el que sale del PD de posicion.
+    // The raw command: duty directly, or the one coming out of the position PD.
     double v = 0.0;
-    if (a.modo == Modo::Duty)
+    if (a.mode == ControlMode::Duty)
     {
       v = duty[i];
     }
     else
     {
-      // PD cerrado AQUI, a la tasa de la fisica. La derivada sale de la
-      // velocidad medida y no de derivar el error: derivar numericamente un
-      // error que llega por la red amplifica cualquier salto de la consigna.
+      // PD closed HERE, at the physics rate. The derivative comes from the
+      // measured velocity and not from differentiating the error: numerically
+      // differentiating an error that arrives over the network amplifies any
+      // jump in the setpoint.
       v = a.kp * (target[i] - posJoint) - a.kd * omegaJoint;
     }
 
-    // Deshabilitado significa par cero, no "mantener el último comando" ni
-    // "seguir sujetando la posicion". Un robot real con el Driver Station
-    // deshabilitado rueda libre, y las direcciones de un swerve quedan sueltas;
-    // simular lo contrario esconde bugs de arranque.
+    // Disabled means zero torque, not "keep the last command" nor "keep holding
+    // the position". A real robot with the Driver Station disabled rolls free,
+    // and a swerve's steers go loose; simulating the opposite hides startup bugs.
     if (!enabled)
       v = 0.0;
     if (a.inverted)
       v = -v;
     v = std::clamp(v, -1.0, 1.0);
 
-    // Neutro: sin comando y en coast, el controlador abre el circuito y no
-    // circula corriente. Sin este caso el motor frena por contraelectromotriz
-    // aunque nadie se lo haya pedido --- incluso con el robot deshabilitado,
-    // que es cuando mas claro esta que tiene que rodar libre.
-    if (a.neutro == Neutro::Coast && std::abs(v) < 1e-3)
+    // Neutral: with no command and in coast, the controller opens the circuit
+    // and no current flows. Without this case the motor brakes by back-EMF even
+    // though nobody asked it to --- even with the robot disabled, which is when
+    // it is clearest that it has to roll free.
+    if (a.neutral == NeutralMode::Coast && std::abs(v) < 1e-3)
     {
       _ecm.SetComponentData<gz::sim::components::JointForceCmd>(a.joint, {0.0});
       continue;
@@ -504,11 +502,11 @@ void MarsLink::PreUpdate(const gz::sim::UpdateInfo &_info,
     double current =
         (volts - omegaMotor / a.motor.Kv()) / a.motor.Resistance();
 
-    // El límite de estator, que es lo que hace que el robot simulado arranque
-    // como el real en vez de quemando rueda. Recortar la CORRIENTE y no el par
-    // es lo correcto: un controlador de verdad lo consigue bajando el voltaje,
-    // y el par sale de la corriente, así que recortarla aquí da exactamente el
-    // mismo par que daría ese voltaje menor.
+    // The stator limit, which is what makes the simulated robot start like the
+    // real one instead of burning rubber. Clipping the CURRENT and not the torque
+    // is right: a real controller achieves it by lowering the voltage, and the
+    // torque comes from the current, so clipping it here gives exactly the same
+    // torque that lower voltage would.
     if (a.currentLimit > 0.0)
       current = std::clamp(current, -a.currentLimit, a.currentLimit);
 
@@ -525,34 +523,35 @@ void MarsLink::PostUpdate(const gz::sim::UpdateInfo &_info,
   if (_info.paused)
     return;
 
-  // Las tasas salen de topics.toml. La fisica corre a 250 Hz; publicar en cada
-  // paso gastaria ancho de banda sin darle al bridge nada que no tuviera ya.
+  // The rates come from topics.toml. The physics runs at 250 Hz; publishing
+  // every step would spend bandwidth without giving the bridge anything it did
+  // not already have.
   //
-  // Las dos a 4 ms, o sea UNA por paso de fisica. Con 5 ms los joints salian
-  // cada DOS pasos (8 ms = 125 Hz, medido): 4 ms no alcanza el umbral de 5 y el
-  // mensaje se saltaba un paso. En lockstep el bridge espera el estado de cada
-  // paso, asi que saltarse uno lo dejaba colgado; y en tiempo real el lazo de
-  // velocidad del TalonFX, que corre en el robot, recibia los encoders con un
-  // paso extra de retraso. La pose tambien va por paso: el yaw del giroscopio
-  // simulado sale de ella.
+  // Both at 4 ms, i.e. ONE per physics step. With 5 ms the joints went out
+  // every TWO steps (8 ms = 125 Hz, measured): 4 ms does not reach the 5
+  // threshold and the message skipped a step. In lockstep the bridge waits for
+  // every step's state, so skipping one left it hung; and in real time the
+  // TalonFX's velocity loop, which runs on the robot, got the encoders one
+  // extra step late. The pose also goes once per step: the simulated gyro's
+  // yaw comes from it.
   const auto kPosePeriod = std::chrono::milliseconds(4);     // 250 Hz
   const auto kJointsPeriod = std::chrono::milliseconds(4);   // 250 Hz
 
-  const bool tocaPose = _info.simTime - this->lastPose >= kPosePeriod;
-  const bool tocaJoints = _info.simTime - this->lastJoints >= kJointsPeriod;
-  if (!tocaPose && !tocaJoints)
+  const bool poseDue = _info.simTime - this->lastPose >= kPosePeriod;
+  const bool jointsDue = _info.simTime - this->lastJoints >= kJointsPeriod;
+  if (!poseDue && !jointsDue)
     return;
 
   const auto stamp = gz::msgs::Convert(_info.simTime);
 
-  // --- poses de los links -------------------------------------------------
-  if (tocaPose)
+  // --- link poses -------------------------------------------------
+  if (poseDue)
   {
     this->lastPose = _info.simTime;
 
     gz::msgs::Pose_V poses;
     *poses.mutable_header()->mutable_stamp() = stamp;
-    this->EstamparSeq(*poses.mutable_header());
+    this->StampSeq(*poses.mutable_header());
     for (const auto link : this->model.Links(_ecm))
     {
       const auto *name = _ecm.Component<gz::sim::components::Name>(link);
@@ -566,14 +565,14 @@ void MarsLink::PostUpdate(const gz::sim::UpdateInfo &_info,
     this->posePub.Publish(poses);
   }
 
-  // --- estado de los joints -----------------------------------------------
-  if (!tocaJoints)
+  // --- joint state -----------------------------------------------
+  if (!jointsDue)
     return;
   this->lastJoints = _info.simTime;
 
   gz::msgs::Model joints;
   *joints.mutable_header()->mutable_stamp() = stamp;
-  this->EstamparSeq(*joints.mutable_header());
+  this->StampSeq(*joints.mutable_header());
   joints.set_name(this->model.Name(_ecm));
   for (const auto &a : this->actuators)
   {

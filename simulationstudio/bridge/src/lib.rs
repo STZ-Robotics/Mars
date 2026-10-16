@@ -1,7 +1,7 @@
-//! Bridge de simulación de MARS.
+//! MARS simulation bridge.
 //!
-//! Traduce entre gz-transport (el motor), HALSim WebSocket (el código del
-//! robot) y NT4 (la app). El contrato está en sim/protocol/.
+//! Translates between gz-transport (the engine), HALSim WebSocket (the robot
+//! code) and NT4 (the app). The contract is in sim/protocol/.
 
 pub mod field;
 pub mod glue;
@@ -10,11 +10,11 @@ pub mod nt4;
 pub mod robotmap;
 pub mod wpistruct;
 
-/// Constantes generadas de `sim/protocol/topics.toml` en tiempo de compilación.
+/// Constants generated from `sim/protocol/topics.toml` at compile time.
 ///
-/// Nombres de tópico, versión del protocolo y dimensiones de la cancha. Ver
-/// build.rs: renombrar un tópico en el manifiesto rompe la compilación aquí,
-/// que es justo lo que se quiere de una fuente única de verdad.
+/// Topic names, protocol version and field dimensions. See build.rs: renaming a
+/// topic in the manifest breaks the build here, which is exactly what you want
+/// from a single source of truth.
 pub mod protocol {
     include!(concat!(env!("OUT_DIR"), "/protocol.rs"));
 }

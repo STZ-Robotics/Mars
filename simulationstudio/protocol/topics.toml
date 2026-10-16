@@ -1,31 +1,31 @@
-# Manifiesto del protocolo de simulación de MARS.
+# MARS simulation protocol manifest.
 #
-# Fuente única de verdad de los nombres de tópico. El motor (C++) y el bridge
-# (Rust) generan sus constantes de aquí; nadie escribe un nombre de tópico a
-# mano en el código. Si un tópico no está en este archivo, no existe.
+# The single source of truth for topic names. The engine (C++) and the bridge
+# (Rust) generate their constants from here; nobody writes a topic name by
+# hand in the code. If a topic is not in this file, it does not exist.
 #
-# Direcciones, desde el punto de vista del BRIDGE:
-#   out  el bridge publica
-#   in   el bridge se suscribe
+# Directions, from the BRIDGE's point of view:
+#   out  the bridge publishes
+#   in   the bridge subscribes
 protocol_version = "0.1.0"
 world = "mars"
 
-# Dimensiones de la cancha, en metros. Viven aquí porque las necesitan los DOS
-# lados: el mundo las usa para el plano del suelo y el bridge para trasladar del
-# marco de Gazebo (origen en el centro) al de WPILib (origen en la esquina
-# azul). Si divergen, las poses salen desplazadas y no hay ningún error en
-# ninguna parte; check.py verifica que el <plane><size> de cada mundo coincida.
+# Field dimensions, in meters. They live here because BOTH sides need them:
+# the world uses them for the ground plane and the bridge to translate from
+# Gazebo's frame (origin at the center) to WPILib's (origin at the blue
+# corner). If they diverge, the poses come out shifted and there is no error
+# anywhere; check.py verifies that every world's <plane><size> matches.
 [field]
 length_m = 16.54
 width_m = 8.21
 
 # ---------------------------------------------------------------------------
-# Salto 1: motor <-> bridge, sobre gz-transport (protobuf)
+# Hop 1: engine <-> bridge, over gz-transport (protobuf)
 # ---------------------------------------------------------------------------
-# Solo se usan tipos de `gz.msgs` estándar, nunca .proto propios. Dos razones:
-# un .proto custom obliga a meter gz-msgs_protoc_plugin al build, y el
-# descriptor dinámico de gz-msgs12 viene roto en conda-forge (ver README),
-# así que cualquier tipo nuestro sería invisible para las herramientas.
+# Only standard `gz.msgs` types are used, never .proto files of our own. Two
+# reasons: a custom .proto forces gz-msgs_protoc_plugin into the build, and
+# gz-msgs12's dynamic descriptor comes broken on conda-forge (see README), so
+# any type of ours would be invisible to the tools.
 
 [[gz]]
 topic = "/mars/meta/hello"
@@ -33,9 +33,9 @@ type = "gz.msgs.StringMsg"
 dir = "in"
 source = "custom"
 rate_hz = 1
-desc = """El motor anuncia su protocol_version al arrancar. El bridge se niega \
-a operar si el major no coincide con el suyo. Handshake barato que evita \
-depurar durante una hora un desajuste de contrato."""
+desc = """The engine announces its protocol_version on startup. The bridge \
+refuses to operate if the major does not match its own. A cheap handshake that \
+avoids debugging a contract mismatch for an hour."""
 
 [[gz]]
 topic = "/mars/cmd/actuators"
@@ -43,26 +43,26 @@ type = "gz.msgs.Actuators"
 dir = "out"
 source = "custom"
 rate_hz = 200
-desc = """En LOCKSTEP el bridge pone header.data["seq"] (creciente) y MarsLink
-deja de correr libre: cada paso espera al comando con el siguiente seq, y
-/mars/state/joints y /mars/state/pose salen con el mismo seq en su header. Ver
-bridge/src/lockstep.rs.
+desc = """In LOCKSTEP the bridge sets header.data["seq"] (increasing) and MarsLink
+stops running free: each step waits for the command with the next seq, and
+/mars/state/joints and /mars/state/pose go out with the same seq in their
+header. See bridge/src/lockstep.rs.
 
-Comandos de motor, indexados por el orden de actuadores del
-robot-map. Los tres campos comparten indexacion y cada actuador lee el que le
-toca segun su modo de control, declarado en el <actuator> del SDF:
+Motor commands, indexed by the robot-map's actuator order. The three fields
+share indexing and each actuator reads the one its control mode calls for,
+declared in the SDF's <actuator>:
 
-  control="duty"      lee `normalized` (-1..1), aplicado tal cual
-  control="position"  lee `position` (radianes DEL JOINT) como consigna, y el
-                      motor cierra un PD a la tasa de la fisica
+  control="duty"      reads `normalized` (-1..1), applied as is
+  control="position"  reads `position` (JOINT radians) as the setpoint, and the
+                      engine closes a PD at the physics rate
 
-El modo posicion existe porque es la unica forma de simular un motor CAN con
-fidelidad: un TalonFX cierra su lazo DENTRO del controlador a ~1 kHz y el codigo
-del robot solo le manda la consigna. Un swerve lo obliga --- una direccion
-12.8:1 con Kraken tiene 90 N*m sobre 0.008 kg*m2, y ningun lazo sobre la red
-tiene autoridad sobre eso, ni a 50 Hz ni a 250.
+Position mode exists because it is the only way to simulate a CAN motor
+faithfully: a TalonFX closes its loop INSIDE the controller at ~1 kHz and the
+robot code only sends it the setpoint. A swerve forces it --- a 12.8:1 steer
+with a Kraken has 90 N*m over 0.008 kg*m2, and no loop over the network has
+authority over that, neither at 50 Hz nor at 250.
 
-`velocity` sigue reservado, para cuando haga falta control de velocidad."""
+`velocity` stays reserved, for when velocity control is needed."""
 
 [[gz]]
 topic = "/mars/cmd/match"
@@ -70,9 +70,9 @@ type = "gz.msgs.Int32"
 dir = "out"
 source = "custom"
 rate_hz = 50
-desc = """Estado del partido: 0=disabled 1=autonomous 2=teleop 3=test 4=estop. \
-El motor lo necesita para frenar los actuadores cuando el robot se deshabilita \
-en vez de dejarlos en el último valor recibido."""
+desc = """Match state: 0=disabled 1=autonomous 2=teleop 3=test 4=estop. \
+The engine needs it to brake the actuators when the robot is disabled \
+instead of leaving them at the last value received."""
 
 [[gz]]
 topic = "/mars/state/joints"
@@ -80,10 +80,10 @@ type = "gz.msgs.Model"
 dir = "in"
 source = "custom"
 rate_hz = 250
-desc = """Posición y velocidad de cada joint. De aquí se derivan los encoders: \
-el bridge multiplica por countsPerRevolution y la relación de engranaje del \
-robot-map. Va a 200 Hz porque un ciclo de robot son 20 ms y queremos que \
-nunca lea un valor viejo."""
+desc = """Position and velocity of every joint. The encoders are derived from \
+here: the bridge multiplies by countsPerRevolution and the robot-map's gear \
+ratio. It runs at 200 Hz because a robot cycle is 20 ms and we want it to \
+never read a stale value."""
 
 [[gz]]
 topic = "/mars/state/pose"
@@ -91,9 +91,9 @@ type = "gz.msgs.Pose_V"
 dir = "in"
 source = "custom"
 rate_hz = 250
-desc = """Pose de cada link del robot en coordenadas del mundo. Esta es la \
-VERDAD de la física, no una estimación. Va a NT para que la app pueda \
-dibujarla encima de la odometría del robot y hacer visible el error."""
+desc = """Pose of every robot link in world coordinates. This is the physics' \
+TRUTH, not an estimate. It goes to NT so the app can draw it over the robot's \
+odometry and make the error visible."""
 
 [[gz]]
 topic = "/world/mars/model/robot/link/chassis/sensor/imu/imu"
@@ -101,9 +101,9 @@ type = "gz.msgs.IMU"
 dir = "in"
 source = "gz-standard"
 rate_hz = 200
-desc = """Giroscopio. Lo publica gz-sim-imu-system, que NO necesita rendering \
-(a diferencia de cámaras y lidar). Se remapea al espacio /mars para que el \
-bridge no dependa de los nombres de link del modelo."""
+desc = """Gyro. gz-sim-imu-system publishes it, and it does NOT need rendering \
+(unlike cameras and lidar). It is remapped into the /mars space so the \
+bridge does not depend on the model's link names."""
 
 [[gz]]
 topic = "/world/mars/clock"
@@ -111,44 +111,44 @@ type = "gz.msgs.Clock"
 dir = "in"
 source = "gz-standard"
 rate_hz = 50
-desc = """Tiempo de simulación. El bridge lo compara con el reloj de pared \
-para calcular el real-time factor, que es la métrica de salud del lazo: si \
-baja de 1.0 de forma sostenida, la simulación dejó de ser válida."""
+desc = """Simulation time. The bridge compares it with the wall clock to \
+compute the real-time factor, which is the loop's health metric: if it \
+stays below 1.0, the simulation stopped being valid."""
 
 # ---------------------------------------------------------------------------
-# Salto 3: bridge -> app, sobre NT4
+# Hop 3: bridge -> app, over NT4
 # ---------------------------------------------------------------------------
-# El servidor NT4 NO es nuestro: lo levanta el código del robot en :5810.
-# El bridge y la app son ambos clientes. Por eso todo lo de abajo es "out":
-# el bridge publica hacia el servidor del robot, y la app lee de ahí.
+# The NT4 server is NOT ours: the robot code brings it up on :5810. The bridge
+# and the app are both clients. That is why everything below is "out": the
+# bridge publishes to the robot's server, and the app reads from there.
 
 [[nt]]
 topic = "/MARS/Sim/truthPose"
 type = "struct:Pose2d"
 dir = "out"
-desc = """La pose real según la física. El nombre dice `truth` a propósito: no \
-es una estimación y no debe alimentar ningún lazo de control del robot, o la \
-simulación deja de probar la odometría."""
+desc = """The true pose according to the physics. The name says `truth` on \
+purpose: it is not an estimate and must not feed any of the robot's control \
+loops, or the simulation stops testing the odometry."""
 
 [[nt]]
 topic = "/MARS/Sim/truthPose3d"
 type = "struct:Pose3d"
 dir = "out"
-desc = "Igual pero con altura y orientación completa, para el Field 3D."
+desc = "The same but with height and full orientation, for the Field 3D."
 
 [[nt]]
 topic = "/MARS/Sim/simTime"
 type = "double"
 dir = "out"
-desc = "Segundos de simulación transcurridos."
+desc = "Seconds of simulation elapsed."
 
 [[nt]]
 topic = "/MARS/Sim/realTimeFactor"
 type = "double"
 dir = "out"
-desc = """Cuánto avanza el tiempo de simulación por segundo de reloj de pared. \
-1.0 es lo sano. Sostenido por debajo de ~0.95 el lazo de control ya no es \
-representativo y la app debe avisarlo."""
+desc = """How much simulation time advances per second of wall clock. \
+1.0 is healthy. Sustained below ~0.95 the control loop is no longer \
+representative and the app should warn about it."""
 
 [[nt]]
 topic = "/MARS/Sim/state"
@@ -160,77 +160,78 @@ desc = "running | paused | resetting | error"
 topic = "/SmartDashboard/Field/Robot"
 type = "double[]"
 dir = "out"
-desc = """{x, y, grados}. Redundante con truthPose, pero es la convención de \
-Field2d de WPILib y hace que la sim se vea en Glass, Shuffleboard y \
-AdvantageScope sin configurar nada."""
+desc = """{x, y, degrees}. Redundant with truthPose, but it is WPILib's \
+Field2d convention and makes the sim show up in Glass, Shuffleboard and \
+AdvantageScope without configuring anything."""
 
 # ---------------------------------------------------------------------------
-# Salto 2b: perfil "vendor" — glue del código del robot, sobre NT4
+# Hop 2b: "vendor" profile — the robot code's glue, over NT4
 # ---------------------------------------------------------------------------
-# Solo aplica cuando profile = "vendor" en el robot-map (motores CAN, que
-# wpilibws no cubre). Los nombres llevan `<name>`, que es el `name` del
-# actuador o encoder en el robot-map: no son tópicos fijos sino una plantilla.
-# Aquí las direcciones se invierten respecto al resto del archivo, porque es
-# el código del robot el que produce las salidas.
+# Only applies when profile = "vendor" in the robot-map (CAN motors, which
+# wpilibws does not cover). The names carry `<name>`, which is the `name` of
+# the actuator or encoder in the robot-map: they are not fixed topics but a
+# template. Here the directions are inverted relative to the rest of the file,
+# because it is the robot code that produces the outputs.
 
 [[glue]]
 topic = "/MARS/Glue/out/enabled"
 type = "boolean"
 dir = "in"
-desc = """Si el Driver Station tiene el robot habilitado. El bridge lo traduce a /mars/cmd/match, y sin el el motor mantiene par cero: un robot deshabilitado rueda libre. Es un topico fijo, no una plantilla."""
+desc = """Whether the Driver Station has the robot enabled. The bridge translates it to /mars/cmd/match, and without it the engine keeps zero torque: a disabled robot rolls free. It is a fixed topic, not a template."""
 
 [[glue]]
 topic = "/MARS/Glue/out/<name>/setpoint"
 type = "double"
 dir = "in"
-desc = """Consigna de posicion en radianes del MOTOR, para los actuadores en
-modo `position`. Va en el eje del motor y no en el del joint por simetria con
-/MARS/Glue/in/<name>/position, que es lo que el codigo del robot lee: las dos
-puntas del lazo hablan las mismas unidades y el glue no tiene que convertir
-nada. El bridge divide por la reduccion antes de pasarsela al motor.
+desc = """Position setpoint in MOTOR radians, for the actuators in `position`
+mode. It is on the motor's axis and not the joint's for symmetry with
+/MARS/Glue/in/<name>/position, which is what the robot code reads: both ends
+of the loop speak the same units and the glue does not have to convert
+anything. The bridge divides by the reduction before handing it to the engine.
 
-Un actuador en modo `duty` ignora este topico, y uno en modo `position` ignora
-/duty."""
+An actuator in `duty` mode ignores this topic, and one in `position` mode
+ignores /duty."""
 
 [[glue]]
 topic = "/MARS/Glue/out/<name>/duty"
 type = "double"
 dir = "in"
-desc = """Ciclo de trabajo -1..1 que el código del robot le pide al motor. Lo \
-publica el glue leyendo la API de sim del vendor (TalonFXSimState.getMotorVoltage \
-dividido por el voltaje de bus, o SparkSim.getAppliedOutput)."""
+desc = """Duty cycle -1..1 the robot code asks of the motor. The glue \
+publishes it by reading the vendor's sim API (TalonFXSimState.getMotorVoltage \
+divided by the bus voltage, or SparkSim.getAppliedOutput)."""
 
 [[glue]]
 topic = "/MARS/Glue/in/<name>/position"
 type = "double"
 dir = "out"
-desc = """Posición del joint en radianes, en el eje del MOTOR (ya multiplicada \
-por gearRatio). El glue la mete al vendor con setRawRotorPosition o \
-equivalente."""
+desc = """Joint position in radians, on the MOTOR's axis (already multiplied \
+by gearRatio). The glue feeds it to the vendor with setRawRotorPosition or \
+equivalent."""
 
 [[glue]]
 topic = "/MARS/Glue/in/<name>/velocity"
 type = "double"
 dir = "out"
-desc = "Velocidad del joint en rad/s, también en el eje del motor."
+desc = "Joint velocity in rad/s, also on the motor's axis."
 
 [[glue]]
 topic = "/MARS/Glue/in/heartbeat"
 type = "double"
 dir = "out"
-desc = """Contador que sube en cada ciclo del bridge. Existe para que el glue
-distinga "la simulacion mando un cero" de "la simulacion no esta". Un robot
-parado publica ceros identicos a los de un canal muerto, y sin esto el codigo
-del robot se quedaria congelado esperando datos que nunca cambian.
+desc = """A counter that goes up every bridge cycle. It exists so the glue
+can tell "the simulation sent a zero" from "the simulation is not there". A
+stopped robot publishes zeros identical to those of a dead channel, and
+without this the robot code would stay frozen waiting for data that never
+changes.
 
-Se usa un contador y no una marca de tiempo porque asi vale cualquier API de
-lectura, incluidas las que solo devuelven el valor."""
+A counter is used and not a timestamp because that way any read API works,
+including the ones that only return the value."""
 
 
 [[glue]]
 topic = "/MARS/Glue/in/gyro/yaw"
 type = "double"
 dir = "out"
-desc = """Yaw en grados, sentido CCW positivo (convención de WPILib, NO la de \
-Gazebo). La conversión la hace el bridge, no el glue, para que el glue sea lo \
-más tonto posible."""
+desc = """Yaw in degrees, CCW positive (WPILib's convention, NOT \
+Gazebo's). The bridge does the conversion, not the glue, so the glue is as \
+dumb as possible."""

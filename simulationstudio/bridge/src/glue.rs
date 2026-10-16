@@ -19,11 +19,6 @@
 //!   robot code  --duty, enabled-->  bridge  --Actuators-->  engine
 //!   robot code  <--pos, vel, yaw--  bridge  <--Model,Pose--  engine
 //! ```
-//!
-//! The public names still in Spanish (`PREFIJO_SALIDA`, `suscribir`,
-//! `comandos`, `publicar_estado` and `Comandos`' fields) are what
-//! `bin/mars-bridge.rs` and the lockstep work call; they are renamed together
-//! with those.
 
 use anyhow::Result;
 
@@ -32,7 +27,7 @@ use crate::robotmap::{Control, RobotMap};
 
 /// Prefix of everything the robot code publishes. The bridge subscribes to it
 /// as a block, without listing actuators.
-pub const PREFIJO_SALIDA: &str = "/MARS/Glue/out/";
+pub const OUT_PREFIX: &str = "/MARS/Glue/out/";
 pub const T_ENABLED: &str = "/MARS/Glue/out/enabled";
 pub const T_GYRO_YAW: &str = "/MARS/Glue/in/gyro/yaw";
 /// A counter that goes up every cycle. It is how the robot code knows the
@@ -56,12 +51,12 @@ struct Channel {
 }
 
 /// What the robot code is asking for, ready for the engine.
-pub struct Comandos {
+pub struct Commands {
     pub duty: Vec<f64>,
     /// Position setpoints, in JOINT radians.
-    pub posicion: Vec<f64>,
+    pub position: Vec<f64>,
     /// Whether the robot is enabled.
-    pub habilitado: bool,
+    pub enabled: bool,
 }
 
 pub struct Glue {
@@ -80,8 +75,8 @@ impl Glue {
                 joint: a.joint.clone(),
                 gear_ratio: a.gear_ratio,
                 control: a.control,
-                t_duty: format!("{PREFIJO_SALIDA}{}/duty", a.name),
-                t_setpoint: format!("{PREFIJO_SALIDA}{}/setpoint", a.name),
+                t_duty: format!("{OUT_PREFIX}{}/duty", a.name),
+                t_setpoint: format!("{OUT_PREFIX}{}/setpoint", a.name),
                 t_pos: format!("/MARS/Glue/in/{}/position", a.name),
                 t_vel: format!("/MARS/Glue/in/{}/velocity", a.name),
             })
@@ -90,12 +85,12 @@ impl Glue {
     }
 
     /// Subscribes to everything the robot code publishes.
-    pub fn suscribir(&self, nt: &Nt4) -> Result<()> {
-        nt.subscribe_prefix(PREFIJO_SALIDA)
+    pub fn subscribe(&self, nt: &Nt4) -> Result<()> {
+        nt.subscribe_prefix(OUT_PREFIX)
     }
 
     /// How many actuators the robot map declares.
-    pub fn actuadores(&self) -> usize {
+    pub fn actuator_count(&self) -> usize {
         self.channels.len()
     }
 
@@ -111,7 +106,7 @@ impl Glue {
     /// zero", which is the only reasonable thing without knowing what the
     /// robot wants -- and it does not matter in practice, because until the
     /// robot is enabled the engine forces zero torque anyway.
-    pub fn comandos(&self, nt: &Nt4) -> Comandos {
+    pub fn commands(&self, nt: &Nt4) -> Commands {
         let mut duty = vec![0.0; self.channels.len()];
         let mut position = vec![0.0; self.channels.len()];
 
@@ -136,10 +131,10 @@ impl Glue {
 
         // With no explicit value, disabled. A communication failure leaving
         // the robot running would be the worst possible outcome.
-        Comandos {
+        Commands {
             duty,
-            posicion: position,
-            habilitado: nt.get_bool(T_ENABLED).unwrap_or(false),
+            position: position,
+            enabled: nt.get_bool(T_ENABLED).unwrap_or(false),
         }
     }
 
@@ -149,7 +144,7 @@ impl Glue {
     /// they are multiplied by the reduction, which is how the integrated
     /// encoders of Falcon and Kraken report them and what the vendor expects
     /// in `setRawRotorPosition`.
-    pub fn publicar_estado(
+    pub fn publish_state(
         &self,
         nt: &Nt4,
         joints: &gz_msgs::model::Model,
@@ -190,19 +185,19 @@ mod tests {
             joint: "fl_drive_joint".into(),
             gear_ratio: 6.75,
             control: Control::Duty,
-            t_duty: format!("{PREFIJO_SALIDA}fl_drive/duty"),
-            t_setpoint: format!("{PREFIJO_SALIDA}fl_drive/setpoint"),
+            t_duty: format!("{OUT_PREFIX}fl_drive/duty"),
+            t_setpoint: format!("{OUT_PREFIX}fl_drive/setpoint"),
             t_pos: "/MARS/Glue/in/fl_drive/position".into(),
             t_vel: "/MARS/Glue/in/fl_drive/velocity".into(),
         };
         assert_eq!(channel.t_duty, "/MARS/Glue/out/fl_drive/duty");
         // The subscription prefix has to cover what the robot publishes.
-        assert!(channel.t_duty.starts_with(PREFIJO_SALIDA));
-        assert!(T_ENABLED.starts_with(PREFIJO_SALIDA));
+        assert!(channel.t_duty.starts_with(OUT_PREFIX));
+        assert!(T_ENABLED.starts_with(OUT_PREFIX));
         assert_eq!(channel.index, 0);
         assert_eq!(channel.gear_ratio, 6.75);
         assert_eq!(channel.joint, "fl_drive_joint");
         assert_eq!(channel.control, Control::Duty);
-        assert!(channel.t_setpoint.starts_with(PREFIJO_SALIDA));
+        assert!(channel.t_setpoint.starts_with(OUT_PREFIX));
     }
 }
