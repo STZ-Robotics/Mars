@@ -150,9 +150,7 @@ public final class Ares {
   public Ares(AresDrive drive, Config config) {
     this.drive = drive;
     this.config = config;
-    this.pathfinder = config.pathfinder != null
-        ? config.pathfinder
-        : new StraightPathfinder(drive, config.translation, config.rotation, config.arriveToleranceM, config.arriveToleranceRad);
+    this.pathfinder = config.pathfinder != null ? config.pathfinder : defaultPathfinder(drive, config);
     AresIndex loaded;
     try {
       loaded = AresIndex.load(config.folder);
@@ -211,6 +209,21 @@ public final class Ares {
       return new AresSetpoint(setpoint.target(), setpoint.fieldSpeeds(), setpoint.robotSpeeds(), zero, zero, zero, zero, setpoint.sample());
     }
     return setpoint.reordered(driveOrder);
+  }
+
+  // Around the navgrid when the project has one (navgrid.json, from the Field
+  // tab), straight otherwise.
+  private AresPathfinder defaultPathfinder(AresDrive drive, Config c) {
+    var file = new File(c.folder, "navgrid.json");
+    if (file.isFile()) {
+      try {
+        return new GridPathfinder(drive, NavGrid.load(file), c.translation, c.rotation, c.arriveToleranceM,
+            c.arriveToleranceRad, c.flip, c.symmetry, c.fieldLengthM, c.fieldWidthM);
+      } catch (Exception e) {
+        fail("Ares could not read navgrid.json (" + e.getMessage() + "): pathfinding drives straight");
+      }
+    }
+    return new StraightPathfinder(drive, c.translation, c.rotation, c.arriveToleranceM, c.arriveToleranceRad);
   }
 
   public Ares(AresDrive drive) {

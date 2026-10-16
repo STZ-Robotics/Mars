@@ -74,8 +74,17 @@ modules take it.
   leaves.
 - **"?" stretches (pathfinding).** If the robot is where Ares expected, it
   follows Ares's estimate, which is a real trajectory. If not, it hands over
-  to the pathfinder: by default a straight, profiled drive that avoids nothing;
-  plug in PathPlanner's AD* with `withPathfinder` (see `AresPathfinder`).
+  to the pathfinder:
+  - with a **navgrid** (drawn in the Field tab, deployed as `navgrid.json`),
+    `GridPathfinder`: A* around its blocked cells from where the robot
+    actually is (the same search as the app's "Test route"), the corners
+    driven with a profile that slows for each one. On red it searches in
+    blue's frame and flips the corners back;
+  - without one, `StraightPathfinder`: a straight profiled drive that avoids
+    nothing;
+  - or anything you plug in with `withPathfinder` (PathPlanner's AD*, see
+    `AresPathfinder`). `navgrid.json` is PathPlanner's format, so the same
+    file works for its pathfinder if copied to `deploy/pathplanner/`.
 - **Autos**: path, wait, command (and "alongside", which runs with everything
   after it), if/else on a condition, nested autos. An auto that starts at a
   known pose resets odometry there (`withResetPoseAtAutoStart(false)` to not).
@@ -100,8 +109,10 @@ The tests drive a perfect simulated drivetrain through the fixture project in
 `src/test/resources/project/` (made with `ares plan`): ending where the path
 ends, the feedback pulling it back, the red alliance, markers and zones,
 branches taken and not, an auto that leaves at a branch point, the
-pathfinder taking over when the robot is knocked off the estimate, and the
-forces handed over in the drivetrain's order.
+pathfinder taking over when the robot is knocked off the estimate, the
+forces handed over in the drivetrain's order, and the grid pathfinder driving
+around a wall without its center ever entering a blocked cell, on both
+alliances.
 
 ## Releasing
 

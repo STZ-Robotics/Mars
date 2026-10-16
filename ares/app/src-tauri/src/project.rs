@@ -415,6 +415,12 @@ pub struct PathStatus {
     duration_s: Option<f64>,
 }
 
+/// Written before the wheel forces had a direction (fxN, fyN): the robot
+/// cannot feed them forward, so it is generated again.
+fn lacks_forces(t: &Trajectory) -> bool {
+    t.samples.iter().flat_map(|s| &s.modules).any(|m| m.force_n > 1e-6 && m.fx_n == 0.0 && m.fy_n == 0.0)
+}
+
 /// For each path: is there a trajectory, and was it generated from what the
 /// path, the field and the robot are now.
 #[tauri::command]
@@ -429,7 +435,7 @@ pub fn paths_status(robot_path: String, robot: RobotConfig, field: FieldDoc) -> 
             let now = source_hash(&[&json(serde_json::to_value(&spec)), &field_for(&field, &spec), &robot_json]);
             PathStatus {
                 generated: traj.is_some(),
-                outdated: traj.as_ref().is_none_or(|t| t.source_hash.as_deref() != Some(now.as_str())),
+                outdated: traj.as_ref().is_none_or(|t| t.source_hash.as_deref() != Some(now.as_str()) || lacks_forces(t)),
                 duration_s: traj.as_ref().map(|t| t.duration_s),
                 name: spec.name,
             }
@@ -656,6 +662,12 @@ mod tests {
         write(&traj_file(&rp, "P").unwrap(), &serde_json::to_string(&t).unwrap()).unwrap();
         let st = &paths_status(rp.clone(), robot.clone(), field.clone())[0];
         assert!(st.generated && !st.outdated);
+        // One from before the forces had a direction is out of date too.
+        let mut old = t.clone();
+        old.samples.iter_mut().flat_map(|s| s.modules.iter_mut()).for_each(|m| { m.fx_n = 0.0; m.fy_n = 0.0; });
+        write(&traj_file(&rp, "P").unwrap(), &serde_json::to_string(&old).unwrap()).unwrap();
+        assert!(paths_status(rp.clone(), robot.clone(), field.clone())[0].outdated);
+        write(&traj_file(&rp, "P").unwrap(), &serde_json::to_string(&t).unwrap()).unwrap();
         let mut moved = s.clone();
         moved.waypoints[1].x += 0.5;
         path_save(rp.clone(), moved, Some("P".into())).unwrap();
