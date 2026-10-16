@@ -72,7 +72,7 @@ public class GCSConsole {
     }
 
     public static void bootSequence() {
-        // Inicializar el socket si no es un robot real
+        // Initialize the socket if this is not a real robot
         if (Environment.getMode() != RunMode.REAL) {
             try {
                 simSocket = new DatagramSocket();
@@ -92,7 +92,7 @@ public class GCSConsole {
         System.out.println(String.format("  Memory  : %-47s ", maxMemory + " MB Allocated"));
         System.out.println("=--------------------------------------------------------------=" + RESET);
         
-        // Enviamos el header manual a UDP si estamos en sim
+        // Send the header to UDP by hand when in sim
         String header = BOLD_GREEN + "\n=--------------------------------------------------------------=\n" +
                         "=  MARS Ground Control Station           STZ Robotics          =\n" +
                         "=--------------------------------------------------------------=\n" + RESET;
