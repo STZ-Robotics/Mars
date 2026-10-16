@@ -6,7 +6,7 @@ import { bindField } from "../vars/bind"
 import { linkedPose } from "../vars/variables"
 import { StopIcon, WaypointIcon, positionColor } from "./glyphs"
 import {
-  EventMarker, KeepOut, PathSpec, PathfindOptions, ScopedConstraint, SegmentMode, Selection, Target, Trajectory, Waypoint, WaypointKind,
+  EventMarker, KeepOut, PathSpec, PathfindOptions, RotationTarget, ScopedConstraint, SlowZone, SegmentMode, Selection, Target, Trajectory, Waypoint, WaypointKind,
   constraintMeta, kindOf, segmentMode,
 } from "./types"
 
@@ -43,6 +43,9 @@ interface Props {
   poses: { name: string; computed: boolean }[]
   onLink: (i: number, name: string | null) => void
   onSaveAsPose: (i: number) => void
+  zones: SlowZone[]
+  onZoneFn: (i: number, f: (z: SlowZone) => SlowZone) => void
+  onRotationFn: (i: number, f: (r: RotationTarget) => RotationTarget) => void
 }
 
 const KINDS: { kind: WaypointKind; label: string; key: string }[] = [
@@ -236,6 +239,59 @@ export default function ConfigPanel(p: Props) {
             <span style={{ fontFamily: "Consolas, 'Cascadia Mono', monospace", fontSize: 11 }}>{fired.t.toFixed(3)} s</span>
           </PropertyRow>
         )}
+      </>
+    )
+  } else if (selected.kind === "zone") {
+    const z = p.zones[selected.index]
+    if (!z) return null
+    const bz = (key: string) => bindField(z, key, f => p.onZoneFn(selected.index, f))
+    title = `Slow zone ${selected.index + 1}`
+    icon = <i className="ti ti-square-half" style={{ fontSize: 15, color: "#ca8a04" }} />
+    body = (
+      <>
+        <div style={{ padding: "5px 10px", fontSize: 10.5, color: "var(--text-muted)", borderBottom: "1px solid var(--border-light)" }}>
+          On the field: every path that passes through drives under these caps there.
+        </div>
+        <PropertyRow label="Name"><TextInput value={z.name ?? ""} onCommit={name => p.onZoneFn(selected.index, q => ({ ...q, name: name || undefined }))} /></PropertyRow>
+        <PropertyRow label="Shape">
+          <select style={propertyInputStyle} value={z.shape} onChange={e => p.onZoneFn(selected.index, q => (e.target.value === "circle"
+            ? { name: q.name, maxVelocityMps: q.maxVelocityMps, maxAccelerationMps2: q.maxAccelerationMps2, shape: "circle", x: q.shape === "rectangle" ? q.x + q.widthM / 2 : q.x, y: q.shape === "rectangle" ? q.y + q.heightM / 2 : q.y, radiusM: q.shape === "rectangle" ? Math.max(q.widthM, q.heightM) / 2 : q.radiusM }
+            : { name: q.name, maxVelocityMps: q.maxVelocityMps, maxAccelerationMps2: q.maxAccelerationMps2, shape: "rectangle", x: q.shape === "circle" ? q.x - q.radiusM : q.x, y: q.shape === "circle" ? q.y - q.radiusM : q.y, widthM: q.shape === "circle" ? 2 * q.radiusM : q.widthM, heightM: q.shape === "circle" ? 2 * q.radiusM : q.heightM }))}>
+            <option value="rectangle">Rectangle</option>
+            <option value="circle">Circle</option>
+          </select>
+        </PropertyRow>
+        <Q label={z.shape === "rectangle" ? "X (left)" : "Center X"} dim="length" unit="m" {...bz("x")} />
+        <Q label={z.shape === "rectangle" ? "Y (bottom)" : "Center Y"} dim="length" unit="m" {...bz("y")} />
+        {z.shape === "rectangle" ? (
+          <>
+            <Q label="Width" dim="length" unit="m" {...bz("widthM")} />
+            <Q label="Height" dim="length" unit="m" {...bz("heightM")} />
+          </>
+        ) : <Q label="Radius" dim="length" unit="m" {...bz("radiusM")} />}
+        <Q label="Max speed" dim="plain" unit="m/s" optional {...bz("maxVelocityMps")} hint="Empty: no speed cap here" />
+        <Q label="Max accel" dim="plain" unit="m/s²" optional {...bz("maxAccelerationMps2")} hint="Empty: no acceleration cap here" />
+      </>
+    )
+  } else if (selected.kind === "rotation") {
+    const r = (p.spec.rotationTargets ?? [])[selected.index]
+    if (!r) return null
+    const br = (key: string) => bindField(r, key, f => p.onRotationFn(selected.index, f))
+    title = "Rotation target"
+    icon = <i className="ti ti-rotate-clockwise-2" style={{ fontSize: 15, color: "#e95420" }} />
+    body = (
+      <>
+        <div style={{ padding: "5px 10px", fontSize: 10.5, color: "var(--text-muted)", borderBottom: "1px solid var(--border-light)", lineHeight: 1.45 }}>
+          A heading the robot hits partway along a segment, without a waypoint there (PathPlanner's rotation targets).
+        </div>
+        <PropertyRow label="Segment">
+          <select style={propertyInputStyle} value={r.segment} onChange={e => p.onRotationFn(selected.index, q => ({ ...q, segment: Number(e.target.value) }))}>
+            {Array.from({ length: Math.max(0, n - 1) }, (_, j) => <option key={j} value={j}>Waypoint {j + 1} → {j + 2}</option>)}
+          </select>
+        </PropertyRow>
+        <Q label="Along the segment" dim="plain" unit="%" value={Math.round(r.fraction * 1000) / 10}
+          onChange={v => p.onRotationFn(selected.index, q => ({ ...q, fraction: Math.min(1, Math.max(0, v / 100)) }))} hint="0% is the segment's start, 100% its end (by time)." />
+        <Q label="Heading" dim="plain" unit="°" {...br("headingDeg")} />
       </>
     )
   } else if (selected.kind === "keepout") {

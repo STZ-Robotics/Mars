@@ -81,3 +81,23 @@ describe("segment modes", () => {
     expect(segmentMode(s.waypoints[0])).toBe("optimized")
   })
 })
+
+import { mirrorPath, moveWaypoints } from "./types"
+
+describe("mirroring and moving", () => {
+  it("mirrors across the alliance and back", () => {
+    const s = newPathSpec("t")
+    const m = mirrorPath(s, "alliance", 16, 8)
+    expect(m.waypoints[0]).toMatchObject({ x: 14, y: 4, headingDeg: 180 })
+    expect(mirrorPath(m, "alliance", 16, 8).waypoints[0]).toMatchObject({ x: 2, y: 4, headingDeg: 0 })
+    expect(mirrorPath(s, "vertical", 16, 8).waypoints[1]).toMatchObject({ x: 5, y: 2.5 })
+  })
+  it("moves a group and drops their position formulas", () => {
+    const s = { ...newPathSpec("t") }
+    s.waypoints[0] = { ...s.waypoints[0], exprs: { x: "=hub.x", headingDeg: "=hub.heading" } }
+    const m = moveWaypoints(s, [0, 1], 1, -1)
+    expect(m.waypoints[0]).toMatchObject({ x: 3, y: 3 })
+    expect(m.waypoints[0].exprs).toEqual({ headingDeg: "=hub.heading" })
+    expect(m.waypoints[2]).toBe(s.waypoints[2])
+  })
+})

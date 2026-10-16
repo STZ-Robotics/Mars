@@ -25,6 +25,7 @@ interface Props {
   onToggleConstraint: (i: number) => void
   onDeleteConstraint: (i: number) => void
   onDeleteEvent: (i: number) => void
+  onDeleteRotation: (i: number) => void
   /** Rendered after the lists, in the same scroll. */
   children?: ReactNode
 }
@@ -155,6 +156,28 @@ export default function Sidebar(p: Props) {
             })}
           </div>
 
+          {(spec.rotationTargets ?? []).length > 0 && (
+            <>
+              <Heading label="Rotation targets" count={(spec.rotationTargets ?? []).length} />
+              <div onMouseLeave={() => p.onHover(null)}>
+                {(spec.rotationTargets ?? []).map((r, i) => {
+                  const sel = p.selected?.kind === "rotation" && p.selected.index === i
+                  return (
+                    <Item key={i} active={sel} title="A heading to hit partway along a segment. Click to edit, or drag its arrow on the field."
+                      onClick={() => p.onSelect({ kind: "rotation", index: i })} onMouseEnter={() => p.onHover({ kind: "rotation", index: i })}>
+                      <i className="ti ti-rotate-clockwise-2" style={{ fontSize: 14, color: sel ? "#ffffff" : "#e95420" }} />
+                      <Label>{r.headingDeg.toFixed(0)}°</Label>
+                      <span style={{ fontSize: 10, opacity: 0.85 }}>{r.segment + 1} → {r.segment + 2} · {Math.round(r.fraction * 100)}%</span>
+                      <RowButton title="Delete rotation target" onClick={() => p.onDeleteRotation(i)}>
+                        <i className="ti ti-trash" style={{ fontSize: 13, opacity: 0.75 }} />
+                      </RowButton>
+                    </Item>
+                  )
+                })}
+              </div>
+            </>
+          )}
+
           <Heading label="Event markers" count={(spec.events ?? []).length} />
           <div onMouseLeave={() => p.onHover(null)}>
             {(spec.events ?? []).length === 0 && <None>None. Event tool (E), then click a waypoint.</None>}
@@ -163,7 +186,7 @@ export default function Sidebar(p: Props) {
               return (
                 <Item key={i} active={sel} onClick={() => p.onSelect({ kind: "event", index: i })} onMouseEnter={() => p.onHover({ kind: "event", index: i })}>
                   <i className="ti ti-map-pin-bolt" style={{ fontSize: 14, color: sel ? "#ffffff" : "#a1690a" }} />
-                  <Label>{e.name}</Label>
+                  <Label>{e.name}{e.durationS ? <Dim sel={sel}> · {e.durationS} s zone</Dim> : null}</Label>
                   <span style={{ fontSize: 10, opacity: 0.85 }}>{targetLabel(e.target)} {e.offsetS >= 0 ? "+" : ""}{e.offsetS.toFixed(2)} s</span>
                   <RowButton title="Delete event" onClick={() => p.onDeleteEvent(i)}>
                     <i className="ti ti-trash" style={{ fontSize: 13, opacity: 0.75 }} />

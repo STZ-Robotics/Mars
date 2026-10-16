@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import type { FieldConfig } from "@desktop/utils/field/fieldImages"
 import type { RobotConfig } from "../robot/types"
 import {
-  KeepOut, PathSpec, Sample, ScopedConstraint, Selection, Tool, Trajectory, ViewOptions, constraintChip, kindOf, rangeOf, sampleAt, stopAt, waitAt,
+  KeepOut, PathSpec, RotationTarget, Sample, ScopedConstraint, Selection, SlowZone, Tool, Trajectory, ViewOptions, constraintChip, kindOf, rangeOf, sampleAt, stopAt, waitAt,
 } from "./types"
 import { GLYPH, drawChip, drawHeadingTriangle, drawStop, positionColor } from "./glyphs"
 import type { TopView } from "../robot/topView"
@@ -43,6 +43,18 @@ interface Props {
   onEditConstraint: (i: number, patch: Partial<ScopedConstraint>, final: boolean) => void
   /** A manual segment's control point dragged; `free` (Alt) breaks the tangent. */
   onMoveControl: (i: number, side: "prev" | "next", x: number, y: number, final: boolean, free: boolean) => void
+  /** Waypoints selected together (Shift+click, Shift+drag a box). */
+  multi: number[]
+  onMulti: (indices: number[]) => void
+  onMoveGroup: (indices: number[], dx: number, dy: number, final: boolean) => void
+  /** Pose variables, drawn as marks and used as alignment guides. */
+  poseMarks: { name: string; x: number; y: number; heading: number }[]
+  /** Slow zones on the field. */
+  zones: SlowZone[]
+  onAddZone: (z: SlowZone) => void
+  onEditZone: (i: number, patch: Partial<SlowZone>, final: boolean) => void
+  onAddRotation: (segment: number, fraction: number, headingDeg: number) => void
+  onEditRotation: (i: number, patch: Partial<RotationTarget>, final: boolean) => void
 }
 
 interface View { k: number; ox: number; oy: number }
@@ -56,6 +68,12 @@ type Drag =
   | { kind: "shape"; index: number; handle: "move" | "radius" | "corner"; dx: number; dy: number }
   | { kind: "event"; index: number }
   | { kind: "control"; index: number; side: "prev" | "next" }
+  | { kind: "group"; indices: number[]; ax: number; ay: number }
+  | { kind: "box"; ax: number; ay: number }
+  | { kind: "ruler"; ax: number; ay: number }
+  | { kind: "zoneNew"; ax: number; ay: number }
+  | { kind: "zone"; index: number; handle: "move" | "corner" | "radius"; dx: number; dy: number }
+  | { kind: "rotation"; index: number }
 
 const HANDLE_R = 8
 const HEADING_HANDLE_R = 5.5
@@ -114,6 +132,12 @@ export default function FieldView(props: Props) {
   const [sketch, setSketch] = useState<HTMLCanvasElement | null>(null)
   const [cursor, setCursor] = useState<{ x: number; y: number } | null>(null)
   const [hoverWp, setHoverWp] = useState<number | null>(null)
+  // Overlays of the current gesture: the box being drawn, the ruler, the
+  // alignment guides of a drag.
+  const [box, setBox] = useState<{ a: [number, number]; b: [number, number] } | null>(null)
+  const [ruler, setRuler] = useState<{ a: [number, number]; b: [number, number] } | null>(null)
+  const [guides, setGuides] = useState<{ x?: number; y?: number } | null>(null)
+  const [zoneDraft, setZoneDraft] = useState<{ a: [number, number]; b: [number, number] } | null>(null)
   const [tip, setTip] = useState<{ sx: number; sy: number; title: string; lines: string[]; hint?: string } | null>(null)
   const drag = useRef<Drag | null>(null)
   const propsRef = useRef(props)
@@ -309,6 +333,34 @@ export default function FieldView(props: Props) {
       })
     }
 
+    // Slow zones: hatched amber, with their caps.
+    props.zones.forEach((z, i) => {
+      const sel = selected?.kind === "zone" && selected.index === i
+      drawZone(ctx, toScreen, view.k, z, sel)
+    })
+
+    // Pose variables: small teal diamonds with their names.
+    if (opts.waypoints) {
+      for (const m of props.poseMarks) {
+        const [px, py] = toScreen(m.x, m.y)
+        ctx.save()
+        ctx.translate(px, py)
+        ctx.rotate(Math.PI / 4)
+        ctx.fillStyle = "rgba(14,116,144,0.9)"
+        ctx.fillRect(-4.5, -4.5, 9, 9)
+        ctx.restore()
+        const a = -m.heading * Math.PI / 180
+        ctx.strokeStyle = GLYPH.linked
+        ctx.lineWidth = 1.5
+        line(ctx, [px, py], [px + Math.cos(a) * 14, py + Math.sin(a) * 14])
+        ctx.fillStyle = GLYPH.linked
+        ctx.font = "600 10px 'Segoe UI', Arial, sans-serif"
+        ctx.textAlign = "left"
+        ctx.textBaseline = "middle"
+        ctx.fillText(m.name, px + 8, py - 9)
+      }
+    }
+
     // Pathfind segments: the route is found at run time. With a generated
     // trajectory, Ares' estimate (green, dashed) in its corridor; without
     // one, a straight dashed line. Either way, a question mark.
@@ -491,6 +543,60 @@ export default function FieldView(props: Props) {
       })
     }
 
+    // Rotation targets: an orange arrow on the path at their fraction.
+    if (spec && opts.waypoints) {
+      (spec.rotationTargets ?? []).forEach((r, i) => {
+        const at = rotationPoint(spec, generated ?? guess, r)
+        if (!at) return
+        const [px, py] = toScreen(at.x, at.y)
+        const sel = selected?.kind === "rotation" && selected.index === i
+        const a = -r.headingDeg * Math.PI / 180
+        ctx.beginPath()
+        ctx.arc(px, py, 8, 0, Math.PI * 2)
+        ctx.fillStyle = sel ? GLYPH.selected : "#ffffff"
+        ctx.fill()
+        ctx.strokeStyle = COLORS.constraint
+        ctx.lineWidth = 2
+        ctx.stroke()
+        const tipX = px + Math.cos(a) * 22, tipY = py + Math.sin(a) * 22
+        ctx.lineWidth = 2.5
+        line(ctx, [px, py], [tipX, tipY])
+        ctx.beginPath()
+        ctx.moveTo(tipX + Math.cos(a) * 6, tipY + Math.sin(a) * 6)
+        ctx.lineTo(tipX + Math.cos(a + 2.5) * 6, tipY + Math.sin(a + 2.5) * 6)
+        ctx.lineTo(tipX + Math.cos(a - 2.5) * 6, tipY + Math.sin(a - 2.5) * 6)
+        ctx.closePath()
+        ctx.fillStyle = COLORS.constraint
+        ctx.fill()
+        if (sel) handle(ctx, tipX, tipY, 5, "#ffffff", COLORS.constraint)
+      })
+    }
+
+    // Event zones: a band along the trajectory for their duration.
+    if (spec && generated) {
+      (generated.events ?? []).forEach(e => {
+        if (e.endT === undefined) return
+        const pts = generated.samples.filter(q => q.t >= e.t && q.t <= e.endT!).map(q => toScreen(q.x, q.y))
+        ctx.globalAlpha = 0.35
+        polyline(ctx, pts, COLORS.event, 10)
+        ctx.globalAlpha = 1
+      })
+    }
+
+    // Waypoints selected together.
+    if (spec) {
+      for (const i of props.multi) {
+        const w = spec.waypoints[i]
+        if (!w) continue
+        const [cx, cy] = toScreen(w.x, w.y)
+        ctx.beginPath()
+        ctx.arc(cx, cy, HANDLE_R + 6, 0, Math.PI * 2)
+        ctx.strokeStyle = GLYPH.selected
+        ctx.lineWidth = 2.5
+        ctx.stroke()
+      }
+    }
+
     // Events: a pin where they fire.
     if (spec) {
       (spec.events ?? []).forEach((e, i) => {
@@ -502,6 +608,44 @@ export default function FieldView(props: Props) {
       })
     }
 
+    // Gesture overlays: selection box, new zone, ruler, guides.
+    if (box) {
+      const [ax, ay] = toScreen(...box.a), [bx, by] = toScreen(...box.b)
+      ctx.fillStyle = "rgba(212,165,20,0.1)"
+      ctx.fillRect(Math.min(ax, bx), Math.min(ay, by), Math.abs(bx - ax), Math.abs(by - ay))
+      ctx.setLineDash([4, 3])
+      ctx.strokeStyle = GLYPH.selected
+      ctx.lineWidth = 1.5
+      ctx.strokeRect(Math.min(ax, bx), Math.min(ay, by), Math.abs(bx - ax), Math.abs(by - ay))
+      ctx.setLineDash([])
+    }
+    if (zoneDraft) {
+      const [x0, y0] = [Math.min(zoneDraft.a[0], zoneDraft.b[0]), Math.min(zoneDraft.a[1], zoneDraft.b[1])]
+      drawZone(ctx, toScreen, view.k, { shape: "rectangle", x: x0, y: y0, widthM: Math.abs(zoneDraft.b[0] - zoneDraft.a[0]), heightM: Math.abs(zoneDraft.b[1] - zoneDraft.a[1]), maxVelocityMps: 1.5 }, true)
+    }
+    if (guides) {
+      ctx.strokeStyle = "rgba(14,116,144,0.8)"
+      ctx.lineWidth = 1
+      ctx.setLineDash([6, 4])
+      if (guides.x !== undefined) line(ctx, toScreen(guides.x, 0), toScreen(guides.x, W))
+      if (guides.y !== undefined) line(ctx, toScreen(0, guides.y), toScreen(L, guides.y))
+      ctx.setLineDash([])
+    }
+    if (ruler) {
+      const a = toScreen(...ruler.a), b = toScreen(...ruler.b)
+      const d = Math.hypot(ruler.b[0] - ruler.a[0], ruler.b[1] - ruler.a[1])
+      const ang = Math.atan2(ruler.b[1] - ruler.a[1], ruler.b[0] - ruler.a[0]) * 180 / Math.PI
+      ctx.strokeStyle = "#ffffff"
+      ctx.lineWidth = 5
+      line(ctx, a, b)
+      ctx.strokeStyle = GLYPH.ink
+      ctx.lineWidth = 2
+      line(ctx, a, b)
+      handle(ctx, ...a, 4, "#ffffff", GLYPH.ink)
+      handle(ctx, ...b, 4, "#ffffff", GLYPH.ink)
+      drawChip(ctx, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2 - 14, `${d.toFixed(3)} m · ${(d / 0.0254).toFixed(1)} in · ${ang.toFixed(1)}°`, GLYPH.ink, true)
+    }
+
     // The playback robot, with each wheel's velocity.
     const traj = generated ?? guess
     if (traj && playhead !== null) {
@@ -509,7 +653,7 @@ export default function FieldView(props: Props) {
       drawRobot(ctx, toScreen, view.k, s.x, s.y, s.heading, robot, topView, opts.robotColor, 1)
       moduleVectors(ctx, toScreen, s, robot)
     }
-  }, [view, size, image, sketch, spec, guess, generated, stale, keepOut, selected, hovered, playhead, robot, field, opts, topSpeed, tool, hoverWp, topView])
+  }, [view, size, image, sketch, spec, guess, generated, stale, keepOut, selected, hovered, playhead, robot, field, opts, topSpeed, tool, hoverWp, topView, box, ruler, guides, zoneDraft, props.multi, props.zones, props.poseMarks])
 
   // --- Interaction -----------------------------------------------------------
   const waypointAt = (sx: number, sy: number): number | null => {
@@ -571,6 +715,29 @@ export default function FieldView(props: Props) {
         }
       }
     }
+    if (p.spec) {
+      const rts = p.spec.rotationTargets ?? []
+      for (let i = rts.length - 1; i >= 0; i--) {
+        const at = rotationPoint(p.spec, p.generated ?? p.guess, rts[i])
+        if (!at) continue
+        const a = rts[i].headingDeg * Math.PI / 180
+        // The arrow's tip turns it; anywhere on the marker selects it.
+        if (near(at.x, at.y, 10)) return { kind: "rotation", index: i }
+        const [px, py] = toScreen(at.x, at.y)
+        if (Math.hypot(sx - (px + Math.cos(-a) * 22), sy - (py + Math.sin(-a) * 22)) <= 8) return { kind: "rotation", index: i }
+      }
+    }
+    for (let i = p.zones.length - 1; i >= 0; i--) {
+      const z = p.zones[i]
+      const sel = p.selected?.kind === "zone" && p.selected.index === i
+      if (z.shape === "rectangle") {
+        if (sel && near(z.x + z.widthM, z.y + z.heightM)) return { kind: "zone", index: i, handle: "corner", dx: 0, dy: 0 }
+        if (wx >= z.x && wx <= z.x + z.widthM && wy >= z.y && wy <= z.y + z.heightM) return { kind: "zone", index: i, handle: "move", dx: z.x - wx, dy: z.y - wy }
+      } else {
+        if (sel && near(z.x + z.radiusM, z.y)) return { kind: "zone", index: i, handle: "radius", dx: 0, dy: 0 }
+        if (Math.hypot(wx - z.x, wy - z.y) <= z.radiusM) return { kind: "zone", index: i, handle: "move", dx: z.x - wx, dy: z.y - wy }
+      }
+    }
     for (let i = p.keepOut.length - 1; i >= 0; i--) {
       const c = p.keepOut[i]
       if (p.selected?.kind === "keepout" && p.selected.index === i && near(c.x + c.radiusM, c.y)) return { kind: "radius", index: i }
@@ -599,17 +766,55 @@ export default function FieldView(props: Props) {
       else drag.current = { kind: "pan", sx, sy, view }
       return
     }
-    const h = hit(sx, sy)
-    if (h) {
-      drag.current = h
-      if (h.kind === "waypoint" || h.kind === "heading" || h.kind === "control") p.onSelect({ kind: "waypoint", index: h.index })
-      else if (h.kind === "keepout" || h.kind === "radius") p.onSelect({ kind: "keepout", index: h.index })
-      else if (h.kind === "event") p.onSelect({ kind: "event", index: h.index })
+    const [wx, wy] = toWorld(sx, sy)
+    // Tools that start a gesture anywhere.
+    if (p.tool.kind === "ruler") {
+      const a = snapPoint(wx, wy, null).p
+      drag.current = { kind: "ruler", ax: a[0], ay: a[1] }
+      setRuler({ a, b: a })
       return
     }
-    const [wx, wy] = toWorld(sx, sy)
+    if (p.tool.kind === "zone") {
+      drag.current = { kind: "zoneNew", ax: wx, ay: wy }
+      setZoneDraft({ a: [wx, wy], b: [wx, wy] })
+      return
+    }
+    if (p.tool.kind === "rotation") {
+      const r = rotationAt(p.spec, p.generated ?? p.guess, sx, sy, toScreen)
+      if (r) p.onAddRotation(r.segment, r.fraction, r.headingDeg)
+      return
+    }
+    const h = hit(sx, sy)
+    if (h) {
+      // Shift+click a waypoint adds it to (or takes it out of) the group.
+      if (h.kind === "waypoint" && e.shiftKey) {
+        const set = new Set(p.multi.length ? p.multi : p.selected?.kind === "waypoint" ? [p.selected.index] : [])
+        if (set.has(h.index)) set.delete(h.index)
+        else set.add(h.index)
+        p.onMulti([...set].sort((a, b) => a - b))
+        return
+      }
+      if (h.kind === "waypoint" && p.multi.length > 1 && p.multi.includes(h.index)) {
+        drag.current = { kind: "group", indices: p.multi, ax: wx, ay: wy }
+        return
+      }
+      drag.current = h
+      if (h.kind === "waypoint" || h.kind === "heading" || h.kind === "control") { p.onMulti([]); p.onSelect({ kind: "waypoint", index: h.index }) }
+      else if (h.kind === "keepout" || h.kind === "radius") p.onSelect({ kind: "keepout", index: h.index })
+      else if (h.kind === "event") p.onSelect({ kind: "event", index: h.index })
+      else if (h.kind === "zone") p.onSelect({ kind: "zone", index: h.index })
+      else if (h.kind === "rotation") p.onSelect({ kind: "rotation", index: h.index })
+      return
+    }
     if (p.tool.kind === "waypoint" || p.tool.kind === "keepout") { p.onFieldClick(wx, wy); return }
+    // Shift+drag on empty field: select a box of waypoints.
+    if (e.shiftKey) {
+      drag.current = { kind: "box", ax: wx, ay: wy }
+      setBox({ a: [wx, wy], b: [wx, wy] })
+      return
+    }
     p.onSelect(null)
+    p.onMulti([])
     drag.current = { kind: "pan", sx, sy, view }
   }
 
@@ -721,6 +926,35 @@ export default function FieldView(props: Props) {
     const [sx, sy] = local(e)
     const [wx, wy] = toWorld(sx, sy)
     applyDrag(d, sx, sy, wx, wy, true)
+    setGuides(null)
+    setBox(null)
+    setZoneDraft(null)
+  }
+
+  /**
+   * Where a dragged point lands: on the grid when snapping is on, and onto
+   * another waypoint's or pose's x or y when within a few pixels (with a
+   * guide line to show it). `exclude` is the waypoint being dragged.
+   */
+  const snapPoint = (x: number, y: number, exclude: number | null): { p: [number, number]; guides: { x?: number; y?: number } | null } => {
+    const p = propsRef.current
+    const g = p.view.snap
+    let [sx, sy] = g > 0 ? [Math.round(x / g) * g, Math.round(y / g) * g] : [Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000]
+    if (!p.view.guides) return { p: [sx, sy], guides: null }
+    const tol = 7 / view.k
+    const targets = [
+      ...(p.spec?.waypoints ?? []).filter((_, i) => i !== exclude && !p.multi.includes(i)).map(w => [w.x, w.y]),
+      ...p.poseMarks.map(m => [m.x, m.y]),
+    ]
+    let gx: number | undefined, gy: number | undefined
+    let bx = tol, by = tol
+    for (const [tx, ty] of targets) {
+      if (Math.abs(x - tx) < bx) { bx = Math.abs(x - tx); gx = tx }
+      if (Math.abs(y - ty) < by) { by = Math.abs(y - ty); gy = ty }
+    }
+    if (gx !== undefined) sx = gx
+    if (gy !== undefined) sy = gy
+    return { p: [sx, sy], guides: gx !== undefined || gy !== undefined ? { x: gx, y: gy } : null }
   }
 
   const shiftDown = useRef(false)
@@ -739,9 +973,66 @@ export default function FieldView(props: Props) {
       case "pan":
         setView({ ...d.view, ox: d.view.ox + sx - d.sx, oy: d.view.oy + sy - d.sy })
         break
-      case "waypoint":
-        p.onMoveWaypoint(d.index, snap(wx + d.dx), snap(wy + d.dy), final)
+      case "waypoint": {
+        const r = snapPoint(wx + d.dx, wy + d.dy, d.index)
+        setGuides(final ? null : r.guides)
+        p.onMoveWaypoint(d.index, r.p[0], r.p[1], final)
         break
+      }
+      case "group": {
+        // The group moves by the pointer's delta, snapped like one point.
+        const r = snapPoint(wx, wy, null)
+        const [dx, dy] = p.view.snap > 0 ? [r.p[0] - snapPoint(d.ax, d.ay, null).p[0], r.p[1] - snapPoint(d.ax, d.ay, null).p[1]] : [wx - d.ax, wy - d.ay]
+        p.onMoveGroup(d.indices, Math.round(dx * 1000) / 1000, Math.round(dy * 1000) / 1000, final)
+        if (!final) drag.current = { ...d, ax: d.ax + dx, ay: d.ay + dy }
+        break
+      }
+      case "box": {
+        setBox({ a: [d.ax, d.ay], b: [wx, wy] })
+        if (final && p.spec) {
+          const [x0, x1] = [Math.min(d.ax, wx), Math.max(d.ax, wx)]
+          const [y0, y1] = [Math.min(d.ay, wy), Math.max(d.ay, wy)]
+          const inside = p.spec.waypoints.map((w, i) => (w.x >= x0 && w.x <= x1 && w.y >= y0 && w.y <= y1 ? i : -1)).filter(i => i >= 0)
+          p.onMulti(inside)
+        }
+        break
+      }
+      case "ruler":
+        setRuler({ a: [d.ax, d.ay], b: snapPoint(wx, wy, null).p })
+        break
+      case "zoneNew": {
+        const b: [number, number] = [snap(wx), snap(wy)]
+        setZoneDraft({ a: [d.ax, d.ay], b })
+        if (final) {
+          const w = Math.abs(b[0] - d.ax), h = Math.abs(b[1] - d.ay)
+          // A click (no drag) makes a 1 m circle; a drag, the rectangle drawn.
+          p.onAddZone(w < 0.15 && h < 0.15
+            ? { shape: "circle", x: snap(d.ax), y: snap(d.ay), radiusM: 1, maxVelocityMps: 1.5 }
+            : { shape: "rectangle", x: snap(Math.min(d.ax, b[0])), y: snap(Math.min(d.ay, b[1])), widthM: snap(w), heightM: snap(h), maxVelocityMps: 1.5 })
+        }
+        break
+      }
+      case "zone": {
+        const z = p.zones[d.index]
+        if (d.handle === "move") {
+          const r = snapPoint(wx + d.dx, wy + d.dy, null)
+          p.onEditZone(d.index, { x: r.p[0], y: r.p[1] }, final)
+        } else if (d.handle === "radius" && z.shape === "circle") {
+          p.onEditZone(d.index, { radiusM: Math.max(0.1, snap(Math.hypot(wx - z.x, wy - z.y))) } as Partial<SlowZone>, final)
+        } else if (z.shape === "rectangle") {
+          p.onEditZone(d.index, { widthM: Math.max(0.1, snap(wx - z.x)), heightM: Math.max(0.1, snap(wy - z.y)) } as Partial<SlowZone>, final)
+        }
+        break
+      }
+      case "rotation": {
+        const r = p.spec?.rotationTargets?.[d.index]
+        const at = r && rotationPoint(p.spec!, p.generated ?? p.guess, r)
+        if (!at) break
+        let deg = Math.atan2(wy - at.y, wx - at.x) * 180 / Math.PI
+        if (shiftDown.current) deg = Math.round(deg / 15) * 15
+        p.onEditRotation(d.index, { headingDeg: Math.round(deg * 10) / 10 }, final)
+        break
+      }
       case "heading": {
         const w = p.spec!.waypoints[d.index]
         let deg = Math.atan2(wy - w.y, wx - w.x) * 180 / Math.PI
@@ -768,9 +1059,11 @@ export default function FieldView(props: Props) {
       }
       case "event":
         break
-      case "control":
-        p.onMoveControl(d.index, d.side, snap(wx), snap(wy), final, altDown.current)
+      case "control": {
+        const r = snapPoint(wx, wy, null)
+        p.onMoveControl(d.index, d.side, r.p[0], r.p[1], final, altDown.current)
         break
+      }
     }
   }
 
@@ -790,6 +1083,14 @@ export default function FieldView(props: Props) {
     canvas.addEventListener("wheel", onWheel, { passive: false })
     return () => canvas.removeEventListener("wheel", onWheel)
   }, [])
+
+  // Esc drops the ruler.
+  useEffect(() => {
+    const on = (e: KeyboardEvent) => { if (e.key === "Escape") setRuler(null) }
+    window.addEventListener("keydown", on)
+    return () => window.removeEventListener("keydown", on)
+  }, [])
+  useEffect(() => { if (tool.kind !== "ruler") setRuler(null) }, [tool.kind])
 
   const cursorStyle = tool.kind === "select" ? "default" : tool.kind === "constraint" || tool.kind === "event" ? (hoverWp !== null ? "pointer" : "default") : "crosshair"
 
@@ -1257,4 +1558,78 @@ function dimensionLine(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1
   ctx.textBaseline = "middle"
   ctx.fillText(text, 0, 0)
   ctx.restore()
+}
+
+// --- Zones and rotation targets ------------------------------------------------
+
+const ZONE = "#ca8a04"
+
+function drawZone(ctx: CanvasRenderingContext2D, toScreen: ToScreen, k: number, z: SlowZone, sel: boolean) {
+  ctx.save()
+  ctx.beginPath()
+  if (z.shape === "rectangle") {
+    const [x0, y0] = toScreen(z.x, z.y + z.heightM)
+    ctx.rect(x0, y0, z.widthM * k, z.heightM * k)
+  } else {
+    const [cx, cy] = toScreen(z.x, z.y)
+    ctx.arc(cx, cy, z.radiusM * k, 0, Math.PI * 2)
+  }
+  ctx.fillStyle = "rgba(234,179,8,0.12)"
+  ctx.fill()
+  // Diagonal hatching, the drawing convention for "caution here".
+  ctx.clip()
+  ctx.strokeStyle = "rgba(202,138,4,0.35)"
+  ctx.lineWidth = 1
+  const [ax, ay] = z.shape === "rectangle" ? toScreen(z.x, z.y + z.heightM) : toScreen(z.x - z.radiusM, z.y + z.radiusM)
+  const span = (z.shape === "rectangle" ? z.widthM + z.heightM : 4 * z.radiusM) * k
+  for (let d = 0; d < span; d += 10) line(ctx, [ax + d, ay], [ax, ay + d])
+  ctx.restore()
+  ctx.beginPath()
+  if (z.shape === "rectangle") {
+    const [x0, y0] = toScreen(z.x, z.y + z.heightM)
+    ctx.rect(x0, y0, z.widthM * k, z.heightM * k)
+  } else {
+    const [cx, cy] = toScreen(z.x, z.y)
+    ctx.arc(cx, cy, z.radiusM * k, 0, Math.PI * 2)
+  }
+  ctx.setLineDash(sel ? [] : [6, 4])
+  ctx.strokeStyle = ZONE
+  ctx.lineWidth = sel ? 2.2 : 1.4
+  ctx.stroke()
+  ctx.setLineDash([])
+  const [lx, ly] = z.shape === "rectangle" ? toScreen(z.x + z.widthM / 2, z.y + z.heightM / 2) : toScreen(z.x, z.y)
+  const caps = [z.maxVelocityMps !== undefined && `≤ ${z.maxVelocityMps} m/s`, z.maxAccelerationMps2 !== undefined && `≤ ${z.maxAccelerationMps2} m/s²`].filter(Boolean).join(" · ")
+  drawChip(ctx, lx, ly, `${z.name ? z.name + ": " : ""}${caps || "slow zone"}`, ZONE, sel)
+  if (sel) {
+    const [hx, hy] = z.shape === "rectangle" ? toScreen(z.x + z.widthM, z.y + z.heightM) : toScreen(z.x + z.radiusM, z.y)
+    handle(ctx, hx, hy, 4.5, "#ffffff", ZONE)
+  }
+}
+
+/** Where a rotation target sits: its fraction of the segment's time on the trajectory. */
+function rotationPoint(spec: PathSpec, traj: Trajectory | null, r: RotationTarget): { x: number; y: number } | null {
+  const wt = traj?.waypointTimes
+  if (traj && wt && wt.length === spec.waypoints.length && r.segment + 1 < wt.length) {
+    const s = sampleAt(traj, wt[r.segment] + r.fraction * (wt[r.segment + 1] - wt[r.segment]))
+    return { x: s.x, y: s.y }
+  }
+  const a = spec.waypoints[r.segment], b = spec.waypoints[r.segment + 1]
+  return a && b ? { x: a.x + (b.x - a.x) * r.fraction, y: a.y + (b.y - a.y) * r.fraction } : null
+}
+
+/** A rotation target from a click near the path: the segment and fraction there, at the current heading. */
+function rotationAt(spec: PathSpec | null, traj: Trajectory | null, sx: number, sy: number, toScreen: ToScreen): { segment: number; fraction: number; headingDeg: number } | null {
+  const wt = traj?.waypointTimes
+  if (!spec || !traj || !wt || wt.length !== spec.waypoints.length) return null
+  let best: Sample | null = null, bd = 14
+  for (const q of traj.samples) {
+    const [qx, qy] = toScreen(q.x, q.y)
+    const d = Math.hypot(qx - sx, qy - sy)
+    if (d < bd) { bd = d; best = q }
+  }
+  if (!best) return null
+  const segment = Math.max(0, Math.min(wt.length - 2, wt.findIndex((t, i) => i + 1 < wt.length && best!.t >= t && best!.t <= wt[i + 1])))
+  const span = wt[segment + 1] - wt[segment]
+  const fraction = span > 0 ? Math.min(1, Math.max(0, (best.t - wt[segment]) / span)) : 0.5
+  return { segment, fraction: Math.round(fraction * 1000) / 1000, headingDeg: Math.round((((best.heading * 180 / Math.PI) + 540) % 360 - 180) * 10) / 10 }
 }

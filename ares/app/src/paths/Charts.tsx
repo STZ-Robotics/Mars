@@ -104,6 +104,10 @@ export default function Charts({ trajectory, playhead, limits, onScrub, onSeek }
     })
     for (const e of trajectory.events ?? []) {
       const x = tx(e.t)
+      if (e.endT !== undefined) {
+        ctx.fillStyle = "rgba(161,105,10,0.12)"
+        ctx.fillRect(x, top, tx(e.endT) - x, bottom - top)
+      }
       ctx.strokeStyle = "#a1690a"
       ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.stroke()
     }

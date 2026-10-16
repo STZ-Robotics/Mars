@@ -16,6 +16,7 @@ import Sidebar, { IconButton } from "./Sidebar"
 import ConfigPanel, { TextInput } from "./ConfigPanel"
 import { StopIcon, WaypointIcon, GLYPH } from "./glyphs"
 import {
+  SlowZone, mirrorPath, moveWaypoints,
   CONSTRAINTS, ConstraintType, DEFAULT_VIEW, EventMarker, FieldDoc, GRADIENTS, KeepOut, PathEntry, PathSpec, PlanResult,
   ScopedConstraint, Selection, Target, Tool, Trajectory, ViewOptions, Waypoint, WaypointKind, afterInsert, afterMove,
   afterRemove, constraintMeta, kindOf, moveControl, newConstraint, newPathSpec, NEXT_MODE, segmentMode, setSegmentMode, setWait, shiftControls, stopAt, toggleStop, waitAt,
@@ -63,6 +64,9 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
   const [current, setCurrent] = useState<Current | null>(null)
   const [fieldDoc, setFieldDoc] = useState<FieldDoc>({ walls: true, keepOut: [] })
   const [selected, setSelected] = useState<Selection>(null)
+  // Waypoints selected together, and what Ctrl+C took.
+  const [multi, setMulti] = useState<number[]>([])
+  const clipboard = useRef<Waypoint[]>([])
   const [hovered, setHovered] = useState<Selection>(null)
   const [tool, setTool] = useState<Tool>({ kind: "select" })
   const [guess, setGuess] = useState<Trajectory | null>(null)
@@ -93,6 +97,8 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
   const stale = !!generated && generated.key !== genKey(spec)
   const shown = generated?.trajectory ?? guess
   const topSpeed = usableSpeed(robot)
+  const currentRef = useRef(current)
+  currentRef.current = current
   const fieldDocRef = useRef(fieldDoc)
   fieldDocRef.current = fieldDoc
 
@@ -371,12 +377,27 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
   const deleteEvent = (i: number) => { editSpec(s => ({ ...s, events: (s.events ?? []).filter((_, j) => j !== i) }), true); setSelected(null) }
 
   const removeSelected = () => {
+    // A group of waypoints goes together (a path keeps at least two).
+    if (multi.length > 1 && spec) {
+      const keep = spec.waypoints.length - multi.length
+      if (keep < 2) { setNote("A path needs at least two waypoints"); return }
+      editSpec(s => [...multi].sort((a, b) => b - a).reduce((acc, i) => ({ ...acc, ...afterRemove(acc, i), waypoints: acc.waypoints.filter((_, j) => j !== i) }), s), true)
+      setMulti([])
+      setSelected(null)
+      return
+    }
     if (!selected) return
     if (selected.kind === "waypoint") deleteWaypoint(selected.index)
     else if (selected.kind === "constraint") deleteConstraint(selected.index)
     else if (selected.kind === "event") deleteEvent(selected.index)
     else if (selected.kind === "keepout") {
       editField(f => ({ ...f, keepOut: f.keepOut.filter((_, j) => j !== selected.index) }), true)
+      setSelected(null)
+    } else if (selected.kind === "zone") {
+      editField(f => ({ ...f, slowZones: (f.slowZones ?? []).filter((_, j) => j !== selected.index) }), true)
+      setSelected(null)
+    } else if (selected.kind === "rotation") {
+      editSpec(s => ({ ...s, rotationTargets: (s.rotationTargets ?? []).filter((_, j) => j !== selected.index) }), true)
       setSelected(null)
     }
   }
@@ -442,8 +463,35 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
   }
 
   // Keys, Choreo's where it has one.
-  const keysRef = useRef({ removeSelected, togglePlay, generate, setKind, selected, travel })
-  keysRef.current = { removeSelected, togglePlay, generate, setKind, selected, travel }
+  // Arrow keys nudge the selected waypoints; copy and paste waypoints.
+  const nudge = (dx: number, dy: number) => {
+    const idx = multi.length ? multi : selected?.kind === "waypoint" ? [selected.index] : []
+    if (!idx.length) return false
+    editSpec(s => moveWaypoints(s, idx, dx, dy), true)
+    return true
+  }
+  const copy = () => {
+    if (!spec) return
+    const idx = multi.length ? multi : selected?.kind === "waypoint" ? [selected.index] : []
+    clipboard.current = idx.map(i => structuredClone(spec.waypoints[i]))
+    if (idx.length) setNote(`Copied ${idx.length} waypoint${idx.length > 1 ? "s" : ""}`)
+  }
+  const paste = () => {
+    if (!spec || !clipboard.current.length) return
+    // After the selection (or at the end), a little offset so it is visible.
+    const after = Math.max(-1, ...(multi.length ? multi : selected?.kind === "waypoint" ? [selected.index] : [spec.waypoints.length - 1]))
+    const at = Math.min(after + 1, spec.waypoints.length)
+    const pasted = clipboard.current.map(w => ({ ...structuredClone(w), x: w.x + 0.3, y: w.y - 0.3, exprs: undefined, manualNext: undefined, pathfindNext: undefined, kind: w.kind === "unknown" || w.kind === "continue" ? "translation" as const : w.kind }))
+    editSpec(s => {
+      let out = s
+      pasted.forEach((w, k) => { out = { ...out, ...afterInsert(out, at + k), waypoints: [...out.waypoints.slice(0, at + k), w, ...out.waypoints.slice(at + k)] } })
+      return out
+    }, true)
+    setMulti(pasted.map((_, k) => at + k))
+    setSelected(null)
+  }
+  const keysRef = useRef({ removeSelected, togglePlay, generate, setKind, selected, travel, nudge, copy, paste })
+  keysRef.current = { removeSelected, togglePlay, generate, setKind, selected, travel, nudge, copy, paste }
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement
@@ -453,6 +501,20 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
       if (ctrl && k === "g") { e.preventDefault(); keysRef.current.generate(); return }
       if (ctrl && k === "z") { e.preventDefault(); keysRef.current.travel(e.shiftKey ? "redo" : "undo"); return }
       if (ctrl && k === "y") { e.preventDefault(); keysRef.current.travel("redo"); return }
+      if (ctrl && k === "c") { keysRef.current.copy(); return }
+      if (ctrl && k === "v") { e.preventDefault(); keysRef.current.paste(); return }
+      if (ctrl && k === "a") {
+        e.preventDefault()
+        const n = currentRef.current?.spec.waypoints.length ?? 0
+        setMulti(Array.from({ length: n }, (_, i) => i))
+        return
+      }
+      if (e.key.startsWith("Arrow")) {
+        const step = e.shiftKey ? 0.1 : 0.01
+        const d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] }[e.key as "ArrowLeft"]
+        if (d && keysRef.current.nudge(d[0], d[1])) e.preventDefault()
+        return
+      }
       if (ctrl) return
       const kinds: Record<string, WaypointKind> = { "1": "pose", "2": "translation", "3": "empty" }
       const code = e.code === "Digit1" ? "1" : e.code === "Digit2" ? "2" : e.code === "Digit3" ? "3" : null
@@ -462,7 +524,10 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
         return
       }
       if (code) { setTool({ kind: "waypoint", type: kinds[code] }); return }
-      if (k === "escape") { setTool({ kind: "select" }); setSelected(null) }
+      if (k === "escape") { setTool({ kind: "select" }); setSelected(null); setMulti([]) }
+      else if (k === "r") setTool({ kind: "ruler" })
+      else if (k === "z") setTool({ kind: "zone" })
+      else if (k === "t") setTool({ kind: "rotation" })
       else if (k === "v") setTool({ kind: "select" })
       else if (k === "e") setTool({ kind: "event" })
       else if (k === "k") setTool({ kind: "keepout" })
@@ -497,6 +562,10 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
       : tool.kind === "event" ? "Event: click the waypoint it is timed from. Esc cancels."
       : tool.kind === "waypoint" ? `${cap(tool.type)} waypoint: click near the path to insert, elsewhere to extend it. Esc to stop.`
       : tool.kind === "keepout" ? "Keep-out: click to place a circle every path must avoid."
+      : tool.kind === "zone" ? "Slow zone: drag a rectangle, or click for a circle. Every path drives slower inside. Esc cancels."
+      : tool.kind === "rotation" ? "Rotation target: click on the path where the robot must face a heading. Esc cancels."
+      : tool.kind === "ruler" ? "Ruler: drag between two points. Snaps to waypoints and poses; Esc clears it."
+      : multi.length > 1 ? `${multi.length} waypoints selected: drag one to move them all, arrows nudge (Shift: 10 cm), Ctrl+C / Ctrl+V, Delete.`
       : null
 
   const h = history.current
@@ -541,6 +610,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
           onToggleConstraint={i => editSpec(s => ({ ...s, scoped: s.scoped.map((c, j) => (j === i ? { ...c, enabled: c.enabled === false ? undefined : false } : c)) }), true)}
           onDeleteConstraint={deleteConstraint}
           onDeleteEvent={deleteEvent}
+          onDeleteRotation={i => { editSpec(s => ({ ...s, rotationTargets: (s.rotationTargets ?? []).filter((_, j) => j !== i) }), true); setSelected(null) }}
         >
           {spec && (
             <>
@@ -558,6 +628,20 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
                 <span style={{ fontSize: 11 }}>{fieldDoc.keepOut.length}</span>
                 <span style={{ fontSize: 10.5, color: "var(--text-muted)", marginLeft: 6 }}>shared by every path (K to add)</span>
               </PropertyRow>
+              <PropertyRow label="Slow zones">
+                <span style={{ fontSize: 11 }}>{(fieldDoc.slowZones ?? []).length}</span>
+                <span style={{ fontSize: 10.5, color: "var(--text-muted)", marginLeft: 6 }}>shared by every path (Z to add)</span>
+              </PropertyRow>
+              {(fieldDoc.slowZones ?? []).map((z, i) => (
+                <div key={i} onClick={() => setSelected({ kind: "zone", index: i })}
+                  style={{ display: "flex", alignItems: "center", gap: 7, height: 26, padding: "0 10px", fontSize: 11.5, cursor: "pointer", borderBottom: "1px solid var(--border-light)",
+                    background: selected?.kind === "zone" && selected.index === i ? "var(--tree-selection-bg)" : "transparent",
+                    color: selected?.kind === "zone" && selected.index === i ? "var(--tree-selection-fg)" : "var(--text-primary)" }}>
+                  <i className="ti ti-square-half" style={{ color: "#ca8a04" }} />
+                  <span style={{ flex: 1 }}>{z.name || `Zone ${i + 1}`}</span>
+                  <span style={{ fontSize: 10, opacity: 0.85 }}>{z.maxVelocityMps !== undefined ? `≤ ${z.maxVelocityMps} m/s` : ""}</span>
+                </div>
+              ))}
             </>
           )}
         </Sidebar>
@@ -574,7 +658,16 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
           <ConstraintMenu active={tool.kind === "constraint" ? tool.type : null} onPick={type => setTool({ kind: "constraint", type, from: null })} />
           <ToolButton on={tool.kind === "event"} onClick={() => setTool({ kind: "event" })} label="Event" k="E" desc="Then click a waypoint: a named moment, timed from it, when the robot code runs a command."><i className="ti ti-map-pin-bolt" style={{ color: "#a1690a" }} /></ToolButton>
           <ToolButton on={tool.kind === "keepout"} onClick={() => setTool({ kind: "keepout" })} label="Keep-out" k="K" desc="Place a circle that every path in the project keeps its bumper out of."><i className="ti ti-circle-off" style={{ color: "#c21c1c" }} /></ToolButton>
+          <ToolButton on={tool.kind === "zone"} onClick={() => setTool({ kind: "zone" })} label="Slow zone" k="Z" desc="Drag a rectangle (or click for a circle) where every path drives slower. Set its caps in its panel."><i className="ti ti-square-half" style={{ color: "#ca8a04" }} /></ToolButton>
+          <ToolButton on={tool.kind === "rotation"} onClick={() => setTool({ kind: "rotation" })} label="Rotation" k="T" desc="Click on the path: a heading to hit at that point of the segment (PathPlanner's rotation targets). Drag its arrow to turn it."><i className="ti ti-rotate-clockwise-2" style={{ color: "#e95420" }} /></ToolButton>
+          <ToolButton on={tool.kind === "ruler"} onClick={() => setTool({ kind: "ruler" })} label="Ruler" k="R" desc="Drag to measure a distance and an angle on the field. It snaps to waypoints and poses; Esc clears it."><i className="ti ti-ruler-2" /></ToolButton>
           <span style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
+            <MirrorMenu onMirror={(how, copy) => {
+              if (!spec) return
+              const m = mirrorPath(spec, how, fieldSize.lengthM, fieldSize.widthM)
+              if (copy) { loadPath({ ...m, name: uniqueName(`${spec.name} ${how === "alliance" ? "mirrored" : "flipped"}`), continuesFrom: undefined }, null); setCommit(c => c + 1) }
+              else editSpec(() => m, true)
+            }} />
             <span title="What the field shows: the path gradient and the layers."><Toggle on={viewOpen} onClick={() => setViewOpen(o => !o)} icon="ti-eye" label="View" /></span>
             <span title="Fit the whole field in view (F)."><Toggle on={false} onClick={() => setFitSignal(s => s + 1)} icon="ti-maximize" label="Fit" /></span>
             <GenerateButton state={genState.kind} stale={stale || !generated} onClick={generate} />
@@ -613,6 +706,26 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
             onMoveKeepOut={(i, x, y, final) => editKeepOut(i, { x, y }, final)}
             onResizeKeepOut={(i, r, final) => editKeepOut(i, { radiusM: r }, final)}
             onEditConstraint={editConstraint}
+            multi={multi}
+            onMulti={setMulti}
+            onMoveGroup={(indices, dx, dy, final) => editSpec(s => moveWaypoints(s, indices, dx, dy), final)}
+            poseMarks={variables.flatMap(v => {
+              const val = scope.get(v.name)
+              return v.kind === "pose" && val && typeof val !== "number" ? [{ name: v.name, x: val.x, y: val.y, heading: val.heading }] : []
+            })}
+            zones={fieldDoc.slowZones ?? []}
+            onAddZone={z => {
+              editField(d => ({ ...d, slowZones: [...(d.slowZones ?? []), z] }), true)
+              setSelected({ kind: "zone", index: (fieldDoc.slowZones ?? []).length })
+              setTool({ kind: "select" })
+            }}
+            onEditZone={(i, patch, final) => editField(d => ({ ...d, slowZones: (d.slowZones ?? []).map((z, j) => (j === i ? ({ ...z, ...patch } as SlowZone) : z)) }), final)}
+            onAddRotation={(segment, fraction, headingDeg) => {
+              editSpec(s => ({ ...s, rotationTargets: [...(s.rotationTargets ?? []), { segment, fraction, headingDeg }] }), true)
+              setSelected({ kind: "rotation", index: (spec?.rotationTargets ?? []).length })
+              setTool({ kind: "select" })
+            }}
+            onEditRotation={(i, patch, final) => editSpec(s => ({ ...s, rotationTargets: (s.rotationTargets ?? []).map((r, j) => (j === i ? { ...r, ...patch } : r)) }), final)}
           />
           {toolHint && (
             <div style={{ position: "absolute", left: 12, top: 8, fontSize: 11, background: "rgba(255,255,255,0.94)", border: "1px solid var(--border-main)", padding: "4px 9px", color: "var(--text-primary)" }}>
@@ -645,6 +758,9 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
               onEventFn={(i, f) => editSpec(s => ({ ...s, events: (s.events ?? []).map((e, j) => (j === i ? f(e) : e)) }), true)}
               onKeepOutFn={(i, f) => editField(d => ({ ...d, keepOut: d.keepOut.map((k, j) => (j === i ? f(k) : k)) }), true)}
               stopIndexOf={i => stopAt(spec, i)}
+              zones={fieldDoc.slowZones ?? []}
+              onZoneFn={(i, f) => editField(d => ({ ...d, slowZones: (d.slowZones ?? []).map((z, j) => (j === i ? f(z) : z)) }), true)}
+              onRotationFn={(i, f) => editSpec(s => ({ ...s, rotationTargets: (s.rotationTargets ?? []).map((r, j) => (j === i ? f(r) : r)) }), true)}
               otherPaths={entries.map(e => e.name).filter(n => n !== spec.name)}
               onContinueFrom={name => editSpec(s => ({ ...s, continuesFrom: name }), true)}
               poses={variables.filter(v => v.kind === "pose").map(v => ({ name: v.name, computed: v.kind === "pose" && (isExpr(v.x) || isExpr(v.y)) }))}
@@ -785,6 +901,22 @@ function ViewPanel({ view, onChange, onClose }: { view: ViewOptions; onChange: (
                 style={{ width: 14, height: 14, background: c, border: view.robotColor === c ? "2px solid var(--text-primary)" : "1px solid var(--border-dark)", cursor: "pointer" }} />
             ))}
           </span>
+        </PropertyRow>
+      </div>
+      <div title="Drags land on a grid of this size. Off keeps millimeters.">
+        <PropertyRow label="Snap to grid">
+          <select style={propertyInputStyle} value={view.snap} onChange={e => onChange({ ...view, snap: Number(e.target.value) })}>
+            <option value={0}>Off</option>
+            <option value={0.05}>5 cm</option>
+            <option value={0.1}>10 cm</option>
+            <option value={0.25}>25 cm</option>
+            <option value={0.5}>50 cm</option>
+          </select>
+        </PropertyRow>
+      </div>
+      <div title="While dragging, line up with other waypoints and poses (dashed guides).">
+        <PropertyRow label="Alignment guides">
+          <input type="checkbox" checked={view.guides} onChange={e => onChange({ ...view, guides: e.target.checked })} />
         </PropertyRow>
       </div>
       <PropertyRow label="Path gradient">
@@ -974,4 +1106,31 @@ function loadView(): ViewOptions {
     if (raw) return { ...DEFAULT_VIEW, ...JSON.parse(raw) }
   } catch { /* defaults */ }
   return DEFAULT_VIEW
+}
+
+function MirrorMenu({ onMirror }: { onMirror: (how: "alliance" | "vertical", copy: boolean) => void }) {
+  const [open, setOpen] = useState(false)
+  const item = (label: string, hint: string, f: () => void) => (
+    <div title={hint} onClick={() => { setOpen(false); f() }}
+      onMouseEnter={e => (e.currentTarget.style.background = "var(--tree-hover-bg)")}
+      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+      style={{ padding: "5px 12px", fontSize: 12, cursor: "pointer" }}>{label}</div>
+  )
+  return (
+    <span style={{ position: "relative" }} title="Mirror the path: across the field to the other alliance, or top to bottom.">
+      <Toggle on={open} onClick={() => setOpen(o => !o)} icon="ti-flip-vertical" label="Mirror ▾" />
+      {open && (
+        <>
+          <div style={{ position: "fixed", inset: 0, zIndex: 30 }} onClick={() => setOpen(false)} />
+          <div style={{ position: "absolute", top: 28, right: 0, zIndex: 31, minWidth: 240, background: "var(--bg-page)", border: "1px solid var(--border-dark)", boxShadow: "2px 2px 0 var(--shadow-soft)", padding: "3px 0" }}>
+            {item("Other alliance → new path", "A copy as the other alliance would run it: x mirrored, headings turned.", () => onMirror("alliance", true))}
+            {item("Top ↔ bottom → new path", "A copy on the other side of the field: y mirrored, headings turned.", () => onMirror("vertical", true))}
+            <div style={{ height: 1, background: "var(--border-light)", margin: "3px 0" }} />
+            {item("Other alliance (this path)", "Mirror this path in place (Ctrl+Z undoes it).", () => onMirror("alliance", false))}
+            {item("Top ↔ bottom (this path)", "Flip this path in place (Ctrl+Z undoes it).", () => onMirror("vertical", false))}
+          </div>
+        </>
+      )}
+    </span>
+  )
 }

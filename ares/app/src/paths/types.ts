@@ -150,6 +150,8 @@ export type Selection =
   | { kind: "keepout"; index: number }
   | { kind: "constraint"; index: number }
   | { kind: "event"; index: number }
+  | { kind: "zone"; index: number }
+  | { kind: "rotation"; index: number }
   | null
 
 /** What a click on the field does. */
@@ -159,6 +161,9 @@ export type Tool =
   | { kind: "keepout" }
   | { kind: "constraint"; type: ConstraintType; from: number | null }
   | { kind: "event" }
+  | { kind: "ruler" }
+  | { kind: "zone" }
+  | { kind: "rotation" }
 
 export type Gradient = "none" | "velocity" | "progress" | "acceleration" | "interval" | "angular" | "splits"
 
@@ -178,12 +183,16 @@ export interface ViewOptions {
   corridor: boolean
   /** Speed, acceleration, current... over time, under the field. */
   charts: boolean
+  /** Snap drags to a grid of this many meters (0: off). */
+  snap: number
+  /** Snap to other waypoints and poses when dragging, with guide lines. */
+  guides: boolean
   gradient: Gradient
 }
 
 export const DEFAULT_VIEW: ViewOptions = {
   fieldStyle: "blueprint", robotColor: "#22d3ee",
-  field: true, grid: false, guess: true, trajectory: true, samples: false, waypoints: true, flipped: false, corridor: true, charts: true, gradient: "velocity",
+  field: true, grid: false, guess: true, trajectory: true, samples: false, waypoints: true, flipped: false, corridor: true, charts: true, snap: 0, guides: true, gradient: "velocity",
 }
 
 export const GRADIENTS: { id: Gradient; label: string; hint: string }[] = [
@@ -252,16 +261,18 @@ export function targetLabel(t: Target): string {
 }
 
 /** Constraints and events after inserting a waypoint at `at`. */
-export function afterInsert(spec: PathSpec, at: number): Pick<PathSpec, "scoped" | "events"> {
+export function afterInsert(spec: PathSpec, at: number): Pick<PathSpec, "scoped" | "events" | "rotationTargets"> {
   const shift = (t: Target): Target => (typeof t === "object" && t.index >= at ? { index: t.index + 1 } : t)
   return {
     scoped: spec.scoped.map(c => ({ ...c, from: shift(c.from), to: c.to === undefined ? undefined : shift(c.to) })),
     events: (spec.events ?? []).map(e => ({ ...e, target: shift(e.target) })),
+    // Segments after the new waypoint move up one.
+    rotationTargets: spec.rotationTargets?.map(r => (r.segment >= at ? { ...r, segment: r.segment + 1 } : r)),
   }
 }
 
 /** Constraints and events after removing waypoint `at`: what pointed at it goes too. */
-export function afterRemove(spec: PathSpec, at: number): Pick<PathSpec, "scoped" | "events"> {
+export function afterRemove(spec: PathSpec, at: number): Pick<PathSpec, "scoped" | "events" | "rotationTargets"> {
   const gone = (t: Target) => typeof t === "object" && t.index === at
   const shift = (t: Target): Target => (typeof t === "object" && t.index > at ? { index: t.index - 1 } : t)
   return {
@@ -269,6 +280,10 @@ export function afterRemove(spec: PathSpec, at: number): Pick<PathSpec, "scoped"
       .filter(c => !gone(c.from) && !(c.to !== undefined && gone(c.to)))
       .map(c => ({ ...c, from: shift(c.from), to: c.to === undefined ? undefined : shift(c.to) })),
     events: (spec.events ?? []).filter(e => !gone(e.target)).map(e => ({ ...e, target: shift(e.target) })),
+    // Two segments become one; later ones move down.
+    rotationTargets: spec.rotationTargets
+      ?.map(r => (r.segment >= at && r.segment > 0 ? { ...r, segment: r.segment - 1 } : r))
+      .filter(r => r.segment < spec.waypoints.length - 2),
   }
 }
 
@@ -447,3 +462,51 @@ export function setSegmentMode(spec: PathSpec, i: number, mode: SegmentMode): Pa
 }
 
 export const NEXT_MODE: Record<SegmentMode, SegmentMode> = { optimized: "manual", manual: "pathfind", pathfind: "optimized" }
+
+/** Mirrors a path across the field: "alliance" swaps ends (x → L − x, heading → 180° − h), "vertical" swaps sides (y → W − y, heading → −h). Formulas on mirrored fields are dropped (they no longer hold). */
+export function mirrorPath(spec: PathSpec, how: "alliance" | "vertical", L: number, W: number): PathSpec {
+  const mx = (x: number) => (how === "alliance" ? L - x : x)
+  const my = (y: number) => (how === "vertical" ? W - y : y)
+  const mh = (h: number) => {
+    const r = (((how === "alliance" ? 180 - h : -h) % 360) + 360) % 360
+    return r > 180 ? r - 360 : r
+  }
+  const drop = <T extends { exprs?: Exprs }>(o: T, keys: string[]): T => {
+    if (!o.exprs) return o
+    const e = { ...o.exprs }
+    keys.forEach(k => delete e[k])
+    return { ...o, exprs: Object.keys(e).length ? e : undefined }
+  }
+  const pt = (c?: [number, number]): [number, number] | undefined => (c ? [mx(c[0]), my(c[1])] : undefined)
+  return {
+    ...spec,
+    waypoints: spec.waypoints.map(w => drop({
+      ...w, x: mx(w.x), y: my(w.y),
+      headingDeg: w.headingDeg === undefined ? undefined : mh(w.headingDeg),
+      prevControl: pt(w.prevControl), nextControl: pt(w.nextControl),
+    }, ["x", "y", "headingDeg"])),
+    scoped: spec.scoped.map(c => {
+      if (!("x" in c)) return c
+      if (c.type === "keepInRectangle") {
+        return drop({ ...c, x: how === "alliance" ? L - c.x - c.widthM : c.x, y: how === "vertical" ? W - c.y - c.heightM : c.y }, ["x", "y"])
+      }
+      return drop({ ...c, x: mx(c.x), y: my(c.y) }, ["x", "y"])
+    }),
+    rotationTargets: spec.rotationTargets?.map(r => drop({ ...r, headingDeg: mh(r.headingDeg) }, ["headingDeg"])),
+  }
+}
+
+/** Waypoints `indices` moved by (dx, dy), controls along, formulas on x and y dropped. */
+export function moveWaypoints(spec: PathSpec, indices: number[], dx: number, dy: number): PathSpec {
+  const set = new Set(indices)
+  return {
+    ...spec,
+    waypoints: spec.waypoints.map((w, i) => {
+      if (!set.has(i)) return w
+      const moved = shiftControls(w, dx, dy)
+      const exprs = moved.exprs ? { ...moved.exprs } : undefined
+      if (exprs) { delete exprs.x; delete exprs.y }
+      return { ...moved, x: w.x + dx, y: w.y + dy, exprs: exprs && Object.keys(exprs).length ? exprs : undefined }
+    }),
+  }
+}
