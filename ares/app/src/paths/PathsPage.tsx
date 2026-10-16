@@ -7,6 +7,7 @@ import type { RobotConfig } from "../robot/types"
 import { renderTopView, TopView } from "../robot/topView"
 import { bindField } from "../vars/bind"
 import { useVariables } from "../vars/context"
+import { useToast } from "../ui/toasts"
 import { isExpr } from "../vars/expr"
 import { applyScope, dropExprs, evaluateAll, linkToPose, linkedPose, numberText, withOverrides } from "../vars/variables"
 import { Card, MiniButton, Q, Toggle } from "../ui/controls"
@@ -103,6 +104,8 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
   }, [base, variantDef, variables])
   const n = spec?.waypoints.length ?? 0
   const genKey = (s: PathSpec | null) => (s ? JSON.stringify([s, fieldDoc, robot, variant]) : "")
+  const latestKey = useRef("")
+  latestKey.current = genKey(spec)
   const stale = !!generated && generated.key !== genKey(spec)
   const shown = generated?.trajectory ?? guess
   const topSpeed = usableSpeed(robot)
@@ -308,10 +311,22 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
 
   // --- Generate --------------------------------------------------------------
   const genReq = useRef(0)
+  const toast = useToast()
+  // Stop: the running generation (or every one of Generate all) ends at the
+  // solver's next iteration; nothing it did is kept.
+  const stopRequested = useRef(false)
+  const stop = () => {
+    stopRequested.current = true
+    invoke("plan_cancel").catch(() => {})
+  }
+  const isStopped = (e: unknown) => String(e).includes("Generation stopped")
   const generate = () => {
-    if (!spec || genState.kind === "running") return
+    if (!spec) return
+    if (genState.kind === "running") { stop(); return }
+    stopRequested.current = false
     const id = ++genReq.current
     const key = genKey(spec)
+    const label = variant ? `${spec.name} ◇ ${variant}` : spec.name
     setGenState({ kind: "running" })
     invoke<PlanResult>("path_plan", { robot, spec, field: fieldDoc, fieldSize, robotPath, variant })
       .then(result => {
@@ -320,8 +335,24 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
         setGenState({ kind: "idle" })
         setPlayhead(null)
         refreshStatus()
+        const faster = 100 * (1 - result.trajectory.durationS / result.splineDurationS)
+        const changed = key !== latestKey.current
+        toast({
+          kind: "success",
+          title: `Generated "${label}"`,
+          body: `${result.trajectory.durationS.toFixed(3)} s${faster > 0.5 ? ` (${faster.toFixed(0)}% faster than the guess)` : ""} · solved in ${(result.solveMs / 1000).toFixed(2)} s${changed ? " · the path changed while it ran: generate again" : ""}`,
+        })
       })
-      .catch(e => { if (id === genReq.current) setGenState({ kind: "error", message: String(e) }) })
+      .catch(e => {
+        if (id !== genReq.current) return
+        if (isStopped(e)) {
+          setGenState({ kind: "idle" })
+          toast({ kind: "stopped", title: `Stopped generating "${label}"`, body: "Nothing was saved; the last trajectory stays." })
+        } else {
+          setGenState({ kind: "error", message: String(e) })
+          toast({ kind: "error", title: `Could not generate "${label}"`, body: String(e) })
+        }
+      })
   }
 
   /**
@@ -332,6 +363,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
    */
   const generateMany = async (which: "outdated" | "all") => {
     if (genState.kind === "running") return
+    stopRequested.current = false
     setGenState({ kind: "running" })
     const specs = (await invoke<PathEntry[]>("paths_list", { robotPath })).flatMap(e => (e.spec ? [e.spec] : []))
     const byName = new Map(specs.map(q => [q.name, q]))
@@ -349,24 +381,33 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
     let done = 0, failed: string[] = []
     // A parent regenerated now outdates what continues from it.
     const regenerated = new Set<string>()
+    let stopped = false
     for (const q of order) {
+      if (stopRequested.current) { stopped = true; break }
       const need = which === "all" || !st[q.name]?.generated || st[q.name]?.outdated || (q.continuesFrom && regenerated.has(q.continuesFrom))
       if (!need) continue
       setNote(`Generating ${q.name}…`)
       const jobs: [PathSpec, string | null][] = [[applyScope(q, scope).doc, null]]
       for (const v of q.variants ?? []) jobs.push([applyScope(q, evaluateAll(withOverrides(variables, v.overrides)).scope).doc, v.name])
       for (const [s2, v] of jobs) {
+        if (stopRequested.current) { stopped = true; break }
         try {
           await invoke<PlanResult>("path_plan", { robot, spec: s2, field: fieldDoc, fieldSize, robotPath, variant: v })
           done++
         } catch (e) {
+          if (isStopped(e)) { stopped = true; break }
           failed.push(`${q.name}${v ? "@" + v : ""}: ${String(e)}`)
         }
       }
+      if (stopped) break
       regenerated.add(q.name)
     }
     setGenState(failed.length ? { kind: "error", message: failed.join(" · ") } : { kind: "idle" })
     setNote(`Generated ${done} trajector${done === 1 ? "y" : "ies"}${failed.length ? `, ${failed.length} failed` : ""}`)
+    const plural = (k: number) => `${k} trajector${k === 1 ? "y" : "ies"}`
+    if (stopped) toast({ kind: "stopped", title: "Stopped generating", body: `${plural(done)} done before the stop; the rest kept their last trajectory.` })
+    else if (failed.length) toast({ kind: "error", title: `Generated ${plural(done)}, ${failed.length} failed`, body: failed.join(" · ") })
+    else toast({ kind: "success", title: done ? `Generated ${plural(done)}` : "Everything is up to date", body: done ? "In order: each path before what continues from it." : undefined })
     await refreshStatus()
     // The open path shows its fresh trajectory.
     if (base && current?.savedName) {
@@ -1230,6 +1271,14 @@ function ToolButton({ on, onClick, label, k, desc, children }: { on: boolean; on
 
 function GenerateButton({ state, stale, onClick }: { state: string; stale: boolean; onClick: () => void }) {
   const running = state === "running"
+  if (running) {
+    return (
+      <button onClick={onClick} title="Stop generating: the solver stops at its next iteration and nothing is saved"
+        style={{ display: "flex", alignItems: "center", gap: 6, height: 28, padding: "0 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", border: "1px solid #a81818", borderRadius: 2, background: "#c21c1c", color: "#ffffff" }}>
+        <i className="ti ti-player-stop" /> Stop
+      </button>
+    )
+  }
   return (
     <button onClick={onClick} disabled={running} title={"Generate (Ctrl+G)\nOptimize the trajectory for this path with the robot's physics, and save it to trajectories/ for the robot code. Blue: the path changed since the last one."}
       style={{

@@ -8,6 +8,7 @@ import { drawFieldBackground } from "../paths/FieldView"
 import { fieldSketch } from "../paths/fieldSketch"
 import { DEFAULT_VIEW, FieldDoc, PathEntry, PathStatus, PlanResult, PathSpec, Trajectory, ViewOptions, sampleAt } from "../paths/types"
 import { useVariables } from "../vars/context"
+import { useToast } from "../ui/toasts"
 import { applyScope, evaluateAll, withOverrides } from "../vars/variables"
 import { Auto, DEFAULT_BUDGET_S, Leg, Step, StepPath, conditionsOf, duration, legs, newAuto, pathKey, updateList } from "./types"
 
@@ -45,6 +46,8 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
   const [busy, setBusy] = useState(false)
   const [commit, setCommit] = useState(0)
   const { scope, variables } = useVariables()
+  const toast = useToast()
+  const stopRequested = useRef(false)
 
   const auto = current?.auto ?? null
   const autoMap = useMemo(() => new Map(autos.map(a => [a.name, a])), [autos])
@@ -133,8 +136,11 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
   // Generate what the auto needs: its paths (and variants) that are missing
   // or out of date, a path before what continues from it.
   const generateNeeded = async () => {
-    if (!auto || busy) return
+    if (!auto) return
+    if (busy) { stopRequested.current = true; invoke("plan_cancel").catch(() => {}); return }
+    stopRequested.current = false
     setBusy(true)
+    let stopped = false
     const byName = new Map(paths.map(p => [p.name, p]))
     const needed = new Set<string>()
     const add = (name: string) => {
@@ -149,6 +155,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
     let done = 0
     const failed: string[] = []
     for (const name of needed) {
+      if (stopRequested.current) { stopped = true; break }
       const p = byName.get(name)!
       const variantsNeeded = keys.filter(k => k.startsWith(`${name}@`)).map(k => k.slice(name.length + 1))
       const jobs: [PathSpec, string | null][] = []
@@ -161,17 +168,24 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
         if (def) jobs.push([applyScope(p, evaluateAll(withOverrides(variables, def.overrides)).scope).doc, v])
       }
       for (const [spec, v] of jobs) {
+        if (stopRequested.current) { stopped = true; break }
         setNote(`Generating ${name}${v ? "@" + v : ""}…`)
         try {
           await invoke<PlanResult>("path_plan", { robot, spec, field, fieldSize, robotPath, variant: v })
           done++
         } catch (e) {
+          if (String(e).includes("Generation stopped")) { stopped = true; break }
           failed.push(`${name}${v ? "@" + v : ""}: ${String(e)}`)
         }
       }
+      if (stopped) break
     }
     setBusy(false)
     setNote(failed.length ? failed.join(" · ") : `Generated ${done}`)
+    const plural = (k: number) => `${k} trajector${k === 1 ? "y" : "ies"}`
+    if (stopped) toast({ kind: "stopped", title: "Stopped generating", body: `${plural(done)} done before the stop.` })
+    else if (failed.length) toast({ kind: "error", title: `Generated ${plural(done)}, ${failed.length} failed`, body: failed.join(" · ") })
+    else toast({ kind: "success", title: done ? `Generated ${plural(done)} for "${auto.name}"` : `"${auto.name}" is up to date` })
     await refresh()
     setTrajVersion(v => v + 1)
   }
@@ -266,9 +280,16 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
             </>
           ) : <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Add steps on the left: paths, waits, commands, conditions.</span>}
           <span style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-            <span title="Generate the paths (and variants) this auto uses that are missing or out of date, in order.">
-              <Toggle on={false} onClick={generateNeeded} icon={busy ? "ti-loader-2" : "ti-wand"} label={busy ? "Generating…" : range.missing.length ? `Generate ${range.missing.length} missing` : "Generate paths"} />
-            </span>
+            {busy ? (
+              <button onClick={generateNeeded} title="Stop generating: the solver stops at its next iteration"
+                style={{ display: "flex", alignItems: "center", gap: 6, height: 26, padding: "0 12px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", border: "1px solid #a81818", borderRadius: 2, background: "#c21c1c", color: "#ffffff" }}>
+                <i className="ti ti-player-stop" /> Stop
+              </button>
+            ) : (
+              <span title="Generate the paths (and variants) this auto uses that are missing or out of date, in order.">
+                <Toggle on={false} onClick={generateNeeded} icon="ti-wand" label={range.missing.length ? `Generate ${range.missing.length} missing` : "Generate paths"} />
+              </span>
+            )}
           </span>
         </div>
         <div style={{ flex: 1, position: "relative", minHeight: 0 }}>

@@ -24,6 +24,7 @@
 
 #include <chrono>
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -36,6 +37,7 @@
 namespace {
 
 using Var = slp::Variable<double>;
+
 
 struct V2 {
   Var x, y;
@@ -459,8 +461,13 @@ extern "C" int ares_nlp_solve(const AresNlpProblem* p, AresNlpResult* out) {
     for (int j = 0; j < p->segments; ++j) guess_total += p->guess_dt[j] * p->intervals[j];
     double last_t = -1;
     int last_check = 0;
+    bool cancelled = false;
     problem.add_callback([&](const slp::IterationInfo<double>& info) {
       ++iterations;
+      if (p->cancel && std::atomic_ref<int>(*p->cancel).load(std::memory_order_relaxed) != 0) {
+        cancelled = true;
+        return true;
+      }
       const auto n = info.x.size();
       double t = 0;
       for (int j = 0; j < p->segments; ++j) t += info.x[n - p->segments + j] * p->intervals[j];
@@ -500,9 +507,9 @@ extern "C" int ares_nlp_solve(const AresNlpProblem* p, AresNlpResult* out) {
     for (int j = 0; j < p->segments; ++j) {
       out->dt[j] = dt[j].value();
     }
-    out->status = status;
+    out->status = cancelled ? -101 : status;
     out->iterations = iterations;
-    return status;
+    return out->status;
   } catch (const std::exception&) {
     out->status = -100;
     return -100;
@@ -511,3 +518,4 @@ extern "C" int ares_nlp_solve(const AresNlpProblem* p, AresNlpResult* out) {
     return -100;
   }
 }
+

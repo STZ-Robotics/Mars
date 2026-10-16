@@ -17,7 +17,22 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use ares_core::{solve, PathSpec, RobotConfig, SolverOptions, Trajectory};
-use ares_planner::{plan, Environment, FieldSize, PlannerOptions};
+use ares_planner::{plan, CancelToken, Environment, FieldSize, PlanError, PlannerOptions};
+use std::sync::Mutex;
+
+/// The generations running now, so Stop can reach them.
+static RUNNING: Mutex<Vec<CancelToken>> = Mutex::new(Vec::new());
+
+/// Stops every generation running now (they return "stopped").
+#[tauri::command]
+pub fn plan_cancel() {
+    for t in RUNNING.lock().unwrap().iter() {
+        t.cancel();
+    }
+}
+
+/// The error text the app shows as "stopped" rather than as a failure.
+pub const STOPPED: &str = "Generation stopped";
 use serde::{Deserialize, Serialize};
 
 const PATH_EXT: &str = ".path.json";
@@ -294,7 +309,15 @@ pub async fn path_plan(
             options.start_state = link_start(rp, &mut spec)?;
         }
         let env = Environment { field: if field.walls { field_size } else { None }, keep_out: field.keep_out, slow_zones: field.slow_zones };
-        let mut planned = plan(&robot, &spec, &env, &options).map_err(|e| e.to_string())?;
+        let token = CancelToken::default();
+        options.cancel = Some(token.clone());
+        RUNNING.lock().unwrap().push(token.clone());
+        let result = plan(&robot, &spec, &env, &options);
+        RUNNING.lock().unwrap().retain(|t| !t.same(&token));
+        let mut planned = result.map_err(|e| match e {
+            PlanError::Cancelled => STOPPED.to_string(),
+            other => other.to_string(),
+        })?;
         planned.trajectory.variant = variant.clone();
         planned.trajectory.source_hash = Some(hash);
         if let Some(rp) = robot_path {

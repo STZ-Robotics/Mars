@@ -103,6 +103,9 @@ typedef struct {
   const double* guess_dt;
 
   /* Solver */
+  /* Nonzero (set from another thread) stops the solve at its next
+   * iteration. NULL: it cannot be stopped. */
+  int* cancel;
   double tolerance;
   int max_iterations;
   double timeout_s;
@@ -130,7 +133,7 @@ typedef struct {
   double* dt;
 } AresNlpResult;
 
-/* Returns the status as well; never throws. */
+/* Returns the status as well; never throws. -101: cancelled. */
 int ares_nlp_solve(const AresNlpProblem* problem, AresNlpResult* result);
 
 #ifdef __cplusplus

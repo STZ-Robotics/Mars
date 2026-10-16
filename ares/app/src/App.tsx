@@ -10,6 +10,7 @@ import VariablesPage from "./vars/VariablesPage"
 import AutosPage from "./autos/AutosPage"
 import { VariablesProvider } from "./vars/context"
 import { useProjectSync } from "./vars/sync"
+import { ToastProvider } from "./ui/toasts"
 
 type Page = "robot" | "paths" | "autos" | "field" | "variables"
 
@@ -103,6 +104,7 @@ export default function App() {
   }, [robotPath, dirty])
 
   return (
+    <ToastProvider>
     <VariablesProvider robotPath={robotPath}>
     <ProjectSync robotPath={robotPath} setRobot={setRobot} />
     <div className="app-root">
@@ -127,6 +129,7 @@ export default function App() {
       <StatusBar robot={robot.name} dirty={dirty} status={status} />
     </div>
     </VariablesProvider>
+    </ToastProvider>
   )
 }
 

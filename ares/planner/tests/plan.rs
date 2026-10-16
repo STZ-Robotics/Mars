@@ -465,3 +465,20 @@ fn named_sections_cover_the_trajectory_in_order() {
         assert!((secs[k].start_t - p.trajectory.waypoint_times[k]).abs() < 1e-9);
     }
 }
+
+#[test]
+fn a_plan_can_be_stopped_from_another_thread() {
+    let mut r = robot();
+    // A slow one (load transfer, a winding path) so there is time to stop it.
+    r.cog_height_m = Some(0.35);
+    let s = spec(vec![wp(1.686, 4.589, Some(0.0)), wp(8.168, 5.809, Some(142.8)), wp(8.2, 4.1, Some(180.0)), wp(12.0, 6.0, Some(90.0))]);
+    let token = ares_planner::CancelToken::default();
+    let opts = PlannerOptions { cancel: Some(token.clone()), ..Default::default() };
+    let started = std::time::Instant::now();
+    let job = std::thread::spawn(move || plan(&r, &s, &Environment::default(), &opts));
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    token.cancel();
+    let out = job.join().unwrap();
+    assert!(matches!(out, Err(ares_planner::PlanError::Cancelled)), "{out:?}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(3), "took {:?} to stop", started.elapsed());
+}

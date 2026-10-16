@@ -31,6 +31,24 @@ use serde::{Deserialize, Serialize};
 mod ffi;
 pub mod route;
 
+/// A Stop button for one plan: set it from any thread and the plan returns
+/// `PlanError::Cancelled` at its solver's next iteration.
+#[derive(Clone, Debug, Default)]
+pub struct CancelToken(std::sync::Arc<std::sync::atomic::AtomicI32>);
+
+impl CancelToken {
+    pub fn cancel(&self) {
+        self.0.store(1, std::sync::atomic::Ordering::Relaxed)
+    }
+    pub fn is_cancelled(&self) -> bool {
+        self.0.load(std::sync::atomic::Ordering::Relaxed) != 0
+    }
+    /// Whether two tokens are the same button.
+    pub fn same(&self, other: &CancelToken) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
 /// What surrounds the robot. Shared by every path on the same field.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -107,6 +125,7 @@ pub struct PlannerOptions {
     /// Start moving at (vx, vy, omega) instead of at rest: a path that
     /// continues another one. A stop on the first waypoint is then ignored.
     pub start_state: Option<[f64; 3]>,
+    pub cancel: Option<CancelToken>,
 }
 
 impl Default for PlannerOptions {
@@ -117,6 +136,7 @@ impl Default for PlannerOptions {
             max_iterations: 3000,
             timeout: Duration::from_secs(60),
             start_state: None,
+            cancel: None,
         }
     }
 }
@@ -133,6 +153,8 @@ pub struct Planned {
 #[derive(Debug)]
 pub enum PlanError {
     Core(AresError),
+    /// Stopped by `cancel` before it finished.
+    Cancelled,
     /// The optimizer did not converge. The status is Sleipnir's.
     Solver { status: i32, reason: &'static str },
 }
@@ -141,6 +163,7 @@ impl std::fmt::Display for PlanError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             PlanError::Core(e) => write!(f, "{e}"),
+            PlanError::Cancelled => write!(f, "generation stopped"),
             PlanError::Solver { reason, .. } => write!(f, "the optimizer did not find a trajectory: {reason}"),
         }
     }
@@ -707,11 +730,15 @@ fn plan_fixed(
             constraints: &all,
             guess: [&gx, &gy, &gth, &gvx, &gvy, &gw, &gax, &gay, &gal],
             guess_dt: &guess_dt,
+            cancel: options.cancel.as_ref().map(|c| &*c.0),
             tolerance: options.tolerance,
             max_iterations: options.max_iterations as i32,
             timeout_s: options.timeout.as_secs_f64(),
         };
         let sol = ffi::solve(&problem);
+        if sol.status == ffi::CANCELLED {
+            return Err(PlanError::Cancelled);
+        }
         // 1 is the stall stop and -9 the iteration cap: both leave an iterate
         // that may well be the answer, which the physics check below decides.
         let maybe_done = sol.status == 0 || sol.status == 1 || sol.status == -9;

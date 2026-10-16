@@ -291,7 +291,8 @@ pub fn run() {
             project::auto_save,
             project::auto_delete,
             project::index_write,
-            project::paths_status
+            project::paths_status,
+            project::plan_cancel
         ])
         .run(tauri::generate_context!())
         .expect("error while running Ares");

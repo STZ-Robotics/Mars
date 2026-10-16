@@ -60,6 +60,7 @@ struct RawProblem {
     constraint: *const Constraint,
     guess: [*const c_double; 9],
     guess_dt: *const c_double,
+    cancel: *mut c_int,
     tolerance: c_double,
     max_iterations: c_int,
     timeout_s: c_double,
@@ -78,6 +79,9 @@ struct RawResult {
 extern "C" {
     fn ares_nlp_solve(problem: *const RawProblem, result: *mut RawResult) -> c_int;
 }
+
+/// The solver's status when its cancel flag stopped it.
+pub const CANCELLED: i32 = -101;
 
 /// The problem, borrowed from Rust buffers. `guess` is x, y, θ, vx, vy, ω, ax,
 /// ay, α, one value per sample each.
@@ -106,6 +110,8 @@ pub struct Problem<'a> {
     pub constraints: &'a [Constraint],
     pub guess: [&'a [f64]; 9],
     pub guess_dt: &'a [f64],
+    /// Read by the solver every iteration; nonzero stops it.
+    pub cancel: Option<&'a std::sync::atomic::AtomicI32>,
     pub tolerance: f64,
     pub max_iterations: i32,
     pub timeout_s: f64,
@@ -168,6 +174,8 @@ pub fn solve(p: &Problem) -> Solution {
         constraint: p.constraints.as_ptr(),
         guess: p.guess.map(|g| g.as_ptr()),
         guess_dt: p.guess_dt.as_ptr(),
+        // AtomicI32 has i32's layout; C++ reads it with atomic_ref.
+        cancel: p.cancel.map_or(std::ptr::null_mut(), |a| a.as_ptr()),
         tolerance: p.tolerance,
         max_iterations: p.max_iterations,
         timeout_s: p.timeout_s,
