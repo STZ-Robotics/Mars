@@ -128,6 +128,11 @@ struct Point {
     nb: Vec<f64>,
     /// The most `ṡ²` the velocity limits allow, before any force is considered.
     x_cap: f64,
+    /// A cap on the chassis' acceleration here (scoped MaxAcceleration),
+    /// with the acceleration as `a_pos·s̈ + b_pos·ṡ²`.
+    acc_cap: Option<f64>,
+    a_pos: Vec2,
+    b_pos: Vec2,
 }
 
 fn solve3(g: [[f64; 3]; 3], w: [f64; 3]) -> [f64; 3] {
@@ -189,7 +194,7 @@ fn linearize(model: &Model, p: &PathPoint) -> Point {
     if !x_cap.is_finite() {
         x_cap = 1e6;
     }
-    Point { a, b, c, na, nb, x_cap }
+    Point { a, b, c, na, nb, x_cap, acc_cap: None, a_pos: p.d_pos, b_pos: p.dd_pos }
 }
 
 /// `[lo, hi]` intersected with `|A·s + B| <= radius`, or None if empty.
@@ -290,6 +295,11 @@ fn interval(model: &Model, pt: &Point, x: f64) -> Option<(f64, f64)> {
             return None;
         }
     }
+    if let Some(cap) = pt.acc_cap {
+        if !clip_disc(&mut lo, &mut hi, pt.a_pos, pt.b_pos * x, cap) {
+            return None;
+        }
+    }
     let tol = 1e-9 * (1.0 + lo.abs().min(1e9) + hi.abs().min(1e9));
     (lo <= hi + tol).then_some((lo, hi.max(lo)))
 }
@@ -326,7 +336,8 @@ pub fn solve(robot: &RobotConfig, spec: &PathSpec, options: &SolverOptions) -> R
 
     let path = GeometricPath::build(spec, robot.drive_radius(), options.resolution_m)?;
     let model = Model::new(robot, spec);
-    let pts: Vec<Point> = path.points.iter().map(|p| linearize(&model, p)).collect();
+    let mut pts: Vec<Point> = path.points.iter().map(|p| linearize(&model, p)).collect();
+    apply_scoped(spec, &path, &mut pts);
     let n = pts.len() - 1;
     let ds = path.ds;
     let mvc: Vec<f64> = pts.iter().map(|p| max_velocity_curve(&model, p)).collect();
@@ -355,7 +366,8 @@ pub fn solve(robot: &RobotConfig, spec: &PathSpec, options: &SolverOptions) -> R
             });
         };
         alpha[k + 1] = beta[k + 1].min(x + 2.0 * ds * hi).max(0.0);
-        if k + 1 < n && alpha[k + 1] <= 1e-12 {
+        // Zero speed is only allowed where a stop point asks for it.
+        if k + 1 < n && alpha[k + 1] <= 1e-12 && pts[k + 1].x_cap > 0.0 {
             return Err(AresError::Infeasible {
                 s_m: path.points[k + 1].s,
                 reason: "the robot stalls: no grip or torque is left to keep moving".into(),
@@ -416,6 +428,9 @@ pub fn solve(robot: &RobotConfig, spec: &PathSpec, options: &SolverOptions) -> R
         name: spec.name.clone(),
         robot: robot.name.clone(),
         duration_s: times[n],
+        waypoint_times: path.waypoint_s.iter().map(|ws| times[((ws / ds).round() as usize).min(n)]).collect(),
+        splits: vec![],
+        events: vec![],
         samples,
     })
 }
@@ -423,15 +438,15 @@ pub fn solve(robot: &RobotConfig, spec: &PathSpec, options: &SolverOptions) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::path::{PathConstraints, Waypoint};
+    use crate::path::Waypoint;
     use crate::robot::tests::offseason2026;
 
     fn wp(x: f64, y: f64, h: Option<f64>) -> Waypoint {
-        Waypoint { x, y, heading_deg: h }
+        Waypoint { x, y, heading_deg: h, ..Default::default() }
     }
 
     fn spec(w: Vec<Waypoint>) -> PathSpec {
-        PathSpec { name: "test".into(), waypoints: w, constraints: PathConstraints::default() }
+        PathSpec::new("test", w)
     }
 
     fn run(robot: &RobotConfig, s: &PathSpec) -> Trajectory {
@@ -539,6 +554,22 @@ mod tests {
     }
 
     #[test]
+    fn scoped_caps_and_an_intermediate_stop() {
+        use crate::path::{ConstraintKind, ScopedConstraint, Target};
+        let robot = offseason2026();
+        let mut s = spec(vec![wp(0.0, 0.0, Some(0.0)), wp(4.0, 0.0, None), wp(8.0, 0.0, Some(0.0))]);
+        s.scoped.push(ScopedConstraint { from: Target::Index(1), to: None, enabled: true, kind: ConstraintKind::StopPoint });
+        s.scoped.push(ScopedConstraint {
+            from: Target::Index(1), to: Some(Target::Last), enabled: true, kind: ConstraintKind::MaxVelocity { mps: 1.5 },
+        });
+        let t = run(&robot, &s);
+        let mid = t.samples.iter().min_by(|a, b| (a.x - 4.0).abs().total_cmp(&(b.x - 4.0).abs())).unwrap();
+        assert!(mid.vx.abs() < 1e-6, "{}", mid.vx);
+        assert!(t.samples.iter().filter(|q| q.x > 4.01).all(|q| q.vx.abs() <= 1.5 * 1.001));
+        assert!(t.samples.iter().filter(|q| q.x < 3.5).any(|q| q.vx > 2.0), "the cap leaked into the first half");
+    }
+
+    #[test]
     fn same_input_same_trajectory() {
         let robot = offseason2026();
         let s = spec(vec![wp(0.0, 0.0, Some(0.0)), wp(3.0, 1.0, Some(45.0)), wp(5.0, 3.0, None)]);
@@ -553,5 +584,33 @@ mod tests {
         let sum = f.iter().fold(Vec2::ZERO, |acc, v| acc + *v);
         let torque: f64 = r.iter().zip(&f).map(|(ri, fi)| ri.x * fi.y - ri.y * fi.x).sum();
         assert!((sum.x - 4.0).abs() < 1e-9 && (sum.y + 8.0).abs() < 1e-9 && (torque - 2.0).abs() < 1e-9);
+    }
+}
+
+/// The scoped constraints stage 1 can honor along the spline: speed, turn
+/// rate and acceleration caps over their range, and stops at intermediate
+/// waypoints. The rest (point-at, keep-in, lanes) only the optimizer sees;
+/// stage 1 is its starting guess.
+fn apply_scoped(spec: &PathSpec, path: &GeometricPath, pts: &mut [Point]) {
+    use crate::path::ConstraintKind as K;
+    let n = spec.waypoints.len();
+    let last = pts.len() - 1;
+    let index_of = |s: f64| ((s / path.ds).round() as usize).min(last);
+    for c in spec.scoped.iter().filter(|c| c.enabled) {
+        let (a, b) = c.range(n);
+        let (ka, kb) = (index_of(path.waypoint_s[a]), index_of(path.waypoint_s[b]));
+        for k in ka..=kb {
+            let (p, pt) = (&path.points[k], &mut pts[k]);
+            match c.kind {
+                K::StopPoint => pt.x_cap = 0.0,
+                K::MaxVelocity { mps } if p.d_pos.norm2() > 1e-12 => pt.x_cap = pt.x_cap.min(mps * mps / p.d_pos.norm2()),
+                K::MaxAngularVelocity { dps } if p.d_theta.abs() > 1e-9 => {
+                    let w = dps.to_radians();
+                    pt.x_cap = pt.x_cap.min(w * w / (p.d_theta * p.d_theta));
+                }
+                K::MaxAcceleration { mps2 } => pt.acc_cap = Some(pt.acc_cap.map_or(mps2, |c| c.min(mps2))),
+                _ => {}
+            }
+        }
     }
 }

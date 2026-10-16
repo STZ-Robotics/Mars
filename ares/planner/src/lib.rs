@@ -22,13 +22,14 @@
 use std::time::{Duration, Instant};
 
 use ares_core::geometry::{wrap_angle, Vec2};
-use ares_core::path::GeometricPath;
+use ares_core::path::{ConstraintKind, WaypointKind};
 use ares_core::robot::{GRAVITY, MIN_LOAD_FRACTION};
-use ares_core::trajectory::{ModuleSample, Sample};
+use ares_core::trajectory::{ModuleSample, Sample, TimedEvent};
 use ares_core::{AresError, PathSpec, RobotConfig, SolverOptions, Trajectory};
 use serde::{Deserialize, Serialize};
 
 mod ffi;
+pub mod route;
 
 /// What surrounds the robot. Shared by every path on the same field.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -152,63 +153,98 @@ pub fn plan(
     options: &PlannerOptions,
 ) -> Result<Planned, PlanError> {
     let started = Instant::now();
+    validate(spec)?;
+    let sw = robot.swerve();
+    let reach = 0.5 * robot.bumper.length_m.hypot(robot.bumper.width_m);
 
-    // Stage 1: the spline, timed.
+    // The guess: the user's waypoints, plus hidden corners around keep-outs.
+    let free = free_space(spec, env, reach);
+    let routed = route::route(spec, &free, robot.drive_radius());
+    let work = &routed.spec;
+
+    // Stage 1 on the routed spline.
     let core_options = SolverOptions::default();
-    let warm = ares_core::solve(robot, spec, &core_options)?;
-    let path = GeometricPath::build(spec, robot.drive_radius(), core_options.resolution_m)?;
-    let wp_time: Vec<f64> = path
-        .waypoint_s
-        .iter()
-        .map(|s| warm.samples[((s / path.ds).round() as usize).min(warm.samples.len() - 1)].t)
-        .collect();
+    let warm = ares_core::solve(robot, work, &core_options)?;
+    let wp_time = warm.waypoint_times.clone();
 
-    // Sampling: each segment gets intervals at about target_dt.
-    let segments = spec.waypoints.len() - 1;
-    let mut intervals = Vec::with_capacity(segments);
+    // Sampling: about target_dt apart, unless the user set a count.
+    let segments = work.waypoints.len() - 1;
+    let mut intervals = vec![0i32; segments];
+    for (i, w) in spec.waypoints.iter().enumerate().take(spec.waypoints.len() - 1) {
+        let (a, b) = (routed.index_of[i], routed.index_of[i + 1]);
+        let total = (wp_time[b] - wp_time[a]).max(1e-6);
+        for j in a..b {
+            let span = (wp_time[j + 1] - wp_time[j]).max(0.0);
+            intervals[j] = match w.intervals {
+                Some(n) => ((n as f64 * span / total).round() as i32).max(1),
+                None => ((span.max(0.05) / options.target_dt_s).ceil() as i32).max(3),
+            };
+        }
+    }
     let mut guess_dt = Vec::with_capacity(segments);
     let mut times = vec![0.0];
+    let mut start = vec![0usize];
     for j in 0..segments {
+        let n = intervals[j];
         let span = (wp_time[j + 1] - wp_time[j]).max(0.05);
-        let n = ((span / options.target_dt_s).ceil() as i32).max(3);
-        intervals.push(n);
         guess_dt.push(span / n as f64);
         for i in 1..=n {
             times.push(wp_time[j] + (wp_time[j + 1] - wp_time[j]) * i as f64 / n as f64);
         }
+        start.push(times.len() - 1);
     }
-    let mut guess: Vec<Sample> = times.iter().map(|&t| warm.sample_at(t)).collect();
-    push_out_of_keep_outs(&mut guess, robot, env);
+    let guess: Vec<Sample> = times.iter().map(|&t| warm.sample_at(t)).collect();
     let col = |f: fn(&Sample) -> f64| guess.iter().map(f).collect::<Vec<f64>>();
     let (gx, gy, gth) = (col(|s| s.x), col(|s| s.y), col(|s| s.heading));
     let (gvx, gvy, gw) = (col(|s| s.vx), col(|s| s.vy), col(|s| s.omega));
     let (gax, gay, gal) = (col(|s| s.ax), col(|s| s.ay), col(|s| s.alpha));
 
-    // Waypoints: every one fixes the position; a given heading fixes it too;
-    // the ends are at rest.
-    let last = spec.waypoints.len() - 1;
-    let mut wp_flags = Vec::new();
-    let mut wp_values = Vec::new();
-    for (j, w) in spec.waypoints.iter().enumerate() {
-        let mut f = ffi::WP_POSITION;
-        // Unspecified headings at the ends would leave the start free to spin
-        // the robot in place; the spline's heading is what the user sees.
-        let heading = match w.heading_deg {
-            Some(h) => Some(h.to_radians()),
-            None if j == 0 || j == last => Some(guess[if j == 0 { 0 } else { guess.len() - 1 }].heading),
-            None => None,
-        };
-        if heading.is_some() {
-            f |= ffi::WP_HEADING;
-        }
-        if j == 0 || j == last {
-            f |= ffi::WP_STOP;
+    // Waypoints: what each kind pins down, and the stop points.
+    let n_wp = work.waypoints.len();
+    let mut wp_flags = Vec::with_capacity(n_wp);
+    let mut wp_values = Vec::with_capacity(3 * n_wp);
+    for w in &work.waypoints {
+        let mut f = 0;
+        match w.kind() {
+            WaypointKind::Pose => f |= ffi::WP_POSITION | ffi::WP_HEADING,
+            WaypointKind::Translation => f |= ffi::WP_POSITION,
+            WaypointKind::Empty => {}
         }
         wp_flags.push(f);
-        wp_values.extend([w.x, w.y, heading.unwrap_or(0.0)]);
+        wp_values.extend([w.x, w.y, w.fixed_heading_deg().unwrap_or(0.0).to_radians()]);
+    }
+    let mut constraints = Vec::new();
+    for c in work.scoped.iter().filter(|c| c.enabled) {
+        let (a, b) = c.range(n_wp);
+        let (from, to) = (start[a] as i32, start[b] as i32);
+        let rec = |kind, p: [f64; 5]| ffi::Constraint { kind, from, to, p };
+        match c.kind {
+            ConstraintKind::StopPoint => {
+                for j in a..=b {
+                    wp_flags[j] |= ffi::WP_STOP;
+                }
+            }
+            ConstraintKind::MaxVelocity { mps } => constraints.push(rec(ffi::C_MAX_VELOCITY, [mps, 0.0, 0.0, 0.0, 0.0])),
+            ConstraintKind::MaxAcceleration { mps2 } => constraints.push(rec(ffi::C_MAX_ACCELERATION, [mps2, 0.0, 0.0, 0.0, 0.0])),
+            ConstraintKind::MaxAngularVelocity { dps } => {
+                constraints.push(rec(ffi::C_MAX_OMEGA, [dps.to_radians(), 0.0, 0.0, 0.0, 0.0]))
+            }
+            ConstraintKind::PointAt { x, y, tolerance_deg, flip } => constraints
+                .push(rec(ffi::C_POINT_AT, [x, y, tolerance_deg.to_radians(), if flip { 1.0 } else { 0.0 }, 0.0])),
+            ConstraintKind::KeepInCircle { x, y, radius_m } => constraints.push(rec(ffi::C_KEEP_IN_CIRCLE, [x, y, radius_m, 0.0, 0.0])),
+            ConstraintKind::KeepInRectangle { x, y, width_m, height_m } => {
+                constraints.push(rec(ffi::C_KEEP_IN_RECT, [x, y, width_m, height_m, 0.0]))
+            }
+            ConstraintKind::KeepInLane { tolerance_m } => {
+                let (wa, wb) = (&work.waypoints[a], &work.waypoints[b]);
+                constraints.push(rec(ffi::C_KEEP_IN_LANE, [wa.x, wa.y, wb.x, wb.y, tolerance_m]))
+            }
+            ConstraintKind::KeepOutCircle { x, y, radius_m } => {
+                constraints.push(rec(ffi::C_KEEP_OUT_CIRCLE, [x, y, radius_m, 0.0, 0.0]))
+            }
+        }
     }
 
-    let sw = robot.swerve();
     let d = drive(robot);
     let module_xy: Vec<f64> = sw.modules.iter().flat_map(|m| [m.x_m, m.y_m]).collect();
     let circles: Vec<f64> = env.keep_out.iter().flat_map(|c| [c.x, c.y, c.radius_m]).collect();
@@ -236,6 +272,7 @@ pub fn plan(
         field_length_m: field.length_m,
         field_width_m: field.width_m,
         circle_xyr: &circles,
+        constraints: &constraints,
         guess: [&gx, &gy, &gth, &gvx, &gvy, &gw, &gax, &gay, &gal],
         guess_dt: &guess_dt,
         tolerance: options.tolerance,
@@ -261,6 +298,7 @@ pub fn plan(
     let mut in_seg = 0;
     // Headings come back wrapped; unwrap them so they read like the core's.
     let mut heading = sol.theta[0];
+    let mut sample_t = Vec::with_capacity(times.len());
     for k in 0..times.len() {
         if k > 0 {
             heading += wrap_angle(sol.theta[k] - sol.theta[k - 1]);
@@ -271,6 +309,7 @@ pub fn plan(
                 in_seg = 0;
             }
         }
+        sample_t.push(t);
         let (c, s) = (heading.cos(), heading.sin());
         let modules = (0..m)
             .map(|i| {
@@ -308,8 +347,35 @@ pub fn plan(
         });
     }
 
-    let trajectory = Trajectory { name: spec.name.clone(), robot: robot.name.clone(), duration_s: t, samples };
-    if let Err(problem) = check_physics(robot, spec, env, &trajectory) {
+    // What the robot code needs besides the samples: when each of the user's
+    // waypoints is passed, where to split, when the events fire.
+    let waypoint_times: Vec<f64> = routed.index_of.iter().map(|&j| sample_t[start[j]]).collect();
+    let splits = spec
+        .waypoints
+        .iter()
+        .enumerate()
+        .filter(|(i, w)| w.split && *i > 0 && *i + 1 < spec.waypoints.len())
+        .map(|(i, _)| start[routed.index_of[i]])
+        .collect();
+    let events = spec
+        .events
+        .iter()
+        .map(|e| TimedEvent {
+            name: e.name.clone(),
+            t: (waypoint_times[e.target.resolve(spec.waypoints.len())] + e.offset_s).clamp(0.0, t),
+        })
+        .collect();
+
+    let trajectory = Trajectory {
+        name: spec.name.clone(),
+        robot: robot.name.clone(),
+        duration_s: t,
+        samples,
+        waypoint_times,
+        splits,
+        events,
+    };
+    if let Err(problem) = check_physics(robot, work, env, &trajectory) {
         if std::env::var("ARES_TRACE").is_ok() {
             eprintln!("rejected: {problem}");
         }
@@ -325,46 +391,66 @@ pub fn plan(
     })
 }
 
-/// Moves the warm start's positions out of the keep-out circles.
-///
-/// The spline knows nothing about obstacles, and an interior-point method
-/// started inside one, dead on its center, has no side to prefer. Each sample
-/// that is too close goes radially out (sideways from the path if it sits on
-/// the center), with a smooth falloff so the guess stays a curve. Velocities
-/// are left alone: the solver fixes them in a few iterations.
-fn push_out_of_keep_outs(guess: &mut [Sample], robot: &RobotConfig, env: &Environment) {
-    let reach = 0.5 * robot.bumper.length_m.hypot(robot.bumper.width_m);
-    for c in &env.keep_out {
-        let need = c.radius_m + reach + 0.05;
-        // Which side to go around: the side where the path already bends, or
-        // left of travel if it goes straight through.
-        let mut side = 0.0;
-        for s in guess.iter() {
-            let d = Vec2::new(s.x - c.x, s.y - c.y);
-            let v = Vec2::new(s.vx, s.vy);
-            side += v.x * d.y - v.y * d.x;
-        }
-        let side = if side >= 0.0 { 1.0 } else { -1.0 };
-        let n = guess.len();
-        for k in 1..n - 1 {
-            let s = &mut guess[k];
-            let d = Vec2::new(s.x - c.x, s.y - c.y);
-            let dist = d.norm();
-            if dist >= need {
-                continue;
-            }
-            let dir = if dist > 1e-6 && (d.x * s.vy - d.y * s.vx).abs() > 1e-6 * dist {
-                d * (1.0 / dist)
-            } else {
-                let v = Vec2::new(s.vx, s.vy).normalized();
-                let left = if v == Vec2::ZERO { Vec2::new(0.0, 1.0) } else { v.perp() };
-                left * side
-            };
-            let target = Vec2::new(c.x, c.y) + dir * need;
-            s.x = target.x;
-            s.y = target.y;
+/// What a path must be before it is worth solving.
+fn validate(spec: &PathSpec) -> Result<(), PlanError> {
+    let n = spec.waypoints.len();
+    let bad = |msg: String| Err(PlanError::Core(AresError::Path(msg)));
+    if n < 2 {
+        return bad("it needs at least 2 waypoints".into());
+    }
+    for end in [0, n - 1] {
+        if spec.waypoints[end].kind() == WaypointKind::Empty {
+            return bad(format!("the {} waypoint cannot be empty", if end == 0 { "first" } else { "last" }));
         }
     }
+    for c in spec.scoped.iter().filter(|c| c.enabled) {
+        let (a, b) = c.range(n);
+        match c.kind {
+            ConstraintKind::StopPoint if a != b => return bad("a stop point goes on one waypoint, not a segment".into()),
+            ConstraintKind::KeepInLane { .. } if a == b => return bad("a lane needs a segment, not one waypoint".into()),
+            ConstraintKind::MaxVelocity { mps } if mps <= 0.0 => return bad("a max velocity has to be positive".into()),
+            ConstraintKind::MaxAcceleration { mps2 } if mps2 <= 0.0 => {
+                return bad("a max acceleration has to be positive".into())
+            }
+            _ => {}
+        }
+        if c.kind == ConstraintKind::StopPoint || matches!(c.kind, ConstraintKind::PointAt { .. }) {
+            // Choreo's rule: a point-at on a pose waypoint fights its heading.
+            if matches!(c.kind, ConstraintKind::PointAt { .. })
+                && (a..=b).any(|j| spec.waypoints[j].kind() == WaypointKind::Pose)
+            {
+                return bad("a point-at constraint cannot cover a pose waypoint (its heading is already fixed)".into());
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Where the guess may run: inside the walls (the center, a bumper's reach
+/// in) and clear of every keep-out grown by that reach.
+fn free_space(spec: &PathSpec, env: &Environment, reach: f64) -> route::Free {
+    let grow = reach + 0.05;
+    let mut obstacles: Vec<route::Obstacle> = env
+        .keep_out
+        .iter()
+        .map(|c| route::Obstacle { center: Vec2::new(c.x, c.y), radius: c.radius_m + grow })
+        .collect();
+    for c in spec.scoped.iter().filter(|c| c.enabled) {
+        if let ConstraintKind::KeepOutCircle { x, y, radius_m } = c.kind {
+            obstacles.push(route::Obstacle { center: Vec2::new(x, y), radius: radius_m + grow });
+        }
+    }
+    let bounds = match env.field {
+        Some(f) => [reach, reach, f.length_m - reach, f.width_m - reach],
+        None => {
+            let xs = spec.waypoints.iter().map(|w| w.x);
+            let ys = spec.waypoints.iter().map(|w| w.y);
+            let (x0, x1) = xs.fold((f64::MAX, f64::MIN), |(a, b), v| (a.min(v), b.max(v)));
+            let (y0, y1) = ys.fold((f64::MAX, f64::MIN), |(a, b), v| (a.min(v), b.max(v)));
+            [x0 - 5.0, y0 - 5.0, x1 + 5.0, y1 + 5.0]
+        }
+    };
+    route::Free { obstacles, bounds }
 }
 
 /// Everything the optimizer promises, checked on what it returned: the
@@ -389,15 +475,46 @@ pub fn check_physics(robot: &RobotConfig, spec: &PathSpec, env: &Environment, t:
             return Err(format!("dynamics broken between t = {:.3} and {:.3}", a.t, b.t));
         }
     }
+    // The samples at the waypoints, through the times stage 2 recorded (or
+    // the nearest sample when it did not).
+    let at = |i: usize| -> &Sample {
+        match t.waypoint_times.get(i) {
+            Some(&wt) => s.iter().min_by(|a, b| (a.t - wt).abs().total_cmp(&(b.t - wt).abs())).unwrap(),
+            None => &s[0],
+        }
+    };
+    let n = spec.waypoints.len();
     for (i, w) in spec.waypoints.iter().enumerate() {
+        if w.kind() == WaypointKind::Empty {
+            continue;
+        }
         let d = s.iter().map(|q| (q.x - w.x).hypot(q.y - w.y)).fold(f64::INFINITY, f64::min);
         if d > POS_TOL {
             return Err(format!("misses waypoint {} by {d:.3} m", i + 1));
         }
     }
-    for q in [&s[0], &s[s.len() - 1]] {
-        if q.vx.hypot(q.vy) > VEL_TOL || q.omega.abs() > VEL_TOL * 3.0 {
-            return Err("does not start and end at rest".into());
+    let cos_tol = |deg: f64| deg.to_radians().cos();
+    for c in spec.scoped.iter().filter(|c| c.enabled) {
+        let (a, b) = c.range(n);
+        let (ta, tb) = (at(a).t, at(b).t);
+        let span = s.iter().filter(|q| q.t >= ta - 1e-9 && q.t <= tb + 1e-9);
+        for q in span {
+            let ok = match c.kind {
+                ConstraintKind::StopPoint => q.vx.hypot(q.vy) <= VEL_TOL && q.omega.abs() <= VEL_TOL * 3.0,
+                ConstraintKind::MaxVelocity { mps } => q.vx.hypot(q.vy) <= mps * LIMIT_TOL,
+                ConstraintKind::MaxAcceleration { mps2 } => q.ax.hypot(q.ay) <= mps2 * LIMIT_TOL,
+                ConstraintKind::MaxAngularVelocity { dps } => q.omega.abs() <= dps.to_radians() * LIMIT_TOL,
+                ConstraintKind::PointAt { x, y, tolerance_deg, flip } => {
+                    let (dx, dy) = (x - q.x, y - q.y);
+                    let sign = if flip { -1.0 } else { 1.0 };
+                    let dist = dx.hypot(dy);
+                    dist < 1e-3 || sign * (q.heading.cos() * dx + q.heading.sin() * dy) >= cos_tol(tolerance_deg) * dist - 1e-3
+                }
+                _ => true,
+            };
+            if !ok {
+                return Err(format!("breaks a {} constraint at t = {:.3}", constraint_name(&c.kind), q.t));
+            }
         }
     }
     let floor = MIN_LOAD_FRACTION * robot.mass_kg * GRAVITY / sw.modules.len() as f64;
@@ -438,4 +555,18 @@ pub fn check_physics(robot: &RobotConfig, spec: &PathSpec, env: &Environment, t:
         }
     }
     Ok(())
+}
+
+fn constraint_name(k: &ConstraintKind) -> &'static str {
+    match k {
+        ConstraintKind::StopPoint => "stop point",
+        ConstraintKind::MaxVelocity { .. } => "max velocity",
+        ConstraintKind::MaxAcceleration { .. } => "max acceleration",
+        ConstraintKind::MaxAngularVelocity { .. } => "max angular velocity",
+        ConstraintKind::PointAt { .. } => "point-at",
+        ConstraintKind::KeepInCircle { .. } => "keep-in circle",
+        ConstraintKind::KeepInRectangle { .. } => "keep-in rectangle",
+        ConstraintKind::KeepInLane { .. } => "keep-in lane",
+        ConstraintKind::KeepOutCircle { .. } => "keep-out circle",
+    }
 }

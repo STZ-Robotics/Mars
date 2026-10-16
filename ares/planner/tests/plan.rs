@@ -1,6 +1,6 @@
 //! Stage 2 against the physics it claims to respect.
 
-use ares_core::path::{PathConstraints, Waypoint};
+use ares_core::path::Waypoint;
 use ares_core::{PathSpec, RobotConfig, Trajectory};
 use ares_planner::{plan, Environment, FieldSize, KeepOutCircle, Planned, PlannerOptions};
 
@@ -9,11 +9,11 @@ fn robot() -> RobotConfig {
 }
 
 fn wp(x: f64, y: f64, h: Option<f64>) -> Waypoint {
-    Waypoint { x, y, heading_deg: h }
+    Waypoint { x, y, heading_deg: h, ..Default::default() }
 }
 
 fn spec(w: Vec<Waypoint>) -> PathSpec {
-    PathSpec { name: "test".into(), waypoints: w, constraints: PathConstraints::default() }
+    PathSpec::new("test", w)
 }
 
 fn run(robot: &RobotConfig, s: &PathSpec, env: &Environment) -> Planned {
@@ -147,4 +147,124 @@ fn load_transfer_off_an_axis_converges() {
             assert_physical(&r, &p.trajectory);
         }
     }
+}
+
+fn scoped(from: usize, to: Option<usize>, kind: ares_core::path::ConstraintKind) -> ares_core::path::ScopedConstraint {
+    use ares_core::path::Target;
+    ares_core::path::ScopedConstraint { from: Target::Index(from), to: to.map(Target::Index), enabled: true, kind }
+}
+
+#[test]
+fn a_keep_out_across_the_straight_line_is_skirted_not_looped() {
+    // The editor's case that used to come back as a 25 s lap of the field.
+    let mut r = robot();
+    r.cog_height_m = Some(0.35);
+    let env = Environment {
+        field: Some(FieldSize { length_m: 16.535, width_m: 8.069 }),
+        keep_out: vec![
+            KeepOutCircle { x: 4.707, y: 4.008, radius_m: 0.916 },
+            KeepOutCircle { x: 8.264, y: 6.515, radius_m: 0.951 },
+        ],
+    };
+    let s = spec(vec![wp(2.449, 6.846, Some(0.0)), wp(15.108, 6.181, None)]);
+    let p = run(&r, &s, &env);
+    assert!(p.trajectory.duration_s < 4.0, "{}", p.trajectory.duration_s);
+    assert_physical(&r, &p.trajectory);
+}
+
+#[test]
+fn empty_waypoints_shape_but_do_not_pin() {
+    use ares_core::path::WaypointKind;
+    let r = robot();
+    let mut w = vec![wp(1.0, 1.0, Some(0.0)), wp(3.0, 3.0, None), wp(5.0, 1.0, Some(0.0))];
+    w[1].kind = Some(WaypointKind::Empty);
+    let p = run(&r, &spec(w), &Environment::default());
+    let closest = p.trajectory.samples.iter().map(|q| (q.x - 3.0).hypot(q.y - 3.0)).fold(f64::MAX, f64::min);
+    assert!(closest > 0.05, "it went through the empty waypoint as if it were a pin ({closest})");
+    assert_physical(&r, &p.trajectory);
+}
+
+#[test]
+fn an_intermediate_stop_point_stops() {
+    use ares_core::path::ConstraintKind;
+    let r = robot();
+    let mut s = spec(vec![wp(1.0, 1.0, Some(0.0)), wp(4.0, 2.0, None), wp(7.0, 1.0, Some(0.0))]);
+    s.scoped.push(scoped(1, None, ConstraintKind::StopPoint));
+    let p = run(&r, &s, &Environment::default());
+    let t1 = p.trajectory.waypoint_times[1];
+    let q = p.trajectory.samples.iter().min_by(|a, b| (a.t - t1).abs().total_cmp(&(b.t - t1).abs())).unwrap();
+    assert!(q.vx.hypot(q.vy) < 1e-3, "{}", q.vx.hypot(q.vy));
+}
+
+#[test]
+fn scoped_speed_and_acceleration_caps_hold_only_where_scoped() {
+    use ares_core::path::ConstraintKind;
+    let r = robot();
+    let mut s = spec(vec![wp(0.0, 0.0, Some(0.0)), wp(4.0, 0.0, None), wp(8.0, 0.0, Some(0.0))]);
+    s.scoped.push(scoped(1, Some(2), ConstraintKind::MaxVelocity { mps: 2.0 }));
+    s.scoped.push(scoped(0, Some(1), ConstraintKind::MaxAcceleration { mps2: 3.0 }));
+    let p = run(&r, &s, &Environment::default());
+    let (t1, _) = (p.trajectory.waypoint_times[1], 0);
+    for q in &p.trajectory.samples {
+        if q.t >= t1 {
+            assert!(q.vx.hypot(q.vy) <= 2.0 * 1.01);
+        } else {
+            assert!(q.ax.hypot(q.ay) <= 3.0 * 1.01);
+        }
+    }
+}
+
+#[test]
+fn point_at_keeps_the_front_on_the_target() {
+    use ares_core::path::ConstraintKind;
+    let r = robot();
+    let mut s = spec(vec![wp(1.0, 1.0, None), wp(6.0, 1.0, None)]);
+    s.scoped.push(scoped(0, Some(1), ConstraintKind::PointAt { x: 3.5, y: 4.0, tolerance_deg: 5.0, flip: false }));
+    let p = run(&r, &s, &Environment::default());
+    for q in &p.trajectory.samples {
+        let want = (4.0 - q.y).atan2(3.5 - q.x);
+        let err = ares_core::geometry::wrap_angle(q.heading - want).abs().to_degrees();
+        assert!(err <= 5.5, "{err:.1}° off at t = {:.2}", q.t);
+    }
+}
+
+#[test]
+fn a_lane_keeps_the_center_near_the_line() {
+    use ares_core::path::ConstraintKind;
+    let r = robot();
+    let mut s = spec(vec![wp(1.0, 1.0, Some(0.0)), wp(4.0, 3.0, None), wp(7.0, 1.0, Some(90.0))]);
+    s.scoped.push(scoped(0, Some(1), ConstraintKind::KeepInLane { tolerance_m: 0.1 }));
+    let p = run(&r, &s, &Environment::default());
+    let t1 = p.trajectory.waypoint_times[1];
+    for q in p.trajectory.samples.iter().filter(|q| q.t <= t1) {
+        // Distance to the line (1,1)-(4,3).
+        let (dx, dy) = (3.0, 2.0);
+        let off = ((q.x - 1.0) * dy - (q.y - 1.0) * dx).abs() / (dx * dx + dy * dy as f64).sqrt();
+        assert!(off <= 0.1 + 1e-3, "{off}");
+    }
+}
+
+#[test]
+fn events_and_splits_land_on_the_trajectory() {
+    use ares_core::path::{EventMarker, Target};
+    let r = robot();
+    let mut w = vec![wp(1.0, 1.0, Some(0.0)), wp(4.0, 2.0, None), wp(7.0, 1.0, Some(0.0))];
+    w[1].split = true;
+    let mut s = spec(w);
+    s.events.push(EventMarker { name: "intake".into(), target: Target::Index(1), offset_s: -0.2 });
+    let p = run(&r, &s, &Environment::default());
+    let t = &p.trajectory;
+    assert_eq!(t.waypoint_times.len(), 3);
+    assert_eq!(t.splits.len(), 1);
+    assert!((t.samples[t.splits[0]].t - t.waypoint_times[1]).abs() < 1e-9);
+    assert_eq!(t.events.len(), 1);
+    assert!((t.events[0].t - (t.waypoint_times[1] - 0.2)).abs() < 1e-9);
+}
+
+#[test]
+fn an_empty_end_is_refused() {
+    use ares_core::path::WaypointKind;
+    let mut w = vec![wp(1.0, 1.0, Some(0.0)), wp(4.0, 2.0, None)];
+    w[1].kind = Some(WaypointKind::Empty);
+    assert!(plan(&robot(), &spec(w), &Environment::default(), &PlannerOptions::default()).is_err());
 }

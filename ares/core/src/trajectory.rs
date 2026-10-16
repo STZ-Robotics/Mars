@@ -50,6 +50,22 @@ pub struct Trajectory {
     pub robot: String,
     pub duration_s: f64,
     pub samples: Vec<Sample>,
+    /// When the robot passes each of the user's waypoints.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub waypoint_times: Vec<f64>,
+    /// Sample indices where the trajectory is split (at split waypoints).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub splits: Vec<usize>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub events: Vec<TimedEvent>,
+}
+
+/// An event marker resolved to a time on the trajectory.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TimedEvent {
+    pub name: String,
+    pub t: f64,
 }
 
 impl Trajectory {

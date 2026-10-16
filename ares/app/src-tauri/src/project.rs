@@ -217,7 +217,7 @@ pub async fn path_plan(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ares_core::path::{PathConstraints, Waypoint};
+    use ares_core::path::Waypoint;
 
     fn temp_project(tag: &str) -> String {
         let dir = std::env::temp_dir().join(format!("ares-project-test-{tag}-{}", std::process::id()));
@@ -227,14 +227,10 @@ mod tests {
     }
 
     fn spec(name: &str) -> PathSpec {
-        PathSpec {
-            name: name.into(),
-            waypoints: vec![
-                Waypoint { x: 1.0, y: 1.0, heading_deg: Some(0.0) },
-                Waypoint { x: 3.0, y: 2.0, heading_deg: None },
-            ],
-            constraints: PathConstraints::default(),
-        }
+        PathSpec::new(name, vec![
+                Waypoint { x: 1.0, y: 1.0, heading_deg: Some(0.0), ..Default::default() },
+                Waypoint { x: 3.0, y: 2.0, heading_deg: None, ..Default::default() },
+            ])
     }
 
     #[test]

@@ -7,6 +7,25 @@ pub const WP_POSITION: c_int = 1;
 pub const WP_HEADING: c_int = 2;
 pub const WP_STOP: c_int = 4;
 
+pub const C_MAX_VELOCITY: c_int = 1;
+pub const C_MAX_ACCELERATION: c_int = 2;
+pub const C_MAX_OMEGA: c_int = 3;
+pub const C_POINT_AT: c_int = 4;
+pub const C_KEEP_IN_CIRCLE: c_int = 5;
+pub const C_KEEP_IN_RECT: c_int = 6;
+pub const C_KEEP_IN_LANE: c_int = 7;
+pub const C_KEEP_OUT_CIRCLE: c_int = 8;
+
+/// A constraint over samples `from..=to`; `p` as `ares_nlp.h` documents per kind.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct Constraint {
+    pub kind: c_int,
+    pub from: c_int,
+    pub to: c_int,
+    pub p: [c_double; 5],
+}
+
 #[repr(C)]
 struct RawProblem {
     mass_kg: c_double,
@@ -34,6 +53,8 @@ struct RawProblem {
     field_width_m: c_double,
     circles: c_int,
     circle_xyr: *const c_double,
+    constraints: c_int,
+    constraint: *const Constraint,
     guess: [*const c_double; 9],
     guess_dt: *const c_double,
     tolerance: c_double,
@@ -79,6 +100,7 @@ pub struct Problem<'a> {
     pub field_length_m: f64,
     pub field_width_m: f64,
     pub circle_xyr: &'a [f64],
+    pub constraints: &'a [Constraint],
     pub guess: [&'a [f64]; 9],
     pub guess_dt: &'a [f64],
     pub tolerance: f64,
@@ -139,6 +161,8 @@ pub fn solve(p: &Problem) -> Solution {
         field_width_m: p.field_width_m,
         circles: (p.circle_xyr.len() / 3) as c_int,
         circle_xyr: p.circle_xyr.as_ptr(),
+        constraints: p.constraints.len() as c_int,
+        constraint: p.constraints.as_ptr(),
         guess: p.guess.map(|g| g.as_ptr()),
         guess_dt: p.guess_dt.as_ptr(),
         tolerance: p.tolerance,

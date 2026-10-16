@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use ares_core::motor::MotorKind;
-use ares_core::path::{PathConstraints, Waypoint};
+use ares_core::path::Waypoint;
 use ares_core::robot::GRAVITY;
 use ares_core::{solve, PathSpec, RobotConfig, SolverOptions};
 use serde::Serialize;
@@ -114,14 +114,10 @@ fn robot_check(config: serde_json::Value) -> Check {
 
     let sprint = solve(
         &robot,
-        &PathSpec {
-            name: "sprint".into(),
-            waypoints: vec![
-                Waypoint { x: 0.0, y: 0.0, heading_deg: Some(0.0) },
-                Waypoint { x: 5.0, y: 0.0, heading_deg: Some(0.0) },
-            ],
-            constraints: PathConstraints::default(),
-        },
+        &PathSpec::new("sprint", vec![
+                Waypoint { x: 0.0, y: 0.0, heading_deg: Some(0.0), ..Default::default() },
+                Waypoint { x: 5.0, y: 0.0, heading_deg: Some(0.0), ..Default::default() },
+            ]),
         &SolverOptions::default(),
     )
     .ok();

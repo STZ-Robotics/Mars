@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::AresError;
 use crate::geometry::{wrap_angle, Vec2};
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Waypoint {
     /// Field coordinates, meters, WPILib's frame (origin at the blue corner).
@@ -33,6 +33,133 @@ pub struct Waypoint {
     /// between the neighbours that do say.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub heading_deg: Option<f64>,
+    /// What the waypoint pins down. Files without it read as Pose when they
+    /// have a heading and Translation when they do not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<WaypointKind>,
+    /// Samples from here to the next waypoint, overriding the automatic count.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub intervals: Option<u32>,
+    /// The trajectory is split here: the robot code can run the parts
+    /// separately (and do something in between).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub split: bool,
+}
+
+/// Choreo's three waypoint types.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum WaypointKind {
+    /// Position and heading.
+    Pose,
+    /// Position only; the optimizer picks the heading.
+    Translation,
+    /// Neither: it only shapes the initial guess (around an obstacle, say),
+    /// and scoped constraints can still target it. Not allowed at the ends.
+    Empty,
+}
+
+impl Waypoint {
+    pub fn kind(&self) -> WaypointKind {
+        match self.kind {
+            Some(WaypointKind::Pose) if self.heading_deg.is_none() => WaypointKind::Translation,
+            Some(k) => k,
+            None if self.heading_deg.is_some() => WaypointKind::Pose,
+            None => WaypointKind::Translation,
+        }
+    }
+
+    /// The heading the optimizer must hit, if any.
+    pub fn fixed_heading_deg(&self) -> Option<f64> {
+        (self.kind() == WaypointKind::Pose).then_some(self.heading_deg).flatten()
+    }
+}
+
+/// Which waypoint a constraint or an event points at. `First` and `Last`
+/// follow the ends as waypoints are added; an index is a specific one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Target {
+    First,
+    Last,
+    Index(usize),
+}
+
+impl Target {
+    pub fn resolve(self, waypoints: usize) -> usize {
+        match self {
+            Target::First => 0,
+            Target::Last => waypoints.saturating_sub(1),
+            Target::Index(i) => i.min(waypoints.saturating_sub(1)),
+        }
+    }
+}
+
+/// A constraint on part of the path: at one waypoint (`to` empty) or over
+/// the segments from `from` to `to`, both ends included. Choreo's set.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScopedConstraint {
+    pub from: Target,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<Target>,
+    #[serde(default = "yes", skip_serializing_if = "Clone::clone")]
+    pub enabled: bool,
+    #[serde(flatten)]
+    pub kind: ConstraintKind,
+}
+
+fn yes() -> bool {
+    true
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ConstraintKind {
+    /// At rest: no linear or angular velocity. Waypoint scope only.
+    StopPoint,
+    MaxVelocity { mps: f64 },
+    MaxAcceleration { mps2: f64 },
+    MaxAngularVelocity { dps: f64 },
+    /// The front (or the back, `flip`) faces a field point, within a tolerance.
+    PointAt { x: f64, y: f64, tolerance_deg: f64, #[serde(default)] flip: bool },
+    /// Every bumper corner inside a circle.
+    KeepInCircle { x: f64, y: f64, radius_m: f64 },
+    /// Every bumper corner inside an axis-aligned rectangle (x, y is its
+    /// bottom-left corner).
+    KeepInRectangle { x: f64, y: f64, width_m: f64, height_m: f64 },
+    /// The center within a distance of the line between the scope's ends.
+    KeepInLane { tolerance_m: f64 },
+    /// The bumper clear of a circle, on this part of the path only.
+    KeepOutCircle { x: f64, y: f64, radius_m: f64 },
+}
+
+impl ScopedConstraint {
+    /// The waypoint range it covers, resolved and ordered.
+    pub fn range(&self, waypoints: usize) -> (usize, usize) {
+        let a = self.from.resolve(waypoints);
+        let b = self.to.map_or(a, |t| t.resolve(waypoints));
+        (a.min(b), a.max(b))
+    }
+}
+
+/// Something to do at a moment of the path: a time offset from a waypoint.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventMarker {
+    pub name: String,
+    pub target: Target,
+    /// Seconds after (positive) or before (negative) the waypoint.
+    #[serde(default)]
+    pub offset_s: f64,
+}
+
+/// Files from before scoped constraints stopped at both ends implicitly.
+pub fn default_scoped() -> Vec<ScopedConstraint> {
+    vec![
+        ScopedConstraint { from: Target::First, to: None, enabled: true, kind: ConstraintKind::StopPoint },
+        ScopedConstraint { from: Target::Last, to: None, enabled: true, kind: ConstraintKind::StopPoint },
+    ]
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -50,8 +177,21 @@ pub struct PathConstraints {
 pub struct PathSpec {
     pub name: String,
     pub waypoints: Vec<Waypoint>,
+    /// Caps on the whole path.
     #[serde(default)]
     pub constraints: PathConstraints,
+    /// Constraints on part of it.
+    #[serde(default = "default_scoped")]
+    pub scoped: Vec<ScopedConstraint>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub events: Vec<EventMarker>,
+}
+
+impl PathSpec {
+    /// A path with the given waypoints, stopping at both ends.
+    pub fn new(name: impl Into<String>, waypoints: Vec<Waypoint>) -> Self {
+        PathSpec { name: name.into(), waypoints, constraints: PathConstraints::default(), scoped: default_scoped(), events: vec![] }
+    }
 }
 
 /// One sample of the geometric path. Derivatives are with respect to the
@@ -109,7 +249,7 @@ impl PathSpec {
     /// the short way round.
     fn resolved_headings(&self) -> Vec<f64> {
         let w = &self.waypoints;
-        let given: Vec<Option<f64>> = w.iter().map(|p| p.heading_deg.map(f64::to_radians)).collect();
+        let given: Vec<Option<f64>> = w.iter().map(|p| p.fixed_heading_deg().map(f64::to_radians)).collect();
         let Some(first) = given.iter().position(Option::is_some) else {
             return vec![0.0; w.len()];
         };
@@ -284,11 +424,11 @@ mod tests {
     use super::*;
 
     fn wp(x: f64, y: f64, h: Option<f64>) -> Waypoint {
-        Waypoint { x, y, heading_deg: h }
+        Waypoint { x, y, heading_deg: h, ..Default::default() }
     }
 
     fn spec(w: Vec<Waypoint>) -> PathSpec {
-        PathSpec { name: "t".into(), waypoints: w, constraints: PathConstraints::default() }
+        PathSpec::new("t", w)
     }
 
     #[test]

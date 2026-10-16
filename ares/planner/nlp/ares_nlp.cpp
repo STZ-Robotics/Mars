@@ -23,6 +23,7 @@
 #include "ares_nlp.h"
 
 #include <chrono>
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -169,7 +170,10 @@ extern "C" int ares_nlp_solve(const AresNlpProblem* p, AresNlpResult* out) {
     for (int j = 0; j < p->segments; ++j) {
       total += dt[j] * static_cast<double>(p->intervals[j]);
       problem.subject_to(dt[j] >= 1e-4);
-      problem.subject_to(dt[j] <= 0.5);
+      // A ceiling relative to the guess: with few samples spread over a long
+      // time, the constraints (checked only at samples) stop meaning much,
+      // and the solver can wander into a slow, looping local optimum.
+      problem.subject_to(dt[j] <= std::fmax(4.0 * p->guess_dt[j], 0.02));
     }
     problem.minimize(total);
 
@@ -288,6 +292,80 @@ extern "C" int ares_nlp_solve(const AresNlpProblem* p, AresNlpResult* out) {
               Var dx = cx - ox, dy = cy - oy;
               problem.subject_to(dx * dx + dy * dy >= rr * rr);
             }
+          }
+        }
+      }
+    }
+
+    // Scoped constraints.
+    {
+      const double hl = 0.5 * p->bumper_length_m, hw = 0.5 * p->bumper_width_m;
+      auto corner = [&](int k, double bx, double by) {
+        return V2{x[k] + c[k] * bx - s[k] * by, y[k] + s[k] * bx + c[k] * by};
+      };
+      const double corners[4][2] = {{hl, hw}, {hl, -hw}, {-hl, hw}, {-hl, -hw}};
+      for (int ci = 0; ci < p->constraints; ++ci) {
+        const AresNlpConstraint& q = p->constraint[ci];
+        const int from = std::max(0, std::min(q.from, samples - 1));
+        const int to = std::max(from, std::min(q.to, samples - 1));
+        for (int k = from; k <= to; ++k) {
+          switch (q.kind) {
+            case ARES_C_MAX_VELOCITY:
+              problem.subject_to(vx[k] * vx[k] + vy[k] * vy[k] <= q.p[0] * q.p[0]);
+              break;
+            case ARES_C_MAX_ACCELERATION:
+              problem.subject_to(ax[k] * ax[k] + ay[k] * ay[k] <= q.p[0] * q.p[0]);
+              break;
+            case ARES_C_MAX_OMEGA:
+              problem.subject_to(w[k] * w[k] <= q.p[0] * q.p[0]);
+              break;
+            case ARES_C_POINT_AT: {
+              // facing · (target − position) >= cos(tol)·|target − position|
+              const double sign = q.p[3] > 0.5 ? -1.0 : 1.0;
+              Var dx = q.p[0] - x[k], dy = q.p[1] - y[k];
+              Var dist = slp::sqrt(dx * dx + dy * dy + 1e-6);
+              problem.subject_to(sign * (c[k] * dx + s[k] * dy) >= std::cos(q.p[2]) * dist);
+              break;
+            }
+            case ARES_C_KEEP_IN_CIRCLE:
+              for (auto& b : corners) {
+                V2 cc = corner(k, b[0], b[1]);
+                Var dx = cc.x - q.p[0], dy = cc.y - q.p[1];
+                problem.subject_to(dx * dx + dy * dy <= q.p[2] * q.p[2]);
+              }
+              break;
+            case ARES_C_KEEP_IN_RECT:
+              for (auto& b : corners) {
+                V2 cc = corner(k, b[0], b[1]);
+                problem.subject_to(cc.x >= q.p[0]);
+                problem.subject_to(cc.x <= q.p[0] + q.p[2]);
+                problem.subject_to(cc.y >= q.p[1]);
+                problem.subject_to(cc.y <= q.p[1] + q.p[3]);
+              }
+              break;
+            case ARES_C_KEEP_IN_LANE: {
+              const double lx = q.p[2] - q.p[0], ly = q.p[3] - q.p[1];
+              const double len = std::hypot(lx, ly);
+              if (len < 1e-9) break;
+              const double nx = -ly / len, ny = lx / len;
+              Var off = (x[k] - q.p[0]) * nx + (y[k] - q.p[1]) * ny;
+              problem.subject_to(off * off <= q.p[4] * q.p[4]);
+              break;
+            }
+            case ARES_C_KEEP_OUT_CIRCLE: {
+              const double qr = 0.25 * std::hypot(p->bumper_length_m, p->bumper_width_m);
+              const double rr = q.p[2] + qr;
+              for (double sx : {-0.5, 0.5}) {
+                for (double sy : {-0.5, 0.5}) {
+                  V2 cc = corner(k, sx * hl, sy * hw);
+                  Var dx = cc.x - q.p[0], dy = cc.y - q.p[1];
+                  problem.subject_to(dx * dx + dy * dy >= rr * rr);
+                }
+              }
+              break;
+            }
+            default:
+              break;
           }
         }
       }

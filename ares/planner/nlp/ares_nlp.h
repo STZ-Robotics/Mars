@@ -22,6 +22,25 @@ enum {
   ARES_WP_STOP = 4,     /* at rest: v = 0, omega = 0 */
 };
 
+/* A constraint over samples [from, to] (both included). */
+enum {
+  ARES_C_MAX_VELOCITY = 1,     /* p0 = m/s */
+  ARES_C_MAX_ACCELERATION = 2, /* p0 = m/s² */
+  ARES_C_MAX_OMEGA = 3,        /* p0 = rad/s */
+  ARES_C_POINT_AT = 4,         /* p0, p1 = target; p2 = tolerance rad; p3 = 1 to face away */
+  ARES_C_KEEP_IN_CIRCLE = 5,   /* p0, p1 = center; p2 = radius */
+  ARES_C_KEEP_IN_RECT = 6,     /* p0, p1 = bottom-left; p2, p3 = width, height */
+  ARES_C_KEEP_IN_LANE = 7,     /* p0, p1 -> p2, p3 = the line; p4 = tolerance */
+  ARES_C_KEEP_OUT_CIRCLE = 8,  /* p0, p1 = center; p2 = radius */
+};
+
+typedef struct {
+  int kind;
+  int from;
+  int to;
+  double p[5];
+} AresNlpConstraint;
+
 typedef struct {
   /* Robot */
   double mass_kg;
@@ -63,6 +82,10 @@ typedef struct {
   /* Keep-out circles: 3 * circles (x, y, radius). */
   int circles;
   const double* circle_xyr;
+
+  /* Scoped constraints. */
+  int constraints;
+  const AresNlpConstraint* constraint;
 
   /* Warm start, one value per sample (dt: one per segment). */
   const double* guess_x;
