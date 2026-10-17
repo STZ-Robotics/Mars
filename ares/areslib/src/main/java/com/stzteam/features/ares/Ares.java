@@ -5,6 +5,7 @@ import com.stzteam.features.ares.index.AresIndex.Step;
 import com.stzteam.features.ares.trajectory.AresTrajectory;
 import com.stzteam.features.ares.trajectory.FieldSymmetry;
 import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.wpilibj.Alert;
 import edu.wpi.first.wpilibj.Alert.AlertType;
 import edu.wpi.first.wpilibj.DriverStation;
@@ -348,7 +349,7 @@ public final class Ares {
     loadAlert.set(true);
   }
 
-  private void warnMissing(String what) {
+  void warnMissing(String what) {
     if (!missing.add(what)) return;
     DriverStation.reportWarning("Ares: " + what, false);
     missingAlert.setText("Ares: " + String.join("; ", missing));
@@ -442,6 +443,59 @@ public final class Ares {
   /** A path, driven whole, taking its branches when their conditions hold. */
   public Command path(String name) {
     return new FollowPath(this, name, UnaryOperator.identity(), -1, true);
+  }
+
+  // --- Going somewhere by itself ------------------------------------------
+
+  /**
+   * Drives to {@code goal} by itself (PathPlanner's pathfindToPose): around
+   * the project's navgrid when it has one, straight otherwise, with the
+   * pathfinding limits of the Config. The pose is in blue's coordinates, as
+   * the paths are drawn, and is flipped on red. For teleop (a button that
+   * lines up at the amp) or a step in code.
+   */
+  public Command pathfindTo(Pose2d goal) {
+    return pathfindTo(() -> goal, config.pathfindConstraints);
+  }
+
+  /** The same, to a pose decided when it starts, with its own limits. */
+  public Command pathfindTo(Supplier<Pose2d> goal, AresPathfinder.Constraints constraints) {
+    return Commands.defer(() -> {
+      var g = goal.get();
+      if (config.flip.getAsBoolean()) g = config.symmetry.flip(g, config.fieldLengthM, config.fieldWidthM);
+      return pathfinder.toPose(g, new ChassisSpeeds(), constraints);
+    }, Set.of(drive.subsystem())).withName("Ares: to a pose");
+  }
+
+  /**
+   * Drives by itself to where a path starts, then follows the path
+   * (PathPlanner's pathfindThenFollowPath): for a path that is not driven
+   * from where the robot already is.
+   */
+  public Command pathfindThenFollow(String path) {
+    var start = trajectory(path).initial().pose();
+    return Commands.sequence(pathfindTo(start), path(path)).withName("Ares: to " + path + ", then " + path);
+  }
+
+  /**
+   * A routine built with triggers in code, as Choreo's AutoRoutine: its
+   * paths say when they are running, when they end, when they reach a time,
+   * a marker or a pose, and the commands are bound to that.
+   *
+   * <pre>{@code
+   * var r = ares.routine("Two piece");
+   * var main = r.path("Main");
+   * var alt = r.path("Alt");
+   * r.active().onTrue(main.resetOdometry().andThen(main.cmd()));
+   * main.atTime("intake").onTrue(intake.deploy());
+   * main.done().onTrue(alt.cmd());
+   * alt.atPose(new Pose2d(5, 2, Rotation2d.kZero), 0.3).onTrue(shooter.spinUp());
+   * alt.done().onTrue(shoot());
+   * chooser.addOption("Two piece", r.cmd());
+   * }</pre>
+   */
+  public AresRoutine routine(String name) {
+    return new AresRoutine(this, name);
   }
 
   /** One of a path's variants. */

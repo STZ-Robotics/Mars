@@ -121,6 +121,36 @@ modules take it.
 Also: `ares.path("Hub run")`, `ares.path("Hub run", "wide")` (a variant),
 `ares.section("Hub run", "intake")`, `ares.split("Hub run", 1)`.
 
+## Going somewhere by itself
+
+PathPlanner's `pathfindToPose` and `pathfindThenFollowPath`: around the
+project's navgrid when it has one, straight otherwise. Poses are in blue's
+coordinates, as the paths are drawn, and flip on red.
+
+```java
+driver.a().whileTrue(ares.pathfindTo(new Pose2d(1.8, 7.6, Rotation2d.fromDegrees(-90)))); // line up at the amp
+ares.pathfindThenFollow("Score");   // to where Score starts, then Score
+```
+
+## Autos with triggers, in code
+
+Choreo's AutoRoutine: instead of the Autos tab's list of steps, the paths say
+when they run, end, reach a time, a marker or a pose, and commands are bound
+to that. The triggers are polled only while the routine's command runs.
+
+```java
+var r = ares.routine("Two piece");
+var main = r.path("Main");
+var alt = r.path("Alt");
+r.active().onTrue(main.resetOdometry().andThen(main.cmd()));
+main.atTime("intake").onTrue(intake.deploy());     // a marker drawn in Paths
+main.atTime(1.2).onTrue(shooter.spinUp());         // seconds into the path
+main.done().onTrue(alt.cmd());                     // ended, not cut short
+alt.atPose(new Pose2d(5, 2, Rotation2d.kZero), 0.3).onTrue(arm.raise());
+alt.done().onTrue(shoot());
+chooser.addOption("Two piece", r.cmd());
+```
+
 ## Characterization, with no logs and no SysId
 
 ```java
