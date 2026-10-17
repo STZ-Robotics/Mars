@@ -44,12 +44,14 @@ const React = await import("react")
 const ReactDOM = await import("react-dom/client")
 await import("@tabler/icons-webfont/dist/tabler-icons.min.css")
 await import("@desktop/styles/global.css")
+if (!new URLSearchParams(location.search).has("nocss")) await import("../src/styles/ares.css")
 const { default: AutosPage } = await import("../src/autos/AutosPage")
 const { ToastProvider } = await import("../src/ui/toasts")
 const { VariablesProvider } = await import("../src/vars/context")
-ReactDOM.createRoot(document.getElementById("root")!).render(
+const strict = (el: React.ReactElement) => (new URLSearchParams(location.search).has("strict") ? React.createElement(React.StrictMode, null, el) : el)
+ReactDOM.createRoot(document.getElementById("root")!).render(strict(
   React.createElement(ToastProvider, null, React.createElement(VariablesProvider as never, { robotPath: "/x/bot.robot.json" } as never,
-    React.createElement(AutosPage, { robot: robot as never, robotPath: "/x/bot.robot.json" }))),
+    React.createElement(AutosPage, { robot: robot as never, robotPath: "/x/bot.robot.json" })))),
 )
 // Seek to 3.2 s and pick the deadline group's card.
 const seek = () => {

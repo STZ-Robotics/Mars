@@ -421,6 +421,8 @@ pub struct PathStatus {
     generated: bool,
     /// Generated from something else than what is there now.
     outdated: bool,
+    /// Absent (not null) without a trajectory: the app reads it as optional.
+    #[serde(skip_serializing_if = "Option::is_none")]
     duration_s: Option<f64>,
 }
 

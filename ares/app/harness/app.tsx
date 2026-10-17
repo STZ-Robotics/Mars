@@ -31,7 +31,7 @@ const React = await import("react")
 const ReactDOM = await import("react-dom/client")
 await import("@tabler/icons-webfont/dist/tabler-icons.min.css")
 await import("@desktop/styles/global.css")
-await import("../src/styles/ares.css")
+if (!new URLSearchParams(location.search).has("nocss")) await import("../src/styles/ares.css")
 const { default: App } = await import("../src/App")
 ReactDOM.createRoot(document.getElementById("root")!).render(React.createElement(App))
 if (new URLSearchParams(location.search).get("menu")) {

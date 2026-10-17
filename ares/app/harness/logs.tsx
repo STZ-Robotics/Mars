@@ -40,6 +40,7 @@ const React = await import("react")
 const ReactDOM = await import("react-dom/client")
 await import("@tabler/icons-webfont/dist/tabler-icons.min.css")
 await import("@desktop/styles/global.css")
+await import("../src/styles/ares.css")
 const { default: LogsPage } = await import("../src/logs/LogsPage")
 const { ToastProvider } = await import("../src/ui/toasts")
 ReactDOM.createRoot(document.getElementById("root")!).render(

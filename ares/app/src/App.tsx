@@ -17,6 +17,7 @@ import { VariablesProvider } from "./vars/context"
 import { useProjectSync } from "./vars/sync"
 import { ToastProvider } from "./ui/toasts"
 import SwerveIcon from "./ui/SwerveIcon"
+import PageBoundary from "./ui/PageBoundary"
 
 type Page = "robot" | "paths" | "autos" | "live" | "logs" | "tune" | "characterize" | "field" | "variables"
 
@@ -147,6 +148,7 @@ export default function App() {
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
         <Rail page={page} onSelect={setPage} />
         <div key={page} className="ares-page" style={{ flex: 1, display: "flex", minWidth: 0, minHeight: 0 }}>
+        <PageBoundary key={page} name={PAGES.find(q => q.id === page)?.label ?? page}>
           {page === "robot" && <RobotSettingsPage robot={robot} onChange={setRobot} robotPath={robotPath} />}
           {page === "paths" && <PathsPage robot={robot} robotPath={robotPath} onSaveRobot={fileSave} />}
           {page === "autos" && <AutosPage robot={robot} robotPath={robotPath} />}
@@ -156,6 +158,7 @@ export default function App() {
           {page === "characterize" && <CharacterizePage robot={robot} robotPath={robotPath} onRobot={setRobot} />}
           {page === "field" && <FieldPage robot={robot} robotPath={robotPath} />}
           {page === "variables" && <VariablesPage robot={robot} robotPath={robotPath} onRobot={setRobot} />}
+        </PageBoundary>
         </div>
       </div>
       <StatusBar robot={robot.name} dirty={dirty} status={status} robotPath={robotPath} />

@@ -51,6 +51,7 @@ const React = await import("react")
 const ReactDOM = await import("react-dom/client")
 await import("@tabler/icons-webfont/dist/tabler-icons.min.css")
 await import("@desktop/styles/global.css")
+await import("../src/styles/ares.css")
 const { default: TunePage } = await import("../src/tune/TunePage")
 const { ToastProvider } = await import("../src/ui/toasts")
 

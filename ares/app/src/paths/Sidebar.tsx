@@ -78,7 +78,7 @@ export default function Sidebar(p: Props) {
           {isBranch && sp!.condition && <Dim sel={active}> · if {sp!.condition}</Dim>}
           {(sp?.variants?.length ?? 0) > 0 && <Dim sel={active}> · {sp!.variants!.length} variant{sp!.variants!.length > 1 ? "s" : ""}</Dim>}
         </Label>
-        {st?.durationS !== undefined && <span style={{ fontSize: 10, opacity: 0.8, fontFamily: "Consolas, 'Cascadia Mono', monospace" }}>{st.durationS.toFixed(2)} s</span>}
+        {st?.durationS != null && <span style={{ fontSize: 10, opacity: 0.8, fontFamily: "Consolas, 'Cascadia Mono', monospace" }}>{st.durationS.toFixed(2)} s</span>}
         <span style={{ width: 8, height: 8, borderRadius: 4, background: dot, flexShrink: 0, boxShadow: active ? "0 0 0 1.5px #ffffff" : undefined }} />
       </Item>
     )
