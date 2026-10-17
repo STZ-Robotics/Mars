@@ -146,6 +146,9 @@ pub struct TimedEvent {
     /// For an event zone: when it ends.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_t: Option<f64>,
+    /// The marker's own command (see `EventMarker::command`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<serde_json::Value>,
 }
 
 impl Trajectory {

@@ -43,6 +43,28 @@
       "target": "first",
       "offsetS": 0.1,
       "durationS": 0.5
+    },
+    {
+      "name": "load",
+      "target": "last",
+      "offsetS": -0.97,
+      "command": {
+        "type": "sequential",
+        "steps": [
+          {
+            "type": "command",
+            "name": "feed"
+          },
+          {
+            "type": "wait",
+            "seconds": 0.2
+          },
+          {
+            "type": "command",
+            "name": "kick"
+          }
+        ]
+      }
     }
   ]
 }

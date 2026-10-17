@@ -224,57 +224,81 @@ function groupSpan(type: GroupType, mins: number[], maxs: number[]): [number, nu
 }
 
 /** One way through an auto, for drawing and playback. */
-export interface Leg { kind: "path" | "wait" | "command"; label: string; start: number; end: number; path?: string; depth: number }
+export interface Leg {
+  kind: "path" | "wait" | "command" | "event"
+  label: string
+  start: number
+  end: number
+  path?: string
+  depth: number
+  /** The card it comes from (its address, as keyOf writes it); a run auto's whole content is that card's. */
+  key: string
+}
+
+/** Each trajectory's event markers (by path key), for laying them on the timeline. */
+export type Markers = ReadonlyMap<string, { name: string; t: number; endT?: number }[]>
+
+/** The address of command `i` of list `at`, as the command tree keys its cards. */
+export function stepKey(at: StepPath, i: number): string {
+  return [...at, i].join("/")
+}
 
 /**
  * Walks the commands in time order, taking each condition's then (or else,
- * per `assume`), and lays them on a timeline.
+ * per `assume`), and lays them on a timeline, with the paths' event markers.
  */
-export function legs(steps: Step[], d: Durations, autos: ReadonlyMap<string, Auto>, assume: (condition: string) => boolean, t0 = 0, depth = 0, seen: Set<string> = new Set()): { legs: Leg[]; end: number } {
+export function legs(steps: Step[], d: Durations, autos: ReadonlyMap<string, Auto>, assume: (condition: string) => boolean, t0 = 0, depth = 0,
+  seen: Set<string> = new Set(), markers: Markers = new Map(), at: StepPath = [], owner?: string): { legs: Leg[]; end: number } {
   const out: Leg[] = []
   let t = t0
-  for (const s of steps) {
-    const r = legsOf(s, d, autos, assume, t, depth, seen)
+  steps.forEach((s, i) => {
+    const r = legsOf(s, d, autos, assume, t, depth, seen, markers, at, i, owner)
     out.push(...r.legs)
     t = r.end
-  }
+  })
   return { legs: out, end: t }
 }
 
-function legsOf(s: Step, d: Durations, autos: ReadonlyMap<string, Auto>, assume: (c: string) => boolean, t: number, depth: number, seen: Set<string>): { legs: Leg[]; end: number } {
+function legsOf(s: Step, d: Durations, autos: ReadonlyMap<string, Auto>, assume: (c: string) => boolean, t: number, depth: number, seen: Set<string>,
+  markers: Markers, at: StepPath, i: number, owner?: string): { legs: Leg[]; end: number } {
+  const key = owner ?? stepKey(at, i)
+  const inner = (list: Step[], k: ListKey, from: number) => legs(list, d, autos, assume, from, depth + 1, seen, markers, [...at, i, k], owner)
   switch (s.type) {
     case "path": {
       const len = d.get(pathKey(s)) ?? 0
-      return { legs: [{ kind: "path", label: pathKey(s), start: t, end: t + len, path: pathKey(s), depth }], end: t + len }
+      const events: Leg[] = (markers.get(pathKey(s)) ?? []).map(e => ({
+        kind: "event", label: e.name, start: t + e.t, end: t + (e.endT ?? e.t), path: pathKey(s), depth, key,
+      }))
+      return { legs: [{ kind: "path", label: pathKey(s), start: t, end: t + len, path: pathKey(s), depth, key }, ...events], end: t + len }
     }
     case "wait":
-      return { legs: [{ kind: "wait", label: `wait ${s.seconds} s`, start: t, end: t + s.seconds, depth }], end: t + s.seconds }
+      return { legs: [{ kind: "wait", label: `wait ${s.seconds} s`, start: t, end: t + s.seconds, depth, key }], end: t + s.seconds }
     case "command": {
       const len = s.alongside ? 0 : s.estimateS ?? 0
-      return { legs: [{ kind: "command", label: s.name, start: t, end: t + len, depth }], end: t + len }
+      return { legs: [{ kind: "command", label: s.name, start: t, end: t + len, depth, key }], end: t + len }
     }
     case "sequential":
-      return legs(s.steps, d, autos, assume, t, depth + 1, seen)
+      return inner(s.steps, "steps", t)
     case "parallel": case "deadline": case "race": {
       if (!s.steps.length) return { legs: [], end: t }
-      const rs = s.steps.map(c => legsOf(c, d, autos, assume, t, depth + 1, seen))
+      const rs = s.steps.map((c, j) => legsOf(c, d, autos, assume, t, depth + 1, seen, markers, [...at, i, "steps"], j, owner))
       const ends = rs.map(r => r.end)
       const end = s.type === "deadline" ? ends[0] : s.type === "race" ? Math.min(...ends) : Math.max(...ends)
       // What a race or a deadline cuts short is drawn cut short.
-      const out = rs.flatMap(r => r.legs.filter(l => l.start < end - 1e-9 || l.end === l.start).map(l => ({ ...l, end: Math.min(l.end, end) })))
+      const out = rs.flatMap(r => r.legs.filter(l => l.start < end - 1e-9 || (l.end === l.start && l.start <= end + 1e-9)).map(l => ({ ...l, end: Math.min(l.end, end) })))
       return { legs: out, end }
     }
     case "if":
-      return legs(assume(s.condition) ? s.then : s.else, d, autos, assume, t, depth + 1, seen)
+      return assume(s.condition) ? inner(s.then, "then", t) : inner(s.else, "else", t)
     case "when": {
       // Laid where it would fire if it fired as soon as it can (or at its time).
-      const at = s.trigger.kind === "time" ? Math.max(t, s.trigger.atS) : t
-      return { legs: legs(s.steps, d, autos, assume, at, depth + 1, seen).legs, end: t }
+      const from = s.trigger.kind === "time" ? Math.max(t, s.trigger.atS) : t
+      return { legs: inner(s.steps, "steps", from).legs, end: t }
     }
     case "auto": {
-      const inner = autos.get(s.auto)
-      if (!inner || seen.has(s.auto)) return { legs: [], end: t }
-      return legs(inner.steps, d, autos, assume, t, depth + 1, new Set([...seen, s.auto]))
+      const a = autos.get(s.auto)
+      if (!a || seen.has(s.auto)) return { legs: [], end: t }
+      return legs(a.steps, d, autos, assume, t, depth + 1, new Set([...seen, s.auto]), markers, [], key)
     }
   }
 }

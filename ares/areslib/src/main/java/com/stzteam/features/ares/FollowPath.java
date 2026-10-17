@@ -10,6 +10,7 @@ import edu.wpi.first.wpilibj2.command.Command;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -79,6 +80,7 @@ public final class FollowPath extends Command {
   private int nextSpan;
   private int nextBranch;
   private int nextEvent;
+  private final Map<AresIndex.Step, Command> built = new IdentityHashMap<>();
   private Command inner;
   private double innerEndT;
   private final Map<Command, Double> running = new LinkedHashMap<>(); // command -> when it ends (NaN: by itself)
@@ -98,9 +100,12 @@ public final class FollowPath extends Command {
     addRequirements(ares.drive().subsystem());
     // The event commands run inside this one, so it holds what they need,
     // along this path and any branch it may take.
-    for (var name : ares.eventsReachable(key, branches)) {
-      var c = ares.eventCommand(name);
-      if (c != null) addRequirements(c.getRequirements());
+    for (var e : ares.eventsReachable(key, branches)) {
+      var c = ares.eventCommand(e);
+      if (c == null) continue;
+      // A marker's own command is built once, here, and run every time.
+      if (e.command() != null) built.put(e.command(), c);
+      addRequirements(c.getRequirements());
     }
     setName("Ares: " + key);
   }
@@ -267,7 +272,7 @@ public final class FollowPath extends Command {
       var e = list.get(nextEvent++);
       ares.activeEvents().add(e.name());
       if (!e.isZone()) pulse.add(e.name());
-      var c = ares.eventCommand(e.name());
+      var c = e.command() != null ? built.get(e.command()) : ares.eventCommand(e.name());
       if (c == null) continue;
       // Whatever it shares a subsystem with gives way, as when scheduling.
       for (var other : new ArrayList<>(running.keySet())) {

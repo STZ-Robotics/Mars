@@ -143,6 +143,14 @@ public final class AresIndex {
     return new AresIndex(folder, n.path("robot").path("name").asText(""), List.copyOf(modules), paths, autos);
   }
 
+  /** One step (an event marker's command); null for a kind this version does not know. */
+  public static Step step(JsonNode s) {
+    var arr = new com.fasterxml.jackson.databind.node.ArrayNode(com.fasterxml.jackson.databind.node.JsonNodeFactory.instance);
+    arr.add(s);
+    var list = steps(arr);
+    return list.isEmpty() ? null : list.get(0);
+  }
+
   private static List<Step> steps(JsonNode list) {
     var out = new ArrayList<Step>();
     for (var s : list) {

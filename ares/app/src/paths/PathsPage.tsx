@@ -4,6 +4,7 @@ import PropertyRow from "@desktop/components/common/PropertyRow"
 import { propertyInputStyle } from "@desktop/styles/pageForm"
 import { FIELDS } from "@desktop/utils/field/fieldImages"
 import type { RobotConfig } from "../robot/types"
+import { useRobotNames } from "../autos/robotNames"
 import { renderTopView, TopView } from "../robot/topView"
 import { bindField } from "../vars/bind"
 import { useVariables } from "../vars/context"
@@ -58,6 +59,7 @@ export default function PathsPage({ robot, robotPath, onSaveRobot }: Props) {
 }
 
 function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) {
+  const { names: robotNames } = useRobotNames(robotPath)
   const field = FIELDS[0]
   const fieldSize = { lengthM: field.sizeMeters[0], widthM: field.sizeMeters[1] }
 
@@ -755,6 +757,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
           </div>
         </div>
         <Sidebar
+          robotNames={robotNames}
           entries={entries}
           activeName={current?.savedName ?? null}
           unsavedName={current && current.savedName === null ? current.spec.name : null}
@@ -1019,6 +1022,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
           )}
           {spec && selected && (
             <ConfigPanel
+              robotNames={robotNames}
               spec={spec}
               selected={selected}
               keepOut={fieldDoc.keepOut}

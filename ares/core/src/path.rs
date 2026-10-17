@@ -237,13 +237,18 @@ pub struct EventMarker {
     /// zoned events), from start to end.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duration_s: Option<f64>,
+    /// The command it runs, built in Ares as an auto's step is (a named
+    /// command, a wait, a group...), as PathPlanner's markers carry one.
+    /// None: the robot code's command with the marker's name, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub exprs: Exprs,
 }
 
 impl Default for EventMarker {
     fn default() -> Self {
-        EventMarker { name: String::new(), target: Target::First, offset_s: 0.0, duration_s: None, exprs: Exprs::new() }
+        EventMarker { name: String::new(), target: Target::First, offset_s: 0.0, duration_s: None, command: None, exprs: Exprs::new() }
     }
 }
 

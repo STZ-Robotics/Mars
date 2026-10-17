@@ -415,6 +415,16 @@ public final class Ares {
   }
 
   /**
+   * What an event marker runs: the command built on it in Ares, fresh, or
+   * the one registered under its name (null when there is neither).
+   */
+  Command eventCommand(AresTrajectory.Event e) {
+    if (e.command() == null) return commands.get(e.name());
+    return build(List.of(e.command()), new ArrayList<>(List.of("event " + e.name())), new double[] {Timer.getFPGATimestamp()})
+        .withName(e.name());
+  }
+
+  /**
    * True while a path is inside the event's zone, or for one loop when it
    * passes a marker that happens once. For reacting to markers with triggers
    * instead of (or besides) registering a command under their name.
@@ -481,16 +491,16 @@ public final class Ares {
     return index.path(name).map(AresIndex.PathEntry::branches).orElse(List.of());
   }
 
-  /** Every event name the path may pass, branches included. */
-  Set<String> eventsReachable(String key, boolean withBranches) {
-    var out = new LinkedHashSet<String>();
+  /** Every event marker the path may pass, branches included. */
+  List<AresTrajectory.Event> eventsReachable(String key, boolean withBranches) {
+    var out = new ArrayList<AresTrajectory.Event>();
     var seen = new HashSet<String>();
     var todo = new ArrayList<String>(List.of(key));
     while (!todo.isEmpty()) {
       var k = todo.remove(todo.size() - 1);
       if (!seen.add(k)) continue;
       var t = blue.get(k);
-      if (t != null) t.events().forEach(e -> out.add(e.name()));
+      if (t != null) out.addAll(t.events());
       if (withBranches) branches(k).forEach(b -> todo.add(b.path()));
     }
     return out;

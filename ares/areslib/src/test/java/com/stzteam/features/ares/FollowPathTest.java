@@ -212,6 +212,35 @@ class FollowPathTest {
   }
 
   @Test
+  void aMarkerRunsTheCommandBuiltOnIt() throws Exception {
+    // Main's "load" marker, at 1.0 s, carries its own command: feed, wait
+    // 0.2 s, kick. Nothing is registered as "load".
+    var feedAt = new ArrayList<Double>();
+    var kickAt = new ArrayList<Double>();
+    var clock = new double[1];
+    ares.registerCommand("feed", Commands.runOnce(() -> feedAt.add(clock[0])));
+    ares.registerCommand("kick", Commands.runOnce(() -> kickAt.add(clock[0])));
+    var fired = new AtomicInteger();
+    ares.event("load").onTrue(Commands.runOnce(fired::incrementAndGet));
+
+    drive.pose = TrajectoryTest.main().initial().pose();
+    var c = ares.path("Main");
+    CommandScheduler.getInstance().schedule(c);
+    for (double t = 0; t < 4 && CommandScheduler.getInstance().isScheduled(c); t += 0.02) {
+      clock[0] = t;
+      CommandScheduler.getInstance().run();
+      SimHooks.stepTiming(0.02);
+      drive.step(0.02);
+    }
+    assertEquals(1, feedAt.size());
+    assertEquals(1, kickAt.size());
+    assertEquals(1.0, feedAt.get(0), 0.05);
+    assertEquals(0.2, kickAt.get(0) - feedAt.get(0), 0.05);
+    // The trigger fires too, as for any marker.
+    assertEquals(1, fired.get());
+  }
+
+  @Test
   void takesTheBranchWhenItsConditionHolds() throws Exception {
     var alt = ares.trajectory("Alt");
     ares.registerCondition("goAlt", () -> true);

@@ -346,7 +346,7 @@ fn plan_path(
                     waypoint_times[a + k] = wt + offset;
                 }
                 splits.extend(t.splits.iter().map(|&k| k + start));
-                events.extend(t.events.iter().map(|e| TimedEvent { name: e.name.clone(), t: e.t + offset, end_t: e.end_t.map(|x| x + offset) }));
+                events.extend(t.events.iter().map(|e| TimedEvent { name: e.name.clone(), t: e.t + offset, end_t: e.end_t.map(|x| x + offset), command: e.command.clone() }));
                 spline += p.spline_duration_s;
                 iterations += p.iterations;
             }
@@ -931,7 +931,7 @@ fn plan_fixed(
         .iter()
         .map(|e| {
             let start = (waypoint_times[e.target.resolve(spec.waypoints.len())] + e.offset_s).clamp(0.0, t);
-            TimedEvent { name: e.name.clone(), t: start, end_t: e.duration_s.map(|d| (start + d.max(0.0)).min(t)) }
+            TimedEvent { name: e.name.clone(), t: start, end_t: e.duration_s.map(|d| (start + d.max(0.0)).min(t)), command: e.command.clone() }
         })
         .collect();
 

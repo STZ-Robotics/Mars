@@ -1,4 +1,6 @@
 import { ReactNode, useState } from "react"
+import type { RobotNames } from "../autos/CommandTree"
+import { markerLink } from "../autos/robotNames"
 import { GLYPH, StopIcon, WaypointIcon, positionColor } from "./glyphs"
 import { linkedPose } from "../vars/variables"
 import {
@@ -25,6 +27,8 @@ interface Props {
   onToggleConstraint: (i: number) => void
   onDeleteConstraint: (i: number) => void
   onDeleteEvent: (i: number) => void
+  /** The robot code's names, for marking the event markers that do nothing on the robot. */
+  robotNames?: RobotNames | null
   onDeleteRotation: (i: number) => void
   /** Per path: generated and up to date. */
   status: Record<string, PathStatus>
@@ -211,6 +215,7 @@ export default function Sidebar(p: Props) {
                 <Item key={i} active={sel} onClick={() => p.onSelect({ kind: "event", index: i })} onMouseEnter={() => p.onHover({ kind: "event", index: i })}>
                   <i className="ti ti-map-pin-bolt" style={{ fontSize: 14, color: sel ? "#ffffff" : "#a1690a" }} />
                   <Label>{e.name}{e.durationS ? <Dim sel={sel}> · {e.durationS} s zone</Dim> : null}</Label>
+                  <MarkerBadge link={markerLink(e, p.robotNames ?? null).kind} sel={sel} />
                   <span style={{ fontSize: 10, opacity: 0.85 }}>{targetLabel(e.target)} {e.offsetS >= 0 ? "+" : ""}{e.offsetS.toFixed(2)} s</span>
                   <RowButton title="Delete event" onClick={() => p.onDeleteEvent(i)}>
                     <i className="ti ti-trash" style={{ fontSize: 13, opacity: 0.75 }} />
@@ -356,4 +361,14 @@ export function IconButton({ icon, title, onClick, disabled }: { icon: string; t
       <i className={`ti ${icon}`} style={{ fontSize: 15 }} />
     </button>
   )
+}
+
+/** What a marker does on the robot, at a glance. */
+function MarkerBadge({ link, sel }: { link: ReturnType<typeof markerLink>["kind"]; sel: boolean }) {
+  if (link === "unknown") return null
+  const [icon, color, title] = link === "built" ? ["ti-terminal-2", "#e95420", "Runs the command built on it"]
+    : link === "command" ? ["ti-link", "#16a34a", "Runs the robot code's command with its name"]
+    : link === "trigger" ? ["ti-bolt", "#16a34a", "Fires an ares.event trigger in the robot code"]
+    : ["ti-alert-triangle", "#d97706", "Nothing in the robot code has this name: it does nothing on the robot"]
+  return <i className={`ti ${icon}`} title={title} style={{ fontSize: 13, color: sel ? "#ffffff" : color }} />
 }

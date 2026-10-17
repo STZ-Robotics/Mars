@@ -21,7 +21,22 @@ interface Props {
   /** The robot code's names when it was found: what is not in it is flagged. */
   names: RobotNames | null
   onHoverPath: (key: string | null) => void
+  /** What can be added (all by default): an event marker's command takes no paths. */
+  allow?: Step["type"][]
+  /** The root list's header (the auto's, by default). */
+  rootLabel?: string
+  rootHint?: string
+  /** When each card runs in the preview (by card key), its warnings, and which run at the playhead. */
+  timing?: ReadonlyMap<string, { start: number; end: number }>
+  warnings?: ReadonlyMap<string, string[]>
+  active?: ReadonlySet<string>
+  /** The card picked with a click, for the keyboard (copy, paste, delete). */
+  selected?: string | null
+  onSelect?: (key: string | null) => void
 }
+
+/** What a path or a command dragged in from outside the tree carries. */
+export const STEP_MIME = "application/x-ares-step"
 
 const GROUP_LABEL: Record<GroupType, string> = {
   sequential: "Sequential Group", parallel: "Parallel Group", deadline: "Deadline Group", race: "Race Group",
@@ -56,8 +71,15 @@ export default function CommandTree(p: Props) {
     ...p, drag, setDrag, over, setOver, editList, keyOf,
     collapsed: k => collapsed.has(k),
     toggle: k => setCollapsed(s => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n }),
-    drop: (at, index) => {
+    drop: (at, index, e) => {
       if (drag) p.onChange(moveStep(root, drag.from, drag.index, at, index))
+      else {
+        // From the lists beside the tree: a path or a robot command.
+        try {
+          const s = JSON.parse(e.dataTransfer.getData(STEP_MIME)) as Step
+          if (s && typeof s.type === "string") p.onChange(updateList(root, at, l => [...l.slice(0, index), s, ...l.slice(index)]))
+        } catch { /* not a step */ }
+      }
       setDrag(null)
       setOver(null)
     },
@@ -68,8 +90,8 @@ export default function CommandTree(p: Props) {
     <div style={{ padding: "6px 8px 10px" }} onDragEnd={() => { setDrag(null); setOver(null) }}>
       <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 2px 6px" }}>
         <i className="ti ti-list-numbers" style={{ color: COLOR.sequential, fontSize: 15 }} />
-        <span style={{ fontSize: 12.5, fontWeight: 600 }}>Sequential Group</span>
-        <span style={{ fontSize: 10.5, color: "var(--text-muted)" }}>the auto, top to bottom</span>
+        <span style={{ fontSize: 12.5, fontWeight: 600 }}>{p.rootLabel ?? "Sequential Group"}</span>
+        <span style={{ fontSize: 10.5, color: "var(--text-muted)" }}>{p.rootHint ?? "the auto, top to bottom"}</span>
         <span style={{ marginLeft: "auto", fontSize: 10.5, fontFamily: "Consolas, 'Cascadia Mono', monospace", color: "var(--text-muted)" }}>{fmt(total.min, total.max)}</span>
         <AddMenu ctx={ctx} onPick={s => editList([], l => [...l, s])} big />
       </div>
@@ -87,7 +109,7 @@ interface Ctx extends Props {
   keyOf: (at: StepPath, i: number) => string
   collapsed: (k: string) => boolean
   toggle: (k: string) => void
-  drop: (at: StepPath, index: number) => void
+  drop: (at: StepPath, index: number, e: React.DragEvent) => void
 }
 
 function ListView({ ctx, list, at, deadlineFirst }: { ctx: Ctx; list: Step[]; at: StepPath; deadlineFirst?: boolean }) {
@@ -116,12 +138,12 @@ function DropZone({ ctx, at, index, empty, children }: { ctx: Ctx; at: StepPath;
   const active = ctx.over === k
   return (
     <div
-      onDragOver={e => { if (ctx.drag) { e.preventDefault(); if (ctx.over !== k) ctx.setOver(k) } }}
+      onDragOver={e => { if (ctx.drag || e.dataTransfer.types.includes(STEP_MIME)) { e.preventDefault(); if (ctx.over !== k) ctx.setOver(k) } }}
       onDragLeave={() => { if (ctx.over === k) ctx.setOver(null) }}
-      onDrop={e => { e.preventDefault(); ctx.drop(at, index) }}
+      onDrop={e => { e.preventDefault(); ctx.drop(at, index, e) }}
       style={empty
         ? { padding: "8px 10px", border: `1px dashed ${active ? "#e95420" : "var(--border-main)"}`, borderRadius: 4, margin: "3px 0", background: active ? "rgba(233,84,32,0.08)" : "transparent" }
-        : { height: ctx.drag ? 8 : 4, margin: "0 2px", borderRadius: 2, background: active ? "#e95420" : "transparent", transition: "height 80ms" }}>
+        : { height: ctx.drag || active ? 8 : 4, margin: "0 2px", borderRadius: 2, background: active ? "#e95420" : "transparent", transition: "height 80ms" }}>
       {children}
     </div>
   )
@@ -138,17 +160,28 @@ function Card({ ctx, s, at, i, badge }: { ctx: Ctx; s: Step; at: StepPath; i: nu
   const open = !ctx.collapsed(k)
   const autoMap = new Map(ctx.autos.map(a => [a.name, a]))
   const time = duration([s], ctx.durations, autoMap)
+  const when = ctx.timing?.get(k)
+  const warns = ctx.warnings?.get(k) ?? []
+  const running = ctx.active?.has(k) ?? false
+  const picked = ctx.selected === k
 
   return (
     <div
       onMouseEnter={() => s.type === "path" && ctx.onHoverPath(pathKey(s))}
       onMouseLeave={() => s.type === "path" && ctx.onHoverPath(null)}
       style={{
-        border: "1px solid var(--border-main)", borderLeft: `3px solid ${color}`, borderRadius: 4,
-        background: s.type === "path" ? "rgba(47,111,219,0.06)" : "var(--bg-page)", opacity: dragging ? 0.4 : 1,
-        boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+        borderTop: `1px solid ${picked ? "#2f6fdb" : "var(--border-main)"}`, borderRight: `1px solid ${picked ? "#2f6fdb" : "var(--border-main)"}`,
+        borderBottom: `1px solid ${picked ? "#2f6fdb" : "var(--border-main)"}`, borderLeft: `3px solid ${color}`, borderRadius: 4,
+        background: running ? "rgba(34,211,238,0.14)" : s.type === "path" ? "rgba(47,111,219,0.06)" : "var(--bg-page)", opacity: dragging ? 0.4 : 1,
+        boxShadow: picked ? "0 0 0 1px #2f6fdb" : running ? "0 0 0 2px rgba(14,116,144,0.55)" : "0 1px 2px rgba(0,0,0,0.05)",
+        transition: "background 120ms",
       }}>
       <div
+        onClick={e => {
+          // Not when editing a field in it.
+          const tag = (e.target as HTMLElement).tagName
+          if (tag !== "INPUT" && tag !== "SELECT" && tag !== "BUTTON" && tag !== "I") ctx.onSelect?.(picked ? null : k)
+        }}
         draggable
         onDragStart={e => { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", k); ctx.setDrag({ from: at, index: i }) }}
         style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 4px 5px 4px", minHeight: 30 }}>
@@ -164,11 +197,22 @@ function Card({ ctx, s, at, i, badge }: { ctx: Ctx; s: Step; at: StepPath; i: nu
           <Content ctx={ctx} s={s} set={set} />
           {badge && <span title="This one sets when the group ends" style={{ fontSize: 9.5, fontWeight: 700, color: "#0e7490", border: "1px solid #0e7490", borderRadius: 8, padding: "0 6px" }}>DEADLINE</span>}
         </div>
-        {nested && s.type !== "if" && <span style={{ fontSize: 10, fontFamily: "Consolas, 'Cascadia Mono', monospace", color: "var(--text-muted)" }}>{s.type === "when" ? "alongside" : fmt(time.min, time.max)}</span>}
+        {warns.length > 0 && <i className="ti ti-alert-triangle" title={warns.join("\n")} style={{ color: "#d97706", fontSize: 14 }} />}
+        {when ? (
+          <span title={`Runs from ${when.start.toFixed(2)} s to ${when.end.toFixed(2)} s after the auto starts (this preview's conditions)`}
+            style={{ fontSize: 10, fontFamily: "Consolas, 'Cascadia Mono', monospace", color: running ? "#0e7490" : "var(--text-muted)", fontWeight: running ? 700 : 400, whiteSpace: "nowrap" }}>
+            {when.start.toFixed(1)}→{when.end.toFixed(1)} s
+          </span>
+        ) : nested && s.type !== "if" && <span style={{ fontSize: 10, fontFamily: "Consolas, 'Cascadia Mono', monospace", color: "var(--text-muted)" }}>{s.type === "when" ? "alongside" : fmt(time.min, time.max)}</span>}
         {(isGroup(s) || s.type === "when") && <AddMenu ctx={ctx} onPick={c => set({ ...s, steps: [...s.steps, c] } as Step)} />}
         <IconBtn icon="ti-copy" title="Duplicate" onClick={dup} />
         <IconBtn icon="ti-trash" title="Remove" onClick={del} danger />
       </div>
+      {warns.length > 0 && (
+        <div style={{ padding: "0 8px 5px 30px", fontSize: 10.5, color: "#b45309", lineHeight: 1.4 }}>
+          {warns.map((w, j) => <div key={j}>{w}</div>)}
+        </div>
+      )}
       {nested && open && (
         <div style={{ padding: "0 6px 6px 22px" }}>
           {s.type === "if" ? (
@@ -312,7 +356,11 @@ function AddMenu({ ctx, onPick, big }: { ctx: Ctx; onPick: (s: Step) => void; bi
   const pick = (s: Step) => { onPick(s); setOpen(false) }
   const firstCommand = ctx.names?.commands[0] ?? "command"
   const firstCondition = ctx.names?.conditions[0] ?? "hasNote"
-  const item = (icon: string, color: string, label: string, hint: string, s: () => Step | null) => (
+  const item = (icon: string, color: string, label: string, hint: string, s: () => Step | null) => {
+    // The kind is the one this icon stands for.
+    const kind = Object.keys(ICON).find(k => ICON[k] === icon) as Step["type"]
+    if (ctx.allow && !ctx.allow.includes(kind)) return null
+    return (
     <div onClick={() => { const v = s(); if (v) pick(v) }}
       style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 12px", cursor: "pointer", fontSize: 12 }}
       onMouseEnter={e => (e.currentTarget.style.background = "var(--tree-hover-bg)")}
@@ -321,7 +369,8 @@ function AddMenu({ ctx, onPick, big }: { ctx: Ctx; onPick: (s: Step) => void; bi
       <span style={{ flex: 1 }}>{label}</span>
       <span style={{ fontSize: 10, color: "var(--text-muted)" }}>{hint}</span>
     </div>
-  )
+    )
+  }
   const sep = (label: string) => <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 1, color: "var(--text-header-eyebrow)", padding: "6px 12px 2px", textTransform: "uppercase" }}>{label}</div>
   return (
     <span ref={host} style={{ position: "relative" }}>

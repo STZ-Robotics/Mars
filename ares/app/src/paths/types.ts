@@ -1,6 +1,7 @@
 // What the path editor exchanges with the backend. Mirrors ares-core's
 // PathSpec and Trajectory and the app's FieldDoc (serde, camelCase).
 import type { NavGrid } from "../field/navgrid"
+import type { Step } from "../autos/types"
 
 export type WaypointKind = "pose" | "translation" | "empty" | "unknown" | "continue"
 
@@ -64,7 +65,13 @@ export type ConstraintType = ConstraintKind["type"]
 
 export type ScopedConstraint = ConstraintKind & { from: Target; to?: Target; enabled?: boolean; exprs?: Exprs }
 
-export interface EventMarker { name: string; target: Target; offsetS: number; durationS?: number; exprs?: Exprs }
+/**
+ * Something to do at a moment of the path. `command` is the command it runs,
+ * built here as an auto's steps are (PathPlanner's markers carry one); without
+ * it, the robot code's command with the marker's name runs. Either way,
+ * ares.event(name) is true while it lasts.
+ */
+export interface EventMarker { name: string; target: Target; offsetS: number; durationS?: number; command?: Step; exprs?: Exprs }
 
 export interface PathConstraints { maxVelocityMps?: number; maxAngularVelocityDps?: number; exprs?: Exprs }
 
@@ -133,7 +140,7 @@ export interface Trajectory {
   samples: Sample[]
   waypointTimes?: number[]
   splits?: number[]
-  events?: { name: string; t: number; endT?: number }[]
+  events?: { name: string; t: number; endT?: number; command?: Step }[]
   pathfind?: PathfindSpan[]
   start?: "known" | "unknown" | "previous"
   continuesFrom?: string

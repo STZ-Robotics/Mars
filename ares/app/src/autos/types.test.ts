@@ -115,3 +115,29 @@ describe("moving commands", () => {
     expect(moveStep(tree, [], 1, [1, "steps"], 0)).toBe(tree)
   })
 })
+
+describe("the timeline's legs", () => {
+  const d = new Map([["A", 2], ["B", 3]])
+  it("know their card and carry the paths' event markers", () => {
+    const steps: Step[] = [
+      { type: "path", path: "A" },
+      { type: "deadline", steps: [{ type: "path", path: "B" }, { type: "command", name: "spin" }] },
+    ]
+    const markers = new Map([["A", [{ name: "intake", t: 0.5, endT: 1.5 }]], ["B", [{ name: "late", t: 2.9 }, { name: "never", t: 3.5 }]]])
+    const r = legs(steps, d, new Map(), () => true, 0, 0, new Set(), markers)
+    const byLabel = Object.fromEntries(r.legs.map(l => [l.label, l]))
+    expect(byLabel.A.key).toBe("0")
+    expect(byLabel.B.key).toBe("1/steps/0")
+    expect(byLabel.spin.key).toBe("1/steps/1")
+    expect(byLabel.intake).toMatchObject({ kind: "event", start: 0.5, end: 1.5, key: "0" })
+    expect(byLabel.late.start).toBeCloseTo(4.9)
+    // Past the end of the path: never reached.
+    expect(byLabel.never).toBeUndefined()
+  })
+  it("give a run auto's whole content to its card", () => {
+    const inner = { name: "In", steps: [{ type: "path", path: "A" }, { type: "wait", seconds: 1 }] as Step[] }
+    const r = legs([{ type: "wait", seconds: 1 }, { type: "auto", auto: "In" }], d, new Map([["In", inner]]), () => true)
+    expect(r.legs.filter(l => l.start >= 1).every(l => l.key === "1")).toBe(true)
+    expect(r.end).toBe(4)
+  })
+})

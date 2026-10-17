@@ -253,13 +253,18 @@ fn events_and_splits_land_on_the_trajectory() {
     w[1].split = true;
     let mut s = spec(w);
     s.events.push(EventMarker { name: "intake".into(), target: Target::Index(1), offset_s: -0.2, ..Default::default() });
+    let cmd = serde_json::json!({ "type": "sequential", "steps": [{ "type": "command", "name": "deploy" }, { "type": "wait", "seconds": 0.3 }] });
+    s.events.push(EventMarker { name: "load".into(), target: Target::Index(2), offset_s: -0.5, command: Some(cmd.clone()), ..Default::default() });
     let p = run(&r, &s, &Environment::default());
     let t = &p.trajectory;
     assert_eq!(t.waypoint_times.len(), 3);
     assert_eq!(t.splits.len(), 1);
     assert!((t.samples[t.splits[0]].t - t.waypoint_times[1]).abs() < 1e-9);
-    assert_eq!(t.events.len(), 1);
+    assert_eq!(t.events.len(), 2);
     assert!((t.events[0].t - (t.waypoint_times[1] - 0.2)).abs() < 1e-9);
+    assert_eq!(t.events[0].command, None);
+    // A marker's own command goes along, for AresLib to build.
+    assert_eq!(t.events[1].command.as_ref(), Some(&cmd));
 }
 
 #[test]

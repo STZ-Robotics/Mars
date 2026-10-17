@@ -5,6 +5,9 @@ import { Q, QInput } from "../ui/controls"
 import { bindField } from "../vars/bind"
 import { linkedPose } from "../vars/variables"
 import { StopIcon, WaypointIcon, positionColor } from "./glyphs"
+import CommandTree, { RobotNames } from "../autos/CommandTree"
+import { markerLink } from "../autos/robotNames"
+import type { Step } from "../autos/types"
 import {
   EventMarker, KeepOut, PathSpec, PathfindOptions, RotationTarget, ScopedConstraint, SlowZone, SegmentMode, Selection, Target, Trajectory, Waypoint, WaypointKind,
   constraintMeta, kindOf, segmentMode,
@@ -47,6 +50,8 @@ interface Props {
   zones: SlowZone[]
   onZoneFn: (i: number, f: (z: SlowZone) => SlowZone) => void
   onRotationFn: (i: number, f: (r: RotationTarget) => RotationTarget) => void
+  /** The robot code's names, when it was found: what a marker's name links to. */
+  robotNames: RobotNames | null
 }
 
 const KINDS: { kind: WaypointKind; label: string; key: string }[] = [
@@ -245,7 +250,10 @@ export default function ConfigPanel(p: Props) {
     const fired = p.trajectory?.events?.[selected.index]
     body = (
       <>
-        <PropertyRow label="Name"><TextInput value={e.name} onCommit={name => p.onEvent(selected.index, { name })} /></PropertyRow>
+        <PropertyRow label="Name"><TextInput value={e.name} list="ares-marker-names" onCommit={name => p.onEvent(selected.index, { name })} /></PropertyRow>
+        <datalist id="ares-marker-names">
+          {[...new Set([...(p.robotNames?.commands ?? []), ...(p.robotNames?.events ?? [])])].sort().map(c => <option key={c} value={c} />)}
+        </datalist>
         <PropertyRow label="From waypoint"><TargetSelect value={e.target} n={n} onChange={t => t && p.onEvent(selected.index, { target: t })} /></PropertyRow>
         <Q label="Offset" dim="plain" unit="s" hint="Negative fires before the waypoint" {...bindField(e, "offsetS", f => p.onEventFn(selected.index, f))} />
         <Q label="Duration" dim="plain" unit="s" optional hint="Empty: a moment. A duration makes it a zone (PathPlanner's zoned events): from the start to start + duration."
@@ -255,6 +263,10 @@ export default function ConfigPanel(p: Props) {
             <span style={{ fontFamily: "Consolas, 'Cascadia Mono', monospace", fontSize: 11 }}>{fired.t.toFixed(3)} s</span>
           </PropertyRow>
         )}
+        <MarkerCommand marker={e} names={p.robotNames} onChange={command => p.onEventFn(selected.index, m => {
+          const { command: _, ...rest } = m
+          return command ? { ...rest, command } : rest
+        })} />
       </>
     )
   } else if (selected.kind === "zone") {
@@ -420,12 +432,12 @@ export function TargetSelect({ value, n, onChange, allowNone }: { value: Target 
 }
 
 /** Commits on Enter or blur, like the quantity inputs. */
-export function TextInput({ value, onCommit }: { value: string; onCommit: (v: string) => void }) {
+export function TextInput({ value, onCommit, list }: { value: string; onCommit: (v: string) => void; list?: string }) {
   const [text, setText] = useState(value)
   useEffect(() => setText(value), [value])
   const commit = () => { const v = text.trim(); if (v && v !== value) onCommit(v); else setText(value) }
   return (
-    <input style={propertyInputStyle} value={text} onChange={e => setText(e.target.value)} onBlur={commit}
+    <input style={propertyInputStyle} list={list} value={text} onChange={e => setText(e.target.value)} onBlur={commit}
       onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur() }} />
   )
 }
@@ -438,5 +450,54 @@ function SmallButton({ icon, title, onClick }: { icon: string; title: string; on
       onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
       <i className={`ti ${icon}`} style={{ fontSize: 14 }} />
     </button>
+  )
+}
+
+/**
+ * What the marker does on the robot: the robot code's command with its name,
+ * or a command built here (PathPlanner's way), and whether the robot code has
+ * anything by that name at all.
+ */
+function MarkerCommand({ marker, names, onChange }: { marker: { name: string; command?: Step }; names: RobotNames | null; onChange: (c: Step | undefined) => void }) {
+  const link = markerLink(marker, names)
+  const steps = marker.command ? (marker.command.type === "sequential" ? marker.command.steps : [marker.command]) : []
+  const status: Record<typeof link.kind, [string, string, string]> = {
+    built: ["ti-circle-check", "#16a34a", `Runs the command below. ares.event("${marker.name}") is true while it lasts.`],
+    command: ["ti-circle-check", "#16a34a", `Runs "${marker.name}", registered in the robot code.`],
+    trigger: ["ti-circle-check", "#16a34a", `Fires ares.event("${marker.name}") in the robot code.`],
+    nothing: ["ti-alert-triangle", "#b45309", `Nothing in the robot code is called "${marker.name}": on the robot this marker does nothing. Register a command with that name, react to ares.event("${marker.name}"), or build its command here.`],
+    unknown: ["ti-help-circle", "var(--text-muted)", "The robot code was not found (Autos → Robot code), so the name is not checked."],
+  }
+  const [icon, color, text] = status[link.kind]
+  const tab = (on: boolean, label: string, onClick: () => void) => (
+    <button onClick={onClick}
+      style={{ flex: 1, height: 24, fontSize: 11, cursor: "pointer", border: "1px solid var(--btn-classic-border)", fontWeight: on ? 700 : 400,
+        background: on ? "var(--toolbar-active-bg)" : "var(--btn-classic-bg)", color: on ? "var(--text-primary)" : "var(--text-secondary)" }}>
+      {label}
+    </button>
+  )
+  return (
+    <div style={{ padding: "8px 10px 4px", borderTop: "1px solid var(--border-light)", marginTop: 6 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", color: "var(--text-header-eyebrow)", marginBottom: 6 }}>On the robot</div>
+      <div style={{ display: "flex", gap: 0, marginBottom: 6 }}>
+        {tab(!marker.command, "By its name", () => onChange(undefined))}
+        {tab(!!marker.command, "Build a command", () => !marker.command && onChange({ type: "sequential", steps: names?.commands.includes(marker.name) ? [{ type: "command", name: marker.name }] : [] }))}
+      </div>
+      <div style={{ display: "flex", gap: 6, fontSize: 11, lineHeight: 1.45, color: link.kind === "nothing" ? color : "var(--text-secondary)" }}>
+        <i className={`ti ${icon}`} style={{ color, marginTop: 2 }} />
+        <span>{text}</span>
+      </div>
+      {marker.command && (
+        <div style={{ margin: "4px -8px 0" }}>
+          <CommandTree steps={steps} onChange={s => onChange({ type: "sequential", steps: s })}
+            paths={[]} autos={[]} durations={new Map()} status={{}} names={names} onHoverPath={() => {}}
+            allow={["command", "wait", "sequential", "parallel", "deadline", "race", "if"]}
+            rootLabel="Runs" rootHint={marker.command && steps.length ? "top to bottom" : "add what it does"} />
+          {marker.command && !steps.length && <div style={{ fontSize: 10.5, color: "#b45309", padding: "0 10px" }}>Empty: the marker does nothing yet.</div>}
+          <datalist id="ares-commands">{(names?.commands ?? []).map(c => <option key={c} value={c} />)}</datalist>
+          <datalist id="ares-conditions">{(names?.conditions ?? []).map(c => <option key={c} value={c} />)}</datalist>
+        </div>
+      )}
+    </div>
   )
 }

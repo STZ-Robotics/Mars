@@ -1,5 +1,7 @@
 package com.stzteam.features.ares.trajectory;
 
+import com.stzteam.features.ares.index.AresIndex;
+
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import edu.wpi.first.math.geometry.Pose2d;
@@ -24,8 +26,17 @@ public final class AresTrajectory {
     PREVIOUS
   }
 
-  /** An event marker resolved to a time; {@code endT} is NaN for one that happens once. */
-  public record Event(String name, double t, double endT) {
+  /**
+   * An event marker resolved to a time; {@code endT} is NaN for one that
+   * happens once. {@code command} is the command built on the marker in Ares
+   * (as PathPlanner's markers carry one), or null: then the command registered
+   * under its name runs, if any.
+   */
+  public record Event(String name, double t, double endT, AresIndex.Step command) {
+    public Event(String name, double t, double endT) {
+      this(name, t, endT, null);
+    }
+
     public boolean isZone() {
       return !Double.isNaN(endT);
     }
@@ -127,7 +138,8 @@ public final class AresTrajectory {
     for (var e : n.path("events")) {
       events.add(new Event(
           e.path("name").asText(), e.path("t").asDouble(),
-          e.hasNonNull("endT") ? e.path("endT").asDouble() : Double.NaN));
+          e.hasNonNull("endT") ? e.path("endT").asDouble() : Double.NaN,
+          e.hasNonNull("command") ? AresIndex.step(e.path("command")) : null));
     }
     events.sort((a, b) -> Double.compare(a.t(), b.t()));
     var sections = new ArrayList<Section>();
@@ -270,7 +282,7 @@ public final class AresTrajectory {
     var cut = splits.stream().filter(s -> s > f && s < l).map(s -> s - f).toList();
     var ev = events.stream()
         .filter(e -> e.t() >= t0 && e.t() <= t1 || e.isZone() && e.t() < t0 && e.endT() > t0)
-        .map(e -> new Event(e.name(), Math.max(e.t(), t0) - t0, e.isZone() ? Math.min(e.endT(), t1) - t0 : Double.NaN))
+        .map(e -> new Event(e.name(), Math.max(e.t(), t0) - t0, e.isZone() ? Math.min(e.endT(), t1) - t0 : Double.NaN, e.command()))
         .toList();
     var sec = sections.stream()
         .filter(s -> s.endSample() > f && s.startSample() < l)

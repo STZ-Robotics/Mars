@@ -71,9 +71,12 @@ modules take it.
 - **Alliance flip** on red, decided when each path starts: `ROTATIONAL`
   (2026) by default, `MIRRORED` with `withSymmetry`. A mirror trades the
   left wheels' forces for the right ones'.
-- **Event markers** run the command registered under their name, inside the
-  path command (like PathPlanner), and a zone's command is cut when the zone
-  ends. Or react to them with `ares.event("intake").whileTrue(...)`.
+- **Event markers** run the command built on them in Ares (Paths → the
+  marker → "Build a command": named commands, waits, groups, as PathPlanner's
+  markers carry one) or, without one, the command registered under their
+  name, inside the path follower; a zone's command is cut when the zone
+  ends. Either way `ares.event("intake")` is true while it lasts, to react
+  with `.onTrue(...)` / `.whileTrue(...)`.
 - **Branches.** At the waypoint where a branch leaves, if its condition holds,
   the robot carries on along the branch, without stopping. In an auto, a path
   followed by one of its own branches is driven only up to where the branch
