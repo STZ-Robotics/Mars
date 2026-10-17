@@ -33,6 +33,17 @@ class GainsTest {
   }
 
   @Test
+  void theRecoveryComesWithTheGains() throws Exception {
+    HAL.initialize(500, 0);
+    var dir = project("{\"translation\":{\"kp\":1},\"rotation\":{\"kp\":1},\"recovery\":{\"toleranceM\":0.3,\"delayS\":0.1,\"rejoinAheadS\":0.6,\"arriveM\":0.05}}");
+    var config = new Ares.Config().withFolder(dir);
+    new Ares(new FollowPathTest.PerfectDrive(), config);
+    assertEquals(0.3, config.replanToleranceM, 1e-12);
+    assertEquals(0.6, config.rejoinAheadS, 1e-12);
+    assertEquals(0.05, config.arriveM, 1e-12);
+  }
+
+  @Test
   void theCodesOwnGainsWin() throws Exception {
     HAL.initialize(500, 0);
     var dir = project("{\"translation\":{\"kp\":0.73},\"rotation\":{\"kp\":0.61}}");

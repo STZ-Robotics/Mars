@@ -74,6 +74,69 @@ pub struct RobotCode {
     /// Feed the trajectory's wheel forces forward (AresLib). False: speeds
     /// only, what a PathPlanner robot that drops its feedforwards does.
     pub force_ff: bool,
+    /// AresLib's recovery: knocked off the trajectory, the pathfinder takes the
+    /// robot to where the trajectory will be a moment later. None: feedback only.
+    #[serde(default = "default_replan")]
+    pub replan: Option<Replan>,
+}
+
+/// AresLib's `withReplan`, and the pathfinder's limits it drives with.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Replan {
+    /// Off by more than this…
+    pub tolerance_m: f64,
+    /// …for this long, it finds its way back.
+    pub delay_s: f64,
+    /// To where the trajectory will be this much later.
+    pub rejoin_ahead_s: f64,
+    pub max_replans: u32,
+    /// A path that ends at rest, ending farther than this from its last
+    /// pose, drives there before it is done (0: it just ends).
+    #[serde(default = "default_arrive")]
+    pub arrive_m: f64,
+    pub max_velocity_mps: f64,
+    pub max_acceleration_mps2: f64,
+    pub max_omega_radps: f64,
+    pub max_alpha_radps2: f64,
+}
+
+impl Default for Replan {
+    /// AresLib's defaults.
+    fn default() -> Self {
+        Replan {
+            tolerance_m: 0.5,
+            delay_s: 0.2,
+            rejoin_ahead_s: 1.0,
+            max_replans: 3,
+            arrive_m: 0.1,
+            max_velocity_mps: 3.0,
+            max_acceleration_mps2: 3.0,
+            max_omega_radps: 2.0 * std::f64::consts::PI,
+            max_alpha_radps2: 4.0 * std::f64::consts::PI,
+        }
+    }
+}
+
+fn default_arrive() -> f64 {
+    0.1
+}
+
+fn default_replan() -> Option<Replan> {
+    Some(Replan::default())
+}
+
+/// A shove from outside: another robot's bump, or its defense. Field frame.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Push {
+    /// When, as a fraction of the trajectory's duration.
+    pub at: f64,
+    pub duration_s: f64,
+    pub fx_n: f64,
+    pub fy_n: f64,
+    /// A hit off the center turns the robot too.
+    pub torque_nm: f64,
 }
 
 impl Default for RobotCode {
@@ -89,6 +152,7 @@ impl Default for RobotCode {
             stator_limit_a: 120.0,
             supply_limit_a: 70.0,
             force_ff: true,
+            replan: Some(Replan::default()),
         }
     }
 }
@@ -144,6 +208,28 @@ pub struct World {
     /// encoders and gyro, and drifts when the wheels slip.
     pub perfect_odometry: bool,
     pub seed: u64,
+    /// Shoves during the run.
+    #[serde(default)]
+    pub pushes: Vec<Push>,
+    /// Vision (Limelight, QuestNav) pulling the odometry toward the truth:
+    /// how often, how noisy, and how much of the gap each fix closes. 0 Hz:
+    /// wheels and gyro only, and a robot shoved sideways never knows.
+    #[serde(default = "default_vision_hz")]
+    pub vision_hz: f64,
+    #[serde(default = "default_vision_noise")]
+    pub vision_noise_m: f64,
+    #[serde(default = "default_vision_gain")]
+    pub vision_gain: f64,
+}
+
+fn default_vision_hz() -> f64 {
+    10.0
+}
+fn default_vision_noise() -> f64 {
+    0.03
+}
+fn default_vision_gain() -> f64 {
+    0.2
 }
 
 impl World {
@@ -171,6 +257,10 @@ impl World {
             steer_rate_radps: 24.0,
             perfect_odometry: false,
             seed: 1,
+            pushes: vec![],
+            vision_hz: default_vision_hz(),
+            vision_noise_m: default_vision_noise(),
+            vision_gain: default_vision_gain(),
         }
     }
 }
@@ -212,6 +302,16 @@ pub struct RunResult {
     pub odometry_drift_m: f64,
     /// The lowest the battery sagged to.
     pub min_bus_v: f64,
+    /// Shoves: the farthest one put the robot off the trajectory, the
+    /// longest it took to be back within 5 cm, how often it replanned, and
+    /// how much later than planned it finished.
+    pub max_pushed_m: f64,
+    pub recovery_s: f64,
+    pub replans: u32,
+    pub overrun_s: f64,
+    /// Where each shove happened (x, y of the robot, and the force), to draw.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub push_marks: Vec<[f32; 4]>,
     /// x, y, heading every 0.1 s, when recorded.
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub track: Vec<[f32; 3]>,
@@ -351,46 +451,108 @@ pub fn simulate(robot: &RobotConfig, traj: &Trajectory, code: &RobotCode, world:
     let mut supply_filtered = 0.0f64;
 
     let end = traj.duration_s;
-    let total = end + opts.settle_s;
-    let ticks = (total / CONTROL_DT).ceil() as usize;
+    // Wall time is not the trajectory's: while the robot finds its way back
+    // after a shove, the trajectory's clock waits, and then jumps ahead.
+    let max_wall = end + opts.settle_s + 6.0;
     let (mut sum_pos2, mut sum_head2, mut samples) = (0.0, 0.0, 0usize);
     let mut out = RunResult { min_bus_v: world.battery_v, ..Default::default() };
+    let mut traj_t = 0.0f64;
+    let mut settled = 0.0f64;
+    let mut recovering: Option<Recovery> = None;
+    let mut rec_pids = [PidState::default(); 3];
+    let mut off_since: Option<f64> = None;
+    // Per shove: when it hit, and whether the robot is back yet.
+    let pushes: Vec<(f64, &Push)> = world.pushes.iter().map(|p| (p.at * end, p)).collect();
+    let mut open_push: Vec<Option<f64>> = vec![None; pushes.len()];
+    let mut tick = 0usize;
+    let mut arrived = false;
+    // Where the code believed the robot was at the last control step.
+    let mut believed = (x, y, th);
 
-    for tick in 0..=ticks {
+    loop {
         let t = tick as f64 * CONTROL_DT;
-        let r = sample(traj, t);
+        tick += 1;
+        let r = sample(traj, traj_t);
 
         // --- How it is doing (truth against the trajectory) -------------
         let pos_err = (r.x - x).hypot(r.y - y);
         let head_err = wrap_angle(r.heading - th).abs();
-        if t <= end + 1e-9 {
+        let pushed = pushes.iter().any(|(at, p)| t >= *at && t < at + p.duration_s);
+        if recovering.is_none() && traj_t <= end + 1e-9 {
             sum_pos2 += pos_err * pos_err;
             sum_head2 += head_err * head_err;
             samples += 1;
-            out.max_pos_m = out.max_pos_m.max(pos_err);
+            if pushes.is_empty() {
+                out.max_pos_m = out.max_pos_m.max(pos_err);
+            }
         }
-        if opts.record && tick % 5 == 0 {
+        // Shoves: from the hit until the robot is back within 5 cm.
+        for (k, (at, p)) in pushes.iter().enumerate() {
+            if open_push[k].is_none() && t >= *at && t < at + CONTROL_DT {
+                open_push[k] = Some(*at);
+                out.push_marks.push([x as f32, y as f32, p.fx_n as f32, p.fy_n as f32]);
+            }
+        }
+        if open_push.iter().any(|o| o.is_some()) {
+            out.max_pushed_m = out.max_pushed_m.max(pos_err);
+        }
+        for o in open_push.iter_mut() {
+            if let Some(at) = *o {
+                if t > at + 0.05 && !pushed && recovering.is_none() && pos_err < 0.05 {
+                    out.recovery_s = out.recovery_s.max(t - at);
+                    *o = Some(f64::NAN);
+                }
+            }
+        }
+        if opts.record && tick % 5 == 1 {
             out.track.push([x as f32, y as f32, th as f32]);
         }
-        if pos_err > opts.abort_m {
+        // Lost: off by more than abort_m with no recovery left, or far off
+        // whatever happens, or never finishing.
+        let can_recover = code.replan.as_ref().is_some_and(|rp| out.replans < rp.max_replans);
+        if (pos_err > opts.abort_m && !can_recover && recovering.is_none() && !pushed) || pos_err > 3.0 || t > max_wall {
             out.aborted = true;
             // Worse the earlier it went: something for a search to climb.
-            out.cost = 10.0 + 5.0 * (1.0 - (t / end.max(1e-6)).min(1.0));
+            out.cost = 10.0 + 5.0 * (1.0 - (traj_t / end.max(1e-6)).min(1.0));
             out.odometry_drift_m = (ox - x).hypot(oy - y);
             return out;
         }
-        if std::env::var("ARES_SIM_TRACE").is_ok() && tick % 5 == 0 {
-            eprintln!("t {t:.2} ref v {:.2} true v {:.2} err {pos_err:.3} bus {:.1} supply {supply_a:.0} wheel {:?} steer {:?}",
-                r.vx.hypot(r.vy), vx.hypot(vy), world.battery_v - world.battery_r_ohm * supply_filtered.max(0.0),
-                wheel.iter().map(|v| (v * 100.0).round() / 100.0).collect::<Vec<_>>(), steer.iter().map(|v| (v * 100.0).round() / 100.0).collect::<Vec<_>>());
+        // Arrival: a path that ends at rest, ending off its last pose (as the
+        // code believes), drives there before it is done.
+        if traj_t >= end && recovering.is_none() && !arrived {
+            arrived = true;
+            if let Some(rp) = code.replan.as_ref().filter(|rp| rp.arrive_m > 0.0) {
+                let last = sample(traj, end);
+                let (bx, by, bh) = believed;
+                if c_speed(&last) < 0.05 && (last.x - bx).hypot(last.y - by) > rp.arrive_m {
+                    recovering = Some(Recovery::new((bx, by, bh), &last, 0.0, end, t, rp));
+                    rec_pids = [PidState::default(); 3];
+                    out.replans += 1;
+                    settled = 0.0;
+                }
+            }
         }
-        if tick == ticks {
-            out.final_pos_m = pos_err;
-            out.final_heading_rad = head_err;
-            break;
+        if traj_t >= end && recovering.is_none() {
+            if settled >= opts.settle_s {
+                out.final_pos_m = pos_err;
+                out.final_heading_rad = head_err;
+                // Within a control step of the plan is on time.
+                out.overrun_s = (t - end - opts.settle_s - CONTROL_DT).max(0.0);
+                break;
+            }
+            settled += CONTROL_DT;
         }
 
         // --- The robot code, every 20 ms ----------------------------------
+        // A vision fix now and then pulls the odometry toward the truth.
+        if world.vision_hz > 0.0 && !world.perfect_odometry {
+            let every = (1.0 / (world.vision_hz * CONTROL_DT)).round().max(1.0) as usize;
+            if tick % every == 0 {
+                let (vxm, vym) = (x + world.vision_noise_m * rng.gauss(), y + world.vision_noise_m * rng.gauss());
+                ox += world.vision_gain.clamp(0.0, 1.0) * (vxm - ox);
+                oy += world.vision_gain.clamp(0.0, 1.0) * (vym - oy);
+            }
+        }
         let (mx, my, mth) = {
             let (px, py, ph) = if world.perfect_odometry { (x, y, th) } else { (ox, oy, th) };
             history.push_back((px, py, ph));
@@ -400,9 +562,54 @@ pub fn simulate(robot: &RobotConfig, traj: &Trajectory, code: &RobotCode, world:
             let (hx, hy, hh) = history[0];
             (hx + world.pose_noise_m * rng.gauss(), hy + world.pose_noise_m * rng.gauss(), hh + world.heading_noise_rad * rng.gauss())
         };
-        let cvx = r.vx + pids[0].calculate(&code.translation, r.x - mx);
-        let cvy = r.vy + pids[1].calculate(&code.translation, r.y - my);
-        let cw = r.omega + pids[2].calculate(&code.rotation, wrap_angle(r.heading - mth));
+        believed = (mx, my, mth);
+
+        if std::env::var("ARES_SIM_TRACE").is_ok() && tick % 3 == 1 {
+            eprintln!("t {t:.2} traj {traj_t:.2} err {pos_err:.3} believed {:.3} drift {:.3} v {:.2} wheels {:?} rec {} replans {}",
+                (r.x - mx).hypot(r.y - my), (ox - x).hypot(oy - y), vx.hypot(vy),
+                wheel.iter().map(|v| (v * 10.0).round() / 10.0).collect::<Vec<_>>(), recovering.is_some(), out.replans);
+        }
+        // FollowPath: knocked well off (by what the code believes), it hands
+        // over to the pathfinder, toward where the trajectory will be.
+        if recovering.is_none() {
+            if let Some(rp) = &code.replan {
+                let off = (r.x - mx).hypot(r.y - my);
+                if off > rp.tolerance_m && out.replans < rp.max_replans {
+                    let since = *off_since.get_or_insert(t);
+                    if t - since >= rp.delay_s && traj_t < end {
+                        let rejoin = (traj_t + rp.rejoin_ahead_s).min(end);
+                        let goal = sample(traj, rejoin);
+                        let speeds = (c_speed(&goal), goal.omega);
+                        recovering = Some(Recovery::new((mx, my, mth), &goal, speeds.0, rejoin, t, rp));
+                        rec_pids = [PidState::default(); 3];
+                        out.replans += 1;
+                        off_since = None;
+                    }
+                } else {
+                    off_since = None;
+                }
+            }
+        }
+
+        // What to drive: the trajectory, or the way back to it.
+        let (cvx, cvy, cw, fx_ff, fy_ff): (f64, f64, f64, Option<&Vec<f64>>, Option<&Vec<f64>>) = if let Some(rec) = &mut recovering {
+            let (rx, ry, rh, rvx, rvy, rw) = rec.reference(t);
+            let cvx = rvx + rec_pids[0].calculate(&code.translation, rx - mx);
+            let cvy = rvy + rec_pids[1].calculate(&code.translation, ry - my);
+            let cw = rw + rec_pids[2].calculate(&code.rotation, wrap_angle(rh - mth));
+            let done = rec.finished(t, (mx, my, mth));
+            if done {
+                traj_t = rec.rejoin;
+                recovering = None;
+            }
+            (cvx, cvy, cw, None, None)
+        } else {
+            let cvx = r.vx + pids[0].calculate(&code.translation, r.x - mx);
+            let cvy = r.vy + pids[1].calculate(&code.translation, r.y - my);
+            let cw = r.omega + pids[2].calculate(&code.rotation, wrap_angle(r.heading - mth));
+            traj_t += CONTROL_DT;
+            (cvx, cvy, cw, Some(&r.fx), Some(&r.fy))
+        };
         // ApplyFieldSpeeds, blue perspective: into the robot frame by the
         // heading the code believes.
         let (c, s) = (mth.cos(), mth.sin());
@@ -424,18 +631,20 @@ pub fn simulate(robot: &RobotConfig, traj: &Trajectory, code: &RobotCode, world:
             }
             target_angle[i] = angle;
             target_rps[i] = speed / (2.0 * std::f64::consts::PI * r_code) * gear;
-            ff_volts[i] = if code.force_ff && i < r.fx.len() {
-                // The wheel's force, into the robot frame, along the wheel.
-                let (frx, fry) = (c * r.fx[i] + s * r.fy[i], -s * r.fx[i] + c * r.fy[i]);
-                let along = frx * angle.cos() + fry * angle.sin();
-                along * r_code / gear / motors / kt_nom * res_nom
-            } else {
-                0.0
+            ff_volts[i] = match (fx_ff, fy_ff) {
+                (Some(fx), Some(fy)) if code.force_ff && i < fx.len() => {
+                    // The wheel's force, into the robot frame, along the wheel.
+                    let (frx, fry) = (c * fx[i] + s * fy[i], -s * fx[i] + c * fy[i]);
+                    let along = frx * angle.cos() + fry * angle.sin();
+                    along * r_code / gear / motors / kt_nom * res_nom
+                }
+                _ => 0.0,
             };
         }
 
         // --- The world, at 1 kHz -------------------------------------------
-        for _ in 0..STEPS_PER_CONTROL {
+        for step in 0..STEPS_PER_CONTROL {
+            let now = t + step as f64 * PHYS_DT;
             supply_filtered += (supply_a - supply_filtered) * PHYS_DT / BATTERY_TAU_S;
             let bus = (world.battery_v - world.battery_r_ohm * supply_filtered.max(0.0)).clamp(6.0, world.battery_v);
             out.min_bus_v = out.min_bus_v.min(bus);
@@ -498,6 +707,13 @@ pub fn simulate(robot: &RobotConfig, traj: &Trajectory, code: &RobotCode, world:
                 odo_vx += wheel[i] * s_angle.cos() + w * pos[i].y;
                 odo_vy += wheel[i] * s_angle.sin() - w * pos[i].x;
             }
+            for (at, p) in &pushes {
+                if now >= *at && now < at + p.duration_s {
+                    fx += p.fx_n;
+                    fy += p.fy_n;
+                    torque += p.torque_nm;
+                }
+            }
             let (ax, ay, alpha) = (fx / m, fy / m, torque / world.moi_kg_m2);
             vx += ax * PHYS_DT;
             vy += ay * PHYS_DT;
@@ -519,6 +735,130 @@ pub fn simulate(robot: &RobotConfig, traj: &Trajectory, code: &RobotCode, world:
     out.rms_pos_m = (sum_pos2 / k).sqrt();
     out.rms_heading_rad = (sum_head2 / k).sqrt();
     out.odometry_drift_m = (ox - x).hypot(oy - y);
-    out.cost = out.rms_pos_m + 0.25 * out.max_pos_m + out.final_pos_m + 0.15 * (out.rms_heading_rad + out.final_heading_rad);
+    // A shove the robot never came back from counts until the end.
+    for o in &open_push {
+        if let Some(at) = *o {
+            if !at.is_nan() {
+                out.recovery_s = out.recovery_s.max(end + opts.settle_s + out.overrun_s - at);
+            }
+        }
+    }
+    if !pushes.is_empty() {
+        out.max_pos_m = out.max_pos_m.max(out.max_pushed_m);
+    }
+    // Shoves add what they cost: how long the robot was off, and how much
+    // later the path ended. Without shoves both are zero.
+    out.cost = out.rms_pos_m + 0.25 * out.max_pos_m + out.final_pos_m + 0.15 * (out.rms_heading_rad + out.final_heading_rad)
+        + 0.1 * out.recovery_s + 0.2 * out.overrun_s;
     out
+}
+
+fn c_speed(r: &Reference) -> f64 {
+    r.vx.hypot(r.vy)
+}
+
+/// A trapezoid profile from speed `v0` to `v1` over `d`, as WPILib's: up to
+/// `vmax` at `a`, cruise, down.
+#[derive(Clone, Copy)]
+struct Trapezoid {
+    v0: f64,
+    v1: f64,
+    vp: f64,
+    a: f64,
+    t_acc: f64,
+    t_cruise: f64,
+    t_dec: f64,
+    d: f64,
+}
+
+impl Trapezoid {
+    fn new(d: f64, v0: f64, v1: f64, vmax: f64, a: f64) -> Trapezoid {
+        let (v0, v1) = (v0.clamp(0.0, vmax), v1.clamp(0.0, vmax));
+        let vp = ((2.0 * a * d + v0 * v0 + v1 * v1) / 2.0).sqrt().min(vmax).max(v0.max(v1).min(vmax));
+        let d_acc = ((vp * vp - v0 * v0) / (2.0 * a)).max(0.0);
+        let d_dec = ((vp * vp - v1 * v1) / (2.0 * a)).max(0.0);
+        let cruise = (d - d_acc - d_dec).max(0.0);
+        Trapezoid { v0, v1, vp, a, t_acc: (vp - v0).max(0.0) / a, t_cruise: if vp > 1e-9 { cruise / vp } else { 0.0 }, t_dec: (vp - v1).max(0.0) / a, d }
+    }
+
+    fn total(&self) -> f64 {
+        self.t_acc + self.t_cruise + self.t_dec
+    }
+
+    /// Distance and speed at `t`.
+    fn at(&self, t: f64) -> (f64, f64) {
+        if t <= 0.0 {
+            return (0.0, self.v0);
+        }
+        if t < self.t_acc {
+            return (self.v0 * t + 0.5 * self.a * t * t, self.v0 + self.a * t);
+        }
+        let d_acc = self.v0 * self.t_acc + 0.5 * self.a * self.t_acc * self.t_acc;
+        let t2 = t - self.t_acc;
+        if t2 < self.t_cruise {
+            return (d_acc + self.vp * t2, self.vp);
+        }
+        let t3 = (t2 - self.t_cruise).min(self.t_dec);
+        let d = d_acc + self.vp * self.t_cruise + self.vp * t3 - 0.5 * self.a * t3 * t3;
+        if t2 - self.t_cruise >= self.t_dec {
+            return (self.d, self.v1);
+        }
+        (d.min(self.d), self.vp - self.a * t3)
+    }
+}
+
+/// AresLib's StraightPathfinder (DriveAlong) taking the robot back to the
+/// trajectory: a straight profiled line and a profiled turn, from where the
+/// code believes the robot is.
+struct Recovery {
+    from: (f64, f64, f64),
+    dir: (f64, f64),
+    line: Trapezoid,
+    turn: Trapezoid,
+    turn_sign: f64,
+    goal: (f64, f64, f64),
+    end_speed: f64,
+    started: f64,
+    rejoin: f64,
+}
+
+impl Recovery {
+    fn new(from: (f64, f64, f64), goal: &Reference, end_speed: f64, rejoin: f64, now: f64, rp: &Replan) -> Recovery {
+        let (dx, dy) = (goal.x - from.0, goal.y - from.1);
+        let d = dx.hypot(dy);
+        let dir = if d > 1e-6 { (dx / d, dy / d) } else { (1.0, 0.0) };
+        let turn_by = wrap_angle(goal.heading - from.2);
+        Recovery {
+            from,
+            dir,
+            line: Trapezoid::new(d, 0.0, end_speed, rp.max_velocity_mps, rp.max_acceleration_mps2),
+            turn: Trapezoid::new(turn_by.abs(), 0.0, 0.0, rp.max_omega_radps, rp.max_alpha_radps2),
+            turn_sign: turn_by.signum(),
+            goal: (goal.x, goal.y, goal.heading),
+            end_speed,
+            started: now,
+            rejoin,
+        }
+    }
+
+    /// Where to be and how fast, field frame.
+    fn reference(&self, now: f64) -> (f64, f64, f64, f64, f64, f64) {
+        let tau = now - self.started;
+        let (s, v) = self.line.at(tau);
+        let (a, w) = self.turn.at(tau);
+        (self.from.0 + self.dir.0 * s, self.from.1 + self.dir.1 * s, self.from.2 + self.turn_sign * a, self.dir.0 * v, self.dir.1 * v, self.turn_sign * w)
+    }
+
+    fn finished(&self, now: f64, at: (f64, f64, f64)) -> bool {
+        let tau = now - self.started;
+        let done = self.line.total().max(self.turn.total());
+        if tau < done {
+            return false;
+        }
+        if self.end_speed > 0.05 {
+            return true;
+        }
+        let there = (at.0 - self.goal.0).hypot(at.1 - self.goal.1) < 0.05 && wrap_angle(at.2 - self.goal.2).abs() < 3f64.to_radians();
+        there || tau > done + 0.5
+    }
 }

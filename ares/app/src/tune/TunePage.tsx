@@ -11,7 +11,7 @@ import { loadView } from "../paths/PathsPage"
 import { useToast } from "../ui/toasts"
 import { BEST, PopulationChart, TrainingChart, WorldsChart } from "./charts"
 import {
-  AppliedGains, Criterion, Method, PARAM_INFO, Param, Progress, RobotCode, RobotTuning, SavedRun, TuneConfig, WORLD_VARS, World,
+  AppliedGains, Criterion, DISTURBANCE_PRESETS, Disturbance, Method, PARAM_GROUPS, PARAM_INFO, Param, Progress, RobotCode, RobotTuning, SavedRun, TuneConfig, WORLD_VARS, World,
   appliedGains, defaultParams, findings, fmt3, gripUsed, javaSnippet, nominalWorld, robotCode,
 } from "./model"
 
@@ -45,6 +45,8 @@ function Tuner({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) 
   const [method, setMethod] = useState<Method>({ kind: "population", generations: 40, population: 32 })
   const [criterion, setCriterion] = useState<Criterion>("worst")
   const [abortM, setAbortM] = useState(0.5)
+  // Shoves: off, or one of the presets (then editable).
+  const [disturbance, setDisturbance] = useState<Disturbance | null>(null)
   const [running, setRunning] = useState(false)
   const [progress, setProgress] = useState<Progress | null>(null)
   const [tracks, setTracks] = useState<Progress["tracks"]>([])
@@ -53,7 +55,7 @@ function Tuner({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) 
   const [hoverWorld, setHoverWorld] = useState<number | null>(null)
   // Every gain set tried in this run, for the population cloud.
   const [cloud, setCloud] = useState<{ gen: number; c: Progress["best"] }[]>([])
-  const [ranWith, setRanWith] = useState<{ params: Param[]; paths: string[]; forceFf: boolean } | null>(null)
+  const [ranWith, setRanWith] = useState<{ params: Param[]; paths: string[]; forceFf: boolean; disturbance: Disturbance | null } | null>(null)
   // What the robot runs with (gains.json), and the runs kept in tuning/.
   const [applied, setApplied] = useState<AppliedGains | null>(null)
   const [saved, setSaved] = useState<SavedRun[]>([])
@@ -112,14 +114,14 @@ function Tuner({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) 
   const start = async () => {
     if (running) { invoke("tune_cancel"); return }
     const config: TuneConfig = {
-      code, params, world, vary, environments, method, criterion,
+      code, params, world, vary, environments, method, criterion, disturbance,
       sim: { abortM, settleS: 0.5, record: false }, seed: 2026,
     }
     setProgress(null)
     setCloud([])
     setTracks([])
     setBaseTracks([])
-    setRanWith({ params, paths: chosen, forceFf: code.forceFf })
+    setRanWith({ params, paths: chosen, forceFf: code.forceFf, disturbance })
     setViewingSaved(null)
     try {
       setRunning(true)
@@ -203,7 +205,7 @@ function Tuner({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) 
           {tuning?.file ? <>From the robot code: <span title={tuning.file}>{tuning.file.split(/[\\/]/).pop()}</span>. </> : "Robot code not found: Tuner X's defaults. "}
           Checked gains are searched between min and max; the rest stay at their value.
         </div>
-        {(["Path controller (AresLib)", "Drive motor (TunerConstants)"] as const).map(group => (
+        {PARAM_GROUPS.map(group => (
           <div key={group}>
             <div style={{ padding: "6px 12px 2px", fontSize: 10, fontWeight: 700, color: "var(--text-header-eyebrow)" }}>{group}</div>
             {params.map((p, i) => PARAM_INFO[p.key].group !== group ? null : (
@@ -250,6 +252,36 @@ function Tuner({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) 
           style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", fontSize: 11.5 }}>
           <input type="checkbox" checked={world.perfectOdometry} onChange={e => setWorld(w => ({ ...w, perfectOdometry: e.target.checked }))} /> Perfect odometry
         </label>
+
+        <Heading label="Shoves (disturbances)" />
+        <Note>
+          Every world but the nominal one gets shoved: the gains are judged on how far the robot is knocked, how fast it is back within 5 cm, and how much later it finishes.
+          AresLib replans when knocked well off and drives to the end if a late shove leaves it short; tick the <b>Recovery</b> gains to tune those too.
+        </Note>
+        <Row label="Shoves" hint="Off: the worlds differ but nobody touches the robot">
+          <select style={{ ...propertyInputStyle, width: 190 }} value={disturbance ? (DISTURBANCE_PRESETS.find(p => JSON.stringify(p.d) === JSON.stringify(disturbance))?.id ?? "custom") : "off"}
+            onChange={e => {
+              const id = e.target.value
+              if (id === "off") setDisturbance(null)
+              else if (id !== "custom") setDisturbance({ ...DISTURBANCE_PRESETS.find(p => p.id === id)!.d })
+            }}>
+            <option value="off">None</option>
+            {DISTURBANCE_PRESETS.map(p => <option key={p.id} value={p.id} title={p.hint}>{p.label}</option>)}
+            {disturbance && !DISTURBANCE_PRESETS.some(p => JSON.stringify(p.d) === JSON.stringify(disturbance)) && <option value="custom">Custom</option>}
+          </select>
+        </Row>
+        {disturbance && (
+          <>
+            <Row label="Per run"><Num value={disturbance.perRun} onChange={v => setDisturbance({ ...disturbance, perRun: Math.max(1, Math.min(5, Math.round(v))) })} /></Row>
+            <Pair label="Force" unit="N" hint="How hard, drawn between the two" a={disturbance.forceMinN} b={disturbance.forceMaxN}
+              onChange={(a, b) => setDisturbance({ ...disturbance, forceMinN: Math.max(0, a), forceMaxN: Math.max(0, b) })} />
+            <Pair label="Lasting" unit="s" hint="A bump is a tenth of a second; defense leans for one or two" a={disturbance.durationMinS} b={disturbance.durationMaxS}
+              onChange={(a, b) => setDisturbance({ ...disturbance, durationMinS: Math.max(0.01, a), durationMaxS: Math.max(0.01, b) })} />
+            <Row label="Off center, up to" hint="How far from the robot's center it is hit: what turns it"><Num value={disturbance.leverMaxM} onChange={v => setDisturbance({ ...disturbance, leverMaxM: Math.max(0, v) })} /> m</Row>
+            <Pair label="When, along the path" unit="%" hint="Between these fractions of the path" a={Math.round(disturbance.from * 100)} b={Math.round(disturbance.to * 100)}
+              onChange={(a, b) => setDisturbance({ ...disturbance, from: Math.min(1, Math.max(0, a / 100)), to: Math.min(1, Math.max(0, b / 100)) })} />
+          </>
+        )}
 
         <Heading label="Search" />
         <Row label="Method" hint="Population: a cloud of gain sets that moves toward the best each generation (cross-entropy). Grid: every combination, like the Python tuner.">
@@ -328,7 +360,7 @@ function Tuner({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) 
           {best && baseline && shown && (
             <ResultPanel
               progress={shown} params={shownParams} best={best} baseline={baseline} running={running} saved={!!savedRun}
-              notes={findings(shownParams, best, baseline, shown.sensitivity, shownPaths.filter(n => trajs[n] && gripUsed(trajs[n].samples) > 0.95), savedRun?.config.code.forceFf ?? ranWith?.forceFf ?? code.forceFf)}
+              notes={findings(shownParams, best, baseline, shown.sensitivity, shownPaths.filter(n => trajs[n] && gripUsed(trajs[n].samples) > 0.95), savedRun?.config.code.forceFf ?? ranWith?.forceFf ?? code.forceFf, !!(savedRun?.config.disturbance ?? ranWith?.disturbance))}
               applied={applied}
               onApply={apply}
               onCopy={() => {
@@ -426,6 +458,14 @@ function ResultPanel({ progress, params, best, baseline, running, saved, notes, 
         <span>Off the path, average</span><span>{(baseline.meanRmsM * 100).toFixed(1)} cm</span><b>{(best.meanRmsM * 100).toFixed(1)} cm</b>
         <span>Worst end</span><span>{(baseline.worstFinalM * 100).toFixed(1)} cm</span><b>{(best.worstFinalM * 100).toFixed(1)} cm</b>
         <span>Runs that lost the path</span><span>{baseline.aborts}</span><b>{best.aborts}</b>
+        {(best.maxPushedM > 0 || baseline.maxPushedM > 0) && (
+          <>
+            <span title="Shoved: the longest it took to be back within 5 cm">Back after a shove, worst</span><span>{baseline.worstRecoveryS.toFixed(2)} s</span><b>{best.worstRecoveryS.toFixed(2)} s</b>
+            <span>…on average</span><span>{baseline.meanRecoveryS.toFixed(2)} s</span><b>{best.meanRecoveryS.toFixed(2)} s</b>
+            <span title="The farthest a shove put it from where the trajectory was">Farthest off after one</span><span>{(baseline.maxPushedM * 100).toFixed(0)} cm</span><b>{(best.maxPushedM * 100).toFixed(0)} cm</b>
+            <span title="How many times the pathfinder took it back, over every run">Times it replanned</span><span>{baseline.replans}</span><b>{best.replans}</b>
+          </>
+        )}
       </div>
 
       {notes.length > 0 && (
@@ -550,6 +590,37 @@ function TuneField({ robot, trajs, tracks, baseTracks, hoverWorld }: {
         ctx.fillStyle = "#1c1c1f"
         ctx.fillText(text, sx + 10, sy + 3)
       }
+      // Where the shoves hit, in the worst world (or the one hovered): an
+      // arrow along the force, longer the harder.
+      for (const tr of hoverWorld !== null ? tracks.filter(t => t.env === hoverWorld) : [worst]) {
+        for (const [px, py, fx, fy] of tr.pushes ?? []) {
+          const f = Math.hypot(fx, fy)
+          if (f < 1) continue
+          const len = 0.25 + f / 1000
+          const [x0, y0] = toScreen(px - fx / f * len, py - fy / f * len)
+          const [x1, y1] = toScreen(px, py)
+          const ang = Math.atan2(y1 - y0, x1 - x0)
+          ctx.lineCap = "round"
+          for (const [color, width] of [["rgba(255,255,255,0.95)", 6], ["#1c1c1f", 2.5]] as const) {
+            ctx.strokeStyle = color
+            ctx.lineWidth = width
+            ctx.beginPath()
+            ctx.moveTo(x0, y0)
+            ctx.lineTo(x1, y1)
+            ctx.moveTo(x1, y1)
+            ctx.lineTo(x1 - 9 * Math.cos(ang - 0.45), y1 - 9 * Math.sin(ang - 0.45))
+            ctx.moveTo(x1, y1)
+            ctx.lineTo(x1 - 9 * Math.cos(ang + 0.45), y1 - 9 * Math.sin(ang + 0.45))
+            ctx.stroke()
+          }
+          const label = `shove ${f.toFixed(0)} N`
+          ctx.font = "600 10.5px 'Segoe UI', Arial, sans-serif"
+          ctx.fillStyle = "rgba(255,255,255,0.92)"
+          ctx.fillRect(x0 - 4, y0 - 15, ctx.measureText(label).width + 8, 14)
+          ctx.fillStyle = "#1c1c1f"
+          ctx.fillText(label, x0, y0 - 4)
+        }
+      }
       // The robot at the end of each world, as a footprint.
       const hl = robot.bumper.lengthM / 2 * k, hw = robot.bumper.widthM / 2 * k
       for (const tr of hoverWorld !== null ? tracks.filter(t => t.env === hoverWorld) : [worst]) {
@@ -585,6 +656,18 @@ function Row({ label, hint, children }: { label: string; hint?: string; children
   return (
     <div title={hint} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 12px", fontSize: 11.5 }}>
       <span style={{ flex: 1 }}>{label}</span>{children}
+    </div>
+  )
+}
+
+function Pair({ label, unit, hint, a, b, onChange }: { label: string; unit: string; hint?: string; a: number; b: number; onChange: (a: number, b: number) => void }) {
+  return (
+    <div title={hint} style={{ display: "grid", gridTemplateColumns: "1fr 56px 14px 56px 22px", gap: 4, alignItems: "center", padding: "3px 12px", fontSize: 11.5 }}>
+      <span>{label}</span>
+      <Num value={a} onChange={v => onChange(v, b)} />
+      <span style={{ textAlign: "center", color: "var(--text-muted)" }}>–</span>
+      <Num value={b} onChange={v => onChange(a, v)} />
+      <span style={{ fontSize: 10, color: "var(--text-muted)" }}>{unit}</span>
     </div>
   )
 }

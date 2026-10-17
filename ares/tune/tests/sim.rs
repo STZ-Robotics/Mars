@@ -53,8 +53,10 @@ fn a_path_at_the_edge_of_grip_slips_and_the_odometry_drifts() {
     // Main was planned at 100% of the grip: no margin for the feedback.
     let (r, t) = (robot(), traj("Main"));
     let opts = SimOptions { abort_m: 5.0, ..Default::default() };
-    let nominal = simulate(&r, &t, &code(5.0), &World::nominal(&r), &opts);
-    let slick = simulate(&r, &t, &code(5.0), &World { mu: 0.6, ..World::nominal(&r) }, &opts);
+    // Without vision, to see the odometry drift on its own.
+    let blind = World { vision_hz: 0.0, ..World::nominal(&r) };
+    let nominal = simulate(&r, &t, &code(5.0), &blind, &opts);
+    let slick = simulate(&r, &t, &code(5.0), &World { mu: 0.6, ..blind.clone() }, &opts);
     assert!(nominal.max_slip_mps > 0.5 && nominal.odometry_drift_m > 0.1, "{nominal:?}");
     assert!(slick.odometry_drift_m > nominal.odometry_drift_m * 0.8);
     // And the battery sags while it accelerates.
@@ -76,4 +78,51 @@ fn the_same_world_gives_the_same_run() {
     let a = simulate(&r, &t, &code(5.0), &w, &SimOptions::default());
     let b = simulate(&r, &t, &code(5.0), &w, &SimOptions::default());
     assert_eq!(a, b);
+}
+
+fn shoved(r: &RobotConfig, force: f64, duration: f64) -> World {
+    World { pushes: vec![ares_tune::sim::Push { at: 0.4, duration_s: duration, fx_n: 0.0, fy_n: force, torque_nm: 40.0 }], ..World::nominal(r) }
+}
+
+#[test]
+fn a_shove_knocks_it_off_and_it_comes_back() {
+    let (r, t) = (robot(), traj("Alt"));
+    let out = simulate(&r, &t, &code(5.0), &shoved(&r, 500.0, 0.2), &SimOptions::default());
+    println!("{out:?}");
+    assert!(!out.aborted);
+    assert!(out.max_pushed_m > 0.05, "pushed {}", out.max_pushed_m);
+    assert!(out.recovery_s > 0.0 && out.recovery_s < 2.5, "recovery {}", out.recovery_s);
+    assert_eq!(out.push_marks.len(), 1);
+}
+
+#[test]
+fn a_hard_shove_loses_the_path_on_feedback_alone_and_replanning_saves_it() {
+    let (r, t) = (robot(), traj("Alt"));
+    // A robot driving into it: about a ton-force-meter of impulse… 900 N for a quarter second.
+    let w = shoved(&r, 900.0, 0.25);
+    let alone = simulate(&r, &t, &RobotCode { replan: None, ..code(5.0) }, &w, &SimOptions::default());
+    let saved = simulate(&r, &t, &code(5.0), &w, &SimOptions::default());
+    println!("alone {alone:?}\nsaved {saved:?}");
+    assert!(alone.aborted);
+    assert!(!saved.aborted);
+    assert!(saved.replans >= 1);
+    assert!(saved.overrun_s > 0.0, "finding the way back takes time");
+    // And it ends where the path ends, not where the shove left it.
+    assert!(saved.final_pos_m < 0.15, "final {}", saved.final_pos_m);
+}
+
+#[test]
+fn without_vision_a_sideways_shove_goes_unnoticed() {
+    let (r, t) = (robot(), traj("Alt"));
+    let blind = simulate(&r, &t, &code(5.0), &World { vision_hz: 0.0, ..shoved(&r, 500.0, 0.2) }, &SimOptions { abort_m: 5.0, ..Default::default() });
+    let seeing = simulate(&r, &t, &code(5.0), &shoved(&r, 500.0, 0.2), &SimOptions { abort_m: 5.0, ..Default::default() });
+    // The wheels slide sideways, the encoders see nothing: the code believes it is on the path.
+    assert!(blind.final_pos_m > 2.0 * seeing.final_pos_m, "blind {} seeing {}", blind.final_pos_m, seeing.final_pos_m);
+}
+
+#[test]
+fn without_shoves_nothing_changes() {
+    let (r, t) = (robot(), traj("Alt"));
+    let out = simulate(&r, &t, &code(5.0), &World::nominal(&r), &SimOptions::default());
+    assert_eq!((out.recovery_s, out.overrun_s, out.replans), (0.0, 0.0, 0));
 }

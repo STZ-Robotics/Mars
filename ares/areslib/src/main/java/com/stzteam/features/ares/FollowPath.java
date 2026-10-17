@@ -86,6 +86,7 @@ public final class FollowPath extends Command {
   private boolean failed;
   private double offSince = Double.NaN;
   private int replans;
+  private boolean arrivalChecked;
 
   FollowPath(Ares ares, String key, UnaryOperator<AresTrajectory> crop, int untilWaypoint, boolean branches) {
     this.ares = ares;
@@ -110,6 +111,7 @@ public final class FollowPath extends Command {
     pulse.clear();
     inner = null;
     replans = 0;
+    arrivalChecked = false;
     red = ares.config().flip.getAsBoolean();
     var blue = ares.trajectory(key);
     failed = blue == null;
@@ -160,6 +162,24 @@ public final class FollowPath extends Command {
     }
 
     t = Math.min(trajT0 + timer.get() - clockT0, leg.endT);
+
+    // Arrival: a path that ends at rest, ending off its last pose (a shove
+    // late in it, a stall), drives there before it is done. Once.
+    if (t >= leg.endT && !arrivalChecked && nextSpan >= leg.spans.size()) {
+      arrivalChecked = true;
+      var last = leg.traj.sample(leg.endT);
+      var cfg = ares.config();
+      double off = ares.drive().pose().getTranslation().getDistance(last.pose().getTranslation());
+      if (cfg.arriveM > 0 && Math.hypot(last.vx(), last.vy()) < 0.05 && off > cfg.arriveM) {
+        inner = ares.pathfinder().toPose(last.pose(), new edu.wpi.first.math.kinematics.ChassisSpeeds(), cfg.pathfindConstraints);
+        innerEndT = leg.endT;
+        replans++;
+        AresTelemetry.replanned(replans, off);
+        inner.initialize();
+        inner.execute();
+        return;
+      }
+    }
 
     // A stretch the robot finds its own way through.
     if (nextSpan < leg.spans.size() && t >= leg.spans.get(nextSpan)[0]) {
@@ -295,7 +315,7 @@ public final class FollowPath extends Command {
 
   @Override
   public boolean isFinished() {
-    return failed || inner == null && t >= leg.endT && nextSpan >= leg.spans.size();
+    return failed || inner == null && t >= leg.endT && nextSpan >= leg.spans.size() && arrivalChecked;
   }
 
   @Override

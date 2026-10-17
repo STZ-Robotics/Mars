@@ -47,7 +47,7 @@ fn tune_defaults() {
             params: vec![p("translationKp", 0.5, 40.0, 5.0, true), p("translationKd", 0.0, 0.6, 0.0, false), p("rotationKp", 0.5, 40.0, 5.0, true), p("rotationKd", 0.0, 0.6, 0.0, false)],
             world: world.clone(), vary: vary.clone(), environments: 24,
             method: Method::Population { generations: 40, population: 32 }, criterion: Criterion::Worst,
-            sim: SimOptions::default(), seed: 2026,
+            sim: SimOptions::default(), seed: 2026, disturbance: None,
         };
         let out = run(&r, &[load(name)], &cfg, std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)), |_| {});
         println!("{name}: now {:.4} (rms {:.1} cm, worst end {:.1} cm, lost {}) -> best {:.4} (rms {:.1} cm, worst end {:.1} cm, lost {}) gains {:?} | {} runs in {:.1} s",
@@ -78,10 +78,13 @@ fn record() {
             p("translationKp", 0.5, 40.0, 5.0, true, true), p("translationKd", 0.0, 0.6, 0.0, false, true), p("translationKi", 0.0, 2.0, 0.0, false, false),
             p("rotationKp", 0.5, 40.0, 5.0, true, true), p("rotationKd", 0.0, 0.6, 0.0, false, true), p("rotationKi", 0.0, 2.0, 0.0, false, false),
             p("driveKp", 0.01, 1.0, 0.1, true, false), p("driveKs", 0.0, 0.4, 0.0, false, false), p("driveKv", 0.08, 0.16, 0.124, false, false),
+            p("replanToleranceM", 0.15, 1.0, 0.5, false, true), p("replanDelayS", 0.04, 0.5, 0.2, false, true),
+            p("rejoinAheadS", 0.3, 2.0, 1.0, false, true), p("arriveM", 0.03, 0.3, 0.1, false, true),
         ],
         world, vary, environments: 24,
         method: Method::Population { generations: 30, population: 32 }, criterion: Criterion::Worst,
         sim: SimOptions::default(), seed: 2026,
+        disturbance: Some(ares_tune::tune::Disturbance { per_run: 1, force_min_n: 300.0, force_max_n: 900.0, duration_min_s: 0.08, duration_max_s: 0.25, lever_max_m: 0.35, from: 0.15, to: 0.85 }),
     };
     let mut events = Vec::new();
     run(&r, &[load("Alt"), load("Main")], &cfg, std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)), |p| events.push(serde_json::to_value(p).unwrap()));

@@ -58,8 +58,22 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   React.createElement(ToastProvider, null, React.createElement(TunePage, { robot: robot as never, robotPath: "/robot/src/main/deploy/ares/bot.robot.json" })),
 )
 
-// Press Tune once the page has its paths.
+// Set the page up as the recorded run was (recovery gains ticked, bumps on),
+// then press Tune once it has its paths.
+const setup = () => {
+  for (const label of ["Replan past", "…for at least", "Rejoin ahead", "Arrive within"]) {
+    const span = [...document.querySelectorAll("span")].find(x => x.textContent === label)
+    const box = span?.previousElementSibling as HTMLInputElement | null
+    if (box && !box.checked) box.click()
+  }
+  const select = [...document.querySelectorAll("select")].find(x => [...x.options].some(o => o.value === "bump")) as HTMLSelectElement | undefined
+  if (select && select.value !== "bump") {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(select, "bump")
+    select.dispatchEvent(new Event("change", { bubbles: true }))
+  }
+}
 const press = () => {
+  setup()
   const b = [...document.querySelectorAll("button")].find(x => x.textContent?.trim() === "Tune")
   if (b && !(b as HTMLButtonElement).disabled) b.click()
   else setTimeout(press, 100)

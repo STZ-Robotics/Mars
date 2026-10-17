@@ -17,7 +17,7 @@ use ares_core::trajectory::Trajectory;
 use ares_core::RobotConfig;
 use serde::{Deserialize, Serialize};
 
-use crate::sim::{simulate, RobotCode, RunResult, SimOptions, World};
+use crate::sim::{simulate, Push, Replan, RobotCode, RunResult, SimOptions, World};
 
 /// A gain the search may move.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -52,6 +52,10 @@ pub fn set_param(code: &mut RobotCode, key: &str, v: f64) {
         "driveKp" => code.drive_kp = v,
         "driveKs" => code.drive_ks = v,
         "driveKv" => code.drive_kv = v,
+        "replanToleranceM" => code.replan.get_or_insert_with(Replan::default).tolerance_m = v,
+        "replanDelayS" => code.replan.get_or_insert_with(Replan::default).delay_s = v,
+        "rejoinAheadS" => code.replan.get_or_insert_with(Replan::default).rejoin_ahead_s = v,
+        "arriveM" => code.replan.get_or_insert_with(Replan::default).arrive_m = v,
         _ => {}
     }
 }
@@ -76,6 +80,9 @@ pub fn set_world(w: &mut World, key: &str, v: f64) {
         "startOffsetYM" => w.start_offset_y_m = v,
         "startOffsetRad" => w.start_offset_rad = v,
         "steerTauS" => w.steer_tau_s = v.max(0.001),
+        "visionHz" => w.vision_hz = v.max(0.0),
+        "visionNoiseM" => w.vision_noise_m = v.max(0.0),
+        "visionGain" => w.vision_gain = v.clamp(0.0, 1.0),
         _ => {}
     }
 }
@@ -117,6 +124,26 @@ pub struct TuneConfig {
     pub sim: SimOptions,
     #[serde(default = "default_seed")]
     pub seed: u64,
+    /// Shoves in every world but the nominal one.
+    #[serde(default)]
+    pub disturbance: Option<Disturbance>,
+}
+
+/// How the worlds get shoved: each one gets `per_run` pushes, each with a
+/// force, a duration and a direction drawn at random in these ranges, at a
+/// random point of the path between `from` and `to` (fractions of it), hit
+/// off center by up to `lever_max_m` (so it turns the robot too).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Disturbance {
+    pub per_run: usize,
+    pub force_min_n: f64,
+    pub force_max_n: f64,
+    pub duration_min_s: f64,
+    pub duration_max_s: f64,
+    pub lever_max_m: f64,
+    pub from: f64,
+    pub to: f64,
 }
 
 fn default_seed() -> u64 {
@@ -137,6 +164,16 @@ pub struct Candidate {
     pub aborts: usize,
     pub mean_rms_m: f64,
     pub worst_final_m: f64,
+    /// Shoves: the longest and the mean time back within 5 cm, the farthest
+    /// a shove put the robot, and how often it found its way back.
+    #[serde(default)]
+    pub worst_recovery_s: f64,
+    #[serde(default)]
+    pub mean_recovery_s: f64,
+    #[serde(default)]
+    pub max_pushed_m: f64,
+    #[serde(default)]
+    pub replans: u32,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -160,6 +197,9 @@ pub struct Track {
     pub cost: f64,
     pub aborted: bool,
     pub points: Vec<[f32; 3]>,
+    /// Where the shoves hit: x, y, and the force (N, field frame).
+    #[serde(default)]
+    pub pushes: Vec<[f32; 4]>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -202,7 +242,7 @@ pub struct Sensitivity {
 /// The worlds: the nominal one first, the rest a Latin hypercube over the
 /// varied variables (every variable's range cut in `n − 1` slices, each slice
 /// used once), so a few dozen worlds cover the corners.
-pub fn worlds(base: &World, vary: &BTreeMap<String, f64>, n: usize, seed: u64) -> Vec<World> {
+pub fn worlds(base: &World, vary: &BTreeMap<String, f64>, n: usize, seed: u64, disturbance: Option<&Disturbance>) -> Vec<World> {
     let n = n.max(1);
     let mut out = vec![base.clone()];
     if n == 1 {
@@ -231,6 +271,22 @@ pub fn worlds(base: &World, vary: &BTreeMap<String, f64>, n: usize, seed: u64) -
             set_world(&mut w, k, mid - spread + 2.0 * spread * u);
         }
         w.seed = seed.wrapping_add(i as u64 + 1);
+        if let Some(d) = disturbance {
+            w.pushes = (0..d.per_run)
+                .map(|_| {
+                    let between = |a: f64, b: f64, u: f64| a + (b - a) * u;
+                    let force = between(d.force_min_n, d.force_max_n, rng.next());
+                    let dir = rng.next() * 2.0 * std::f64::consts::PI;
+                    Push {
+                        at: between(d.from.clamp(0.0, 1.0), d.to.clamp(0.0, 1.0), rng.next()),
+                        duration_s: between(d.duration_min_s, d.duration_max_s, rng.next()),
+                        fx_n: force * dir.cos(),
+                        fy_n: force * dir.sin(),
+                        torque_nm: force * d.lever_max_m * (2.0 * rng.next() - 1.0),
+                    }
+                })
+                .collect();
+        }
         out.push(w);
     }
     out
@@ -279,7 +335,7 @@ fn to_unit(p: &Param, v: f64) -> f64 {
 /// the last progress (`done`).
 pub fn run(robot: &RobotConfig, paths: &[Trajectory], cfg: &TuneConfig, cancel: Arc<AtomicBool>, mut progress: impl FnMut(&Progress)) -> Progress {
     let started = Instant::now();
-    let envs = worlds(&cfg.world, &cfg.vary, cfg.environments, cfg.seed);
+    let envs = worlds(&cfg.world, &cfg.vary, cfg.environments, cfg.seed, cfg.disturbance.as_ref());
     let tuned: Vec<usize> = (0..cfg.params.len()).filter(|&i| cfg.params[i].tune && cfg.params[i].max > cfg.params[i].min).collect();
     let start: Vec<f64> = cfg.params.iter().map(|p| p.start).collect();
     let mut state = Progress { worlds: envs.clone(), ..Default::default() };
@@ -481,6 +537,7 @@ fn evaluate(robot: &RobotConfig, paths: &[Trajectory], cfg: &TuneConfig, envs: &
             let mut per_env = vec![0.0; ne];
             let mut per_path = vec![0.0; np];
             let (mut aborts, mut rms, mut worst_final) = (0, 0.0, 0.0f64);
+            let (mut worst_rec, mut sum_rec, mut pushed_runs, mut max_pushed, mut replans) = (0.0f64, 0.0, 0usize, 0.0f64, 0u32);
             for e in 0..ne {
                 for p in 0..np {
                     let r = results[c * ne * np + e * np + p].lock().unwrap().take().unwrap_or(RunResult { cost: 20.0, aborted: true, ..Default::default() });
@@ -489,9 +546,28 @@ fn evaluate(robot: &RobotConfig, paths: &[Trajectory], cfg: &TuneConfig, envs: &
                     aborts += r.aborted as usize;
                     rms += r.rms_pos_m / (ne * np) as f64;
                     worst_final = worst_final.max(r.final_pos_m);
+                    if !r.push_marks.is_empty() {
+                        pushed_runs += 1;
+                        sum_rec += r.recovery_s;
+                        worst_rec = worst_rec.max(r.recovery_s);
+                        max_pushed = max_pushed.max(r.max_pushed_m);
+                    }
+                    replans += r.replans;
                 }
             }
-            Candidate { values: values.clone(), score: aggregate(cfg.criterion, &per_env), per_env, per_path, aborts, mean_rms_m: rms, worst_final_m: worst_final }
+            Candidate {
+                values: values.clone(),
+                score: aggregate(cfg.criterion, &per_env),
+                per_env,
+                per_path,
+                aborts,
+                mean_rms_m: rms,
+                worst_final_m: worst_final,
+                worst_recovery_s: worst_rec,
+                mean_recovery_s: if pushed_runs > 0 { sum_rec / pushed_runs as f64 } else { 0.0 },
+                max_pushed_m: max_pushed,
+                replans,
+            }
         })
         .collect()
 }
@@ -519,7 +595,7 @@ fn tracks(robot: &RobotConfig, paths: &[Trajectory], cfg: &TuneConfig, envs: &[W
     for (e, w) in envs.iter().enumerate() {
         for (p, t) in paths.iter().enumerate() {
             let r = simulate(robot, t, &code, w, &opts);
-            out.push(Track { env: e, path: p, cost: r.cost, aborted: r.aborted, points: r.track });
+            out.push(Track { env: e, path: p, cost: r.cost, aborted: r.aborted, points: r.track, pushes: r.push_marks });
         }
     }
     out

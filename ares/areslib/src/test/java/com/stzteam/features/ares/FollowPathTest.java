@@ -318,6 +318,44 @@ class FollowPathTest {
     assertEquals(main.last().y(), drive.pose.getY(), 0.05);
   }
 
+  /** Main, knocked 0.3 m sideways on its very last step. */
+  FollowPath knockedAtTheEnd(Ares a) throws Exception {
+    var c = (FollowPath) a.path("Main");
+    var main = TrajectoryTest.main();
+    drive.pose = main.initial().pose();
+    CommandScheduler.getInstance().schedule(c);
+    boolean hit = false;
+    for (double t = 0; t < 10 && CommandScheduler.getInstance().isScheduled(c); t += 0.02) {
+      if (!hit && t >= main.duration() - 0.03) {
+        drive.pose = new Pose2d(drive.pose.getX(), drive.pose.getY() + 0.3, drive.pose.getRotation());
+        hit = true;
+      }
+      CommandScheduler.getInstance().run();
+      SimHooks.stepTiming(0.02);
+      drive.step(0.02);
+    }
+    return c;
+  }
+
+  @Test
+  void shovedAtTheEndItStillArrives() throws Exception {
+    var calls = new AtomicInteger();
+    ares = counting(calls);
+    var c = knockedAtTheEnd(ares);
+    var main = TrajectoryTest.main();
+    assertEquals(1, calls.get());
+    assertEquals(1, c.replans());
+    assertEquals(main.last().x(), drive.pose.getX(), 0.06);
+    assertEquals(main.last().y(), drive.pose.getY(), 0.06);
+  }
+
+  @Test
+  void withoutArrivalItEndsWhereTheShoveLeftIt() throws Exception {
+    ares = new Ares(drive, new Ares.Config().withFolder(TrajectoryTest.PROJECT).withFlip(() -> false).withArrival(0));
+    knockedAtTheEnd(ares);
+    assertTrue(Math.abs(drive.pose.getY() - TrajectoryTest.main().last().y()) > 0.2);
+  }
+
   @Test
   void aSmallKnockIsLeftToTheFeedback() throws Exception {
     var calls = new AtomicInteger();

@@ -41,6 +41,7 @@ fn config(method: Method, start: f64) -> TuneConfig {
         criterion: Criterion::Worst,
         sim: SimOptions { abort_m: 1.0, ..Default::default() },
         seed: 7,
+        disturbance: None,
     }
 }
 
@@ -49,7 +50,7 @@ fn the_worlds_spread_over_the_ranges_and_keep_the_nominal_first() {
     let r = robot();
     let mut vary = BTreeMap::new();
     vary.insert("massKg".to_string(), 4.0);
-    let w = worlds(&World::nominal(&r), &vary, 11, 1);
+    let w = worlds(&World::nominal(&r), &vary, 11, 1, None);
     assert_eq!(w.len(), 11);
     assert_eq!(w[0].mass_kg, r.mass_kg);
     let masses: Vec<f64> = w[1..].iter().map(|w| w.mass_kg).collect();
@@ -92,9 +93,7 @@ fn it_stops_when_told() {
     let cfg = config(Method::Population { generations: 50, population: 24 }, 1.0);
     let cancel = Arc::new(AtomicBool::new(false));
     let c = cancel.clone();
-    let mut gens = 0;
     let out = run(&robot(), &[traj("Alt")], &cfg, cancel, move |p| {
-        gens = p.generation;
         if p.generation >= 2 {
             c.store(true, std::sync::atomic::Ordering::Relaxed);
         }
@@ -120,20 +119,45 @@ fn the_app_s_config_reads_as_is() {
       "method": { "kind": "population", "generations": 40, "population": 32 },
       "criterion": "p90",
       "sim": { "abortM": 0.5, "settleS": 0.5, "record": false },
-      "seed": 2026
+      "seed": 2026,
+      "disturbance": { "perRun": 1, "forceMinN": 300, "forceMaxN": 900, "durationMinS": 0.08, "durationMaxS": 0.25, "leverMaxM": 0.35, "from": 0.15, "to": 0.85 }
     }"#;
     let cfg: TuneConfig = serde_json::from_str(json).unwrap();
     assert_eq!(cfg.code.speed_at_12v_mps, 5.85);
     assert_eq!(cfg.world.battery_r_ohm, 0.015);
     assert_eq!(cfg.criterion, Criterion::P90);
     assert_eq!(cfg.method, Method::Population { generations: 40, population: 32 });
+    assert_eq!(cfg.disturbance.as_ref().unwrap().force_max_n, 900.0);
+    // A robot code without "replan" gets AresLib's.
+    assert_eq!(cfg.code.replan.as_ref().unwrap().tolerance_m, 0.5);
     // And the progress goes back with the names the app reads.
     let p = serde_json::to_value(ares_tune::tune::Progress::default()).unwrap();
     for k in ["generation", "generations", "runs", "elapsedS", "baseline", "best", "population", "history", "tracks", "baselineTracks", "worlds", "sensitivity", "done", "cancelled"] {
         assert!(p.get(k).is_some(), "{k}");
     }
     let c = serde_json::to_value(ares_tune::tune::Candidate::default()).unwrap();
-    for k in ["values", "score", "perEnv", "perPath", "aborts", "meanRmsM", "worstFinalM"] {
+    for k in ["values", "score", "perEnv", "perPath", "aborts", "meanRmsM", "worstFinalM", "worstRecoveryS", "meanRecoveryS", "maxPushedM", "replans"] {
         assert!(c.get(k).is_some(), "{k}");
     }
+}
+
+#[test]
+fn shoved_worlds_are_tuned_for_recovery_too() {
+    use ares_tune::tune::Disturbance;
+    let mut cfg = config(Method::Population { generations: 6, population: 16 }, 1.0);
+    cfg.disturbance = Some(Disturbance { per_run: 1, force_min_n: 300.0, force_max_n: 700.0, duration_min_s: 0.1, duration_max_s: 0.25, lever_max_m: 0.3, from: 0.2, to: 0.7 });
+    cfg.params.push(Param { key: "replanToleranceM".into(), min: 0.15, max: 0.8, start: 0.5, log: false, tune: true });
+    let envs = worlds(&cfg.world, &cfg.vary, cfg.environments, cfg.seed, cfg.disturbance.as_ref());
+    // The nominal world is left alone; every other one is shoved once.
+    assert!(envs[0].pushes.is_empty());
+    assert!(envs[1..].iter().all(|w| w.pushes.len() == 1));
+    let p = &envs[1].pushes[0];
+    let force = p.fx_n.hypot(p.fy_n);
+    assert!((300.0..=700.0).contains(&force) && (0.2..=0.7).contains(&p.at), "{p:?}");
+    let out = run(&robot(), &[traj("Alt")], &cfg, Arc::new(AtomicBool::new(false)), |_| {});
+    assert!(out.best.worst_recovery_s > 0.0);
+    assert!(out.best.score <= out.baseline.score);
+    assert!(out.tracks.iter().filter(|t| t.env > 0).all(|t| t.pushes.len() == 1));
+    println!("recovery: now worst {:.2} s mean {:.2} s -> best worst {:.2} s mean {:.2} s, tolerance {:.2}",
+        out.baseline.worst_recovery_s, out.baseline.mean_recovery_s, out.best.worst_recovery_s, out.best.mean_recovery_s, out.best.values[3]);
 }

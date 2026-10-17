@@ -155,6 +155,9 @@ export function WorldsChart({ best, baseline, worlds, hovered, onHover }: {
         {w.massKg.toFixed(1)} kg · μ {w.mu.toFixed(2)} · {w.batteryV.toFixed(1)} V, {(w.batteryROhm * 1000).toFixed(0)} mΩ<br />
         wheel {(w.wheelRadiusM * 1000).toFixed(1)} mm · motor ×{w.motorScale.toFixed(2)} · {(w.latencyS * 1000).toFixed(0)} ms<br />
         placed off {(w.startOffsetXM * 100).toFixed(1)}, {(w.startOffsetYM * 100).toFixed(1)} cm, {(w.startOffsetRad * 180 / Math.PI).toFixed(1)}°
+        {(w.pushes ?? []).map((p, k) => (
+          <span key={k}><br />shoved {Math.hypot(p.fxN, p.fyN).toFixed(0)} N for {(p.durationS * 1000).toFixed(0)} ms at {(p.at * 100).toFixed(0)}% of the path</span>
+        ))}
       </Tip>}>
       <div ref={ref} style={{ position: "absolute", inset: 0 }}>
         <svg width={width} height={h} onMouseLeave={() => onHover(null)}>

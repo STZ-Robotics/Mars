@@ -73,6 +73,9 @@ public final class Ares {
     double replanDelayS = 0.2;
     double rejoinAheadS = 1.0;
     int maxReplans = 3;
+    double arriveM = 0.1;
+    /** Set by withReplan or withArrival: then gains.json's recovery is not read. */
+    boolean recoveryInCode;
     double periodS = 0.02;
 
     /** The Ares project folder; {@code deploy/ares} by default. */
@@ -145,6 +148,24 @@ public final class Ares {
       this.replanToleranceM = toleranceM;
       this.rejoinAheadS = rejoinAheadS;
       this.maxReplans = maxReplans;
+      this.recoveryInCode = true;
+      return this;
+    }
+
+    /** The same, with how long it must stay that far off before it replans (0.2 s by default). */
+    public Config withReplan(double toleranceM, double delayS, double rejoinAheadS, int maxReplans) {
+      this.replanDelayS = delayS;
+      return withReplan(toleranceM, rejoinAheadS, maxReplans);
+    }
+
+    /**
+     * A path that ends at rest, ending farther than this from its last pose,
+     * drives there before it is done: a shove late in a path does not leave
+     * the robot where it fell. 0.1 m by default; 0 turns it off.
+     */
+    public Config withArrival(double toleranceM) {
+      this.arriveM = toleranceM;
+      this.recoveryInCode = true;
       return this;
     }
 
@@ -260,6 +281,16 @@ public final class Ares {
           c.translation = new AresController.Gains(t.path("kp").asDouble(), t.path("ki").asDouble(0), t.path("kd").asDouble(0));
           c.rotation = new AresController.Gains(r.path("kp").asDouble(), r.path("ki").asDouble(0), r.path("kd").asDouble(0));
           source = "gains.json" + (n.hasNonNull("source") ? " (" + n.path("source").asText() + ")" : "");
+        }
+        // The recovery Tune found against shoves, unless the code set its own.
+        var rec = n.path("recovery");
+        if (!c.recoveryInCode && rec.isObject()) {
+          c.replanToleranceM = rec.path("toleranceM").asDouble(c.replanToleranceM);
+          c.replanDelayS = rec.path("delayS").asDouble(c.replanDelayS);
+          c.rejoinAheadS = rec.path("rejoinAheadS").asDouble(c.rejoinAheadS);
+          c.arriveM = rec.path("arriveM").asDouble(c.arriveM);
+          System.out.printf("Ares: recovery from gains.json: replan past %.2f m for %.2f s, rejoin %.2f s ahead, arrive within %.2f m%n",
+              c.replanToleranceM, c.replanDelayS, c.rejoinAheadS, c.arriveM);
         }
       } catch (Exception e) {
         fail("Ares could not read gains.json (" + e.getMessage() + "): using " + (c.gainsInCode ? "the code's" : "the default") + " gains");
