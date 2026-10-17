@@ -522,6 +522,13 @@ pub fn auto_delete(robot_path: String, name: String) -> Result<(), String> {
 /// written. Rewritten after every generate and every auto save.
 #[tauri::command]
 pub fn index_write(robot_path: String) -> Result<(), String> {
+    let text = serde_json::to_string_pretty(&index_json(&robot_path)).map_err(|e| e.to_string())?;
+    write(&project_dir(&robot_path).join("ares-index.json"), &(text + "\n"))
+}
+
+/// ares-index.json as it is now (what index_write writes, and hot reload sends).
+pub fn index_json(robot_path: &str) -> serde_json::Value {
+    let robot_path = robot_path.to_string();
     let entries = paths_list(robot_path.clone());
     let specs: Vec<&PathSpec> = entries.iter().filter_map(|e| e.spec.as_ref()).collect();
     let rel = |name: &str| traj_file(&robot_path, name).ok().map(|p| {
@@ -562,9 +569,7 @@ pub fn index_write(robot_path: String) -> Result<(), String> {
             "modules": r.swerve().modules.iter().map(|m| serde_json::json!({ "name": m.name, "xM": m.x_m, "yM": m.y_m })).collect::<Vec<_>>(),
         })
     });
-    let index = serde_json::json!({ "format": 1, "robot": robot, "paths": paths, "autos": autos_list(robot_path.clone()) });
-    let text = serde_json::to_string_pretty(&index).map_err(|e| e.to_string())?;
-    write(&project_dir(&robot_path).join("ares-index.json"), &(text + "\n"))
+    serde_json::json!({ "format": 1, "robot": robot, "paths": paths, "autos": autos_list(robot_path.clone()) })
 }
 
 #[cfg(test)]

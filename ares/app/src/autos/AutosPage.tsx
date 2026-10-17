@@ -13,6 +13,7 @@ import { applyScope, evaluateAll, withOverrides } from "../vars/variables"
 import { Auto, DEFAULT_BUDGET_S, Leg, ListKey, Step, StepPath, Trigger, children, conditionsOf, duration, getList, legs, migrateAuto, namesOf, newAuto, pathKey, updateList, zonesOf } from "./types"
 import CommandTree, { STEP_MIME } from "./CommandTree"
 import { markerLink, useRobotNames } from "./robotNames"
+import { hotReload } from "../ui/hotReload"
 import { FolderRow, ITEM_MIME, LooseDrop, groupByFolder, newFolderName, useFolders } from "../ui/Folders"
 
 interface Props {
@@ -269,7 +270,9 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
       try {
         await invoke("auto_save", { robotPath, auto: current.auto, previous: current.savedName })
         setCurrent(c => (c && c.auto.name === current.auto.name ? { ...c, savedName: current.auto.name } : c))
-        setNote("Saved")
+        // On a connected robot too, quietly: this happens on every edit.
+        const onRobot = await hotReload(robotPath, [], true)
+        setNote(onRobot ? "Saved · on the robot" : "Saved")
         const list = await invoke<Auto[]>("autos_list", { robotPath })
         setAutos(list.map(migrateAuto))
       } catch (e) {
@@ -363,6 +366,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
     const fieldSize = { lengthM: FIELDS[0].sizeMeters[0], widthM: FIELDS[0].sizeMeters[1] }
     let done = 0
     const failed: string[] = []
+    const sent: string[] = []
     for (const name of needed) {
       if (stopRequested.current) { stopped = true; break }
       const p = byName.get(name)!
@@ -382,6 +386,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
         try {
           await invoke<PlanResult>("path_plan", { robot, spec, field, fieldSize, robotPath, variant: v })
           done++
+          sent.push(v ? `${name}@${v}` : name)
         } catch (e) {
           if (String(e).includes("Generation stopped")) { stopped = true; break }
           failed.push(`${name}${v ? "@" + v : ""}: ${String(e)}`)
@@ -395,6 +400,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
     if (stopped) toast({ kind: "stopped", title: "Stopped generating", body: `${plural(done)} done before the stop.` })
     else if (failed.length) toast({ kind: "error", title: `Generated ${plural(done)}, ${failed.length} failed`, body: failed.join(" · ") })
     else toast({ kind: "success", title: done ? `Generated ${plural(done)} for "${auto.name}"` : `"${auto.name}" is up to date` })
+    if (sent.length) hotReload(robotPath, sent, true, toast)
     await refresh()
     setTrajVersion(v => v + 1)
   }

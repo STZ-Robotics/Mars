@@ -272,7 +272,8 @@ public final class FollowPath extends Command {
       var e = list.get(nextEvent++);
       ares.activeEvents().add(e.name());
       if (!e.isZone()) pulse.add(e.name());
-      var c = e.command() != null ? built.get(e.command()) : ares.eventCommand(e.name());
+      // A marker that came with a hot reload is built when first reached.
+      var c = e.command() != null ? built.computeIfAbsent(e.command(), k -> ares.eventCommand(e)) : ares.eventCommand(e.name());
       if (c == null) continue;
       // Whatever it shares a subsystem with gives way, as when scheduling.
       for (var other : new ArrayList<>(running.keySet())) {

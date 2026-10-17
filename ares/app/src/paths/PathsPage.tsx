@@ -5,6 +5,7 @@ import { propertyInputStyle } from "@desktop/styles/pageForm"
 import { FIELDS } from "@desktop/utils/field/fieldImages"
 import type { RobotConfig } from "../robot/types"
 import { useRobotNames } from "../autos/robotNames"
+import { hotReload } from "../ui/hotReload"
 import { newFolderName, useFolders } from "../ui/Folders"
 import { renderTopView, TopView } from "../robot/topView"
 import { bindField } from "../vars/bind"
@@ -345,6 +346,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
           title: `Generated "${label}"`,
           body: `${result.trajectory.durationS.toFixed(3)} s${faster > 0.5 ? ` (${faster.toFixed(0)}% faster than the guess)` : ""} · solved in ${(result.solveMs / 1000).toFixed(2)} s${changed ? " · the path changed while it ran: generate again" : ""}`,
         })
+        hotReload(robotPath, [variant ? `${spec.name}@${variant}` : spec.name], true, toast)
       })
       .catch(e => {
         if (id !== genReq.current) return
@@ -382,6 +384,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
     specs.forEach(visit)
     const st = Object.fromEntries((await invoke<PathStatus[]>("paths_status", { robotPath, robot, field: fieldDoc })).map(q => [q.name, q]))
     let done = 0, failed: string[] = []
+    const sent: string[] = []
     // A parent regenerated now outdates what continues from it.
     const regenerated = new Set<string>()
     let stopped = false
@@ -397,6 +400,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
         try {
           await invoke<PlanResult>("path_plan", { robot, spec: s2, field: fieldDoc, fieldSize, robotPath, variant: v })
           done++
+          sent.push(v ? `${q.name}@${v}` : q.name)
         } catch (e) {
           if (isStopped(e)) { stopped = true; break }
           failed.push(`${q.name}${v ? "@" + v : ""}: ${String(e)}`)
@@ -411,6 +415,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
     if (stopped) toast({ kind: "stopped", title: "Stopped generating", body: `${plural(done)} done before the stop; the rest kept their last trajectory.` })
     else if (failed.length) toast({ kind: "error", title: `Generated ${plural(done)}, ${failed.length} failed`, body: failed.join(" · ") })
     else toast({ kind: "success", title: done ? `Generated ${plural(done)}` : "Everything is up to date", body: done ? "In order: each path before what continues from it." : undefined })
+    if (sent.length) hotReload(robotPath, sent, true, toast)
     await refreshStatus()
     // The open path shows its fresh trajectory.
     if (base && current?.savedName) {

@@ -19,6 +19,7 @@ const answers: Record<string, unknown> = {
   robot_names: { root: null, commands: [], conditions: [], events: [], files: 0 },
   nt_status: { connected: false, address: "" },
   tune_runs: [],
+  app_info: { version: "0.1.0", areslib: "0.1.0" },
   "plugin:event|listen": 1,
 }
 ;(window as unknown as { __TAURI_EVENT_PLUGIN_INTERNALS__: unknown }).__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} }

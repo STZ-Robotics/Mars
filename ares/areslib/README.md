@@ -132,6 +132,21 @@ driver.a().whileTrue(ares.pathfindTo(new Pose2d(1.8, 7.6, Rotation2d.fromDegrees
 ares.pathfindThenFollow("Score");   // to where Score starts, then Score
 ```
 
+## Hot reload, and the auto chooser
+
+While the Ares app is connected (Live, Measure: the same connection), every
+path it generates and every auto it saves goes to the robot at once and
+replaces what AresLib has, without a deploy (PathPlanner's hot reload). Never
+with a field connected; it lasts until the robot restarts, so deploy to keep
+it. `/Ares/HotReload/Last` says what the robot did. Off with
+`withHotReload(false)`, or in the app's Settings.
+
+`ares.autoChooser("Qualifiers")` lists one folder of the Autos tab.
+While the robot is disabled, the auto picked is published with where to put
+the robot for it: `/Ares/Auto/Selected`, `/Ares/Auto/StartPose`, and the
+"Ares Auto" field (start pose and first path) on the dashboard; the Live tab
+draws it too.
+
 ## Autos with triggers, in code
 
 Choreo's AutoRoutine: instead of the Autos tab's list of steps, the paths say

@@ -62,6 +62,7 @@ export default function LivePage({ robot }: { robot: RobotConfig }) {
             <div><span style={{ color: COMMANDED }}>━</span> the path being driven</div>
             <div><span style={{ color: COMMANDED }}>┅</span> where the trajectory says to be</div>
             <div><span style={{ color: ACTUAL }}>■</span> the robot, and its trail</div>
+            <div><span style={{ color: "#7c3aed" }}>┅</span> where to place it for the auto picked</div>
           </div>
           {!connected && <Center>Connect to the robot (or the simulation) to see it drive.</Center>}
           {nothing && <Center>Connected, but nothing under /Ares: is the robot code running AresLib?</Center>}
@@ -99,6 +100,9 @@ function StatusColumn({ live, worst, connected }: { live: LiveState | null; wors
       {row("Speed", live ? `${v.toFixed(2)} m/s` : "—")}
       {row("Times it replanned", live ? String(live.replans) : "—")}
       {row("Events now", live?.events.length ? live.events.join(", ") : "—")}
+      {row("Auto picked", live?.auto || "—")}
+      {live?.autoStart && live.auto && live.auto !== "None" && row("…starts at", `${live.autoStart.x.toFixed(2)}, ${live.autoStart.y.toFixed(2)} m · ${(live.autoStart.heading * 180 / Math.PI).toFixed(0)}°`)}
+      {live?.autoStart && live.robot && live.auto && live.auto !== "None" && !live.active && row("…the robot is off by", `${(Math.hypot(live.robot.x - live.autoStart.x, live.robot.y - live.autoStart.y) * 100).toFixed(0)} cm`)}
       {row("Robot", live?.robot ? `${live.robot.x.toFixed(2)}, ${live.robot.y.toFixed(2)} m · ${(live.robot.heading * 180 / Math.PI).toFixed(0)}°` : "—")}
       <div style={{ padding: "10px 14px", fontSize: 10.5, color: "var(--text-secondary)", lineHeight: 1.5 }}>
         <b>Gains</b> {live?.gainsSource ? `from ${live.gainsSource}` : ""}<br />
@@ -126,6 +130,10 @@ function LiveField({ robot, live, trail }: { robot: RobotConfig; live: LiveState
         line(live.path, COMMANDED, 3)
       }
       drawTrail(trail, "rgba(47,111,219,0.55)", 2)
+      // Before the match: where the robot goes for the auto picked.
+      if (live?.autoStart && !live.active && live.auto && live.auto !== "None") {
+        bumper(live.autoStart, lengthM, widthM, "#7c3aed", "rgba(124,58,237,0.12)", [5, 4])
+      }
       if (live?.target && live.active) bumper(live.target, lengthM, widthM, COMMANDED, null, [6, 4])
       if (live?.robot) bumper(live.robot, lengthM, widthM, ACTUAL, "rgba(47,111,219,0.28)")
       // From where it should be to where it is.

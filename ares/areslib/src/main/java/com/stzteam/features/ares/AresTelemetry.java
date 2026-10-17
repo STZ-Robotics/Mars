@@ -26,6 +26,8 @@ public final class AresTelemetry {
   private static edu.wpi.first.networktables.IntegerPublisher replans;
   private static edu.wpi.first.networktables.DoubleArrayPublisher commandedSpeeds;
   private static edu.wpi.first.networktables.DoubleArrayPublisher measuredSpeeds;
+  private static StringPublisher selectedAuto;
+  private static StructPublisher<Pose2d> autoStart;
 
   private AresTelemetry() {}
 
@@ -42,6 +44,15 @@ public final class AresTelemetry {
     replans = t.getIntegerTopic("Replans").publish();
     commandedSpeeds = t.getDoubleArrayTopic("CommandedSpeeds").publish();
     measuredSpeeds = t.getDoubleArrayTopic("MeasuredSpeeds").publish();
+    selectedAuto = t.getSubTable("Auto").getStringTopic("Selected").publish();
+    autoStart = t.getSubTable("Auto").getStructTopic("StartPose", Pose2d.struct).publish();
+  }
+
+  /** The auto picked in the chooser, and where to put the robot for it (none: it can start anywhere). */
+  static void selectedAuto(String name, Pose2d start) {
+    open();
+    selectedAuto.set(name);
+    if (start != null) autoStart.set(start);
   }
 
   static void path(String name, Pose2d[] poses) {

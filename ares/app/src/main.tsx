@@ -4,6 +4,9 @@ import "@tabler/icons-webfont/dist/tabler-icons.min.css"
 import "@desktop/styles/global.css"
 import "./styles/ares.css"
 import App from "./App"
+import { applyMotion } from "./settings/settings"
+
+applyMotion()
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>

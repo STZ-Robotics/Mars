@@ -82,7 +82,8 @@
           "type": "path",
           "path": "Alt"
         }
-      ]
+      ],
+      "folder": "Qualifiers"
     },
     {
       "name": "Full",
@@ -125,7 +126,8 @@
         {
           "type": "futureStep"
         }
-      ]
+      ],
+      "folder": "Qualifiers"
     },
     {
       "name": "Nested",

@@ -31,6 +31,9 @@ export interface LiveState {
   gainsSource: string
   translation: number[]
   rotation: number[]
+  /** The auto picked in the robot's chooser, and where the robot starts it (published while disabled). */
+  auto: string
+  autoStart: Pose | null
 }
 
 export function readLive(values: Record<string, NtValue>): LiveState {
@@ -49,6 +52,8 @@ export function readLive(values: Record<string, NtValue>): LiveState {
     gainsSource: str(values["/Ares/Gains/Source"]) ?? "",
     translation: arr(values["/Ares/Gains/Translation"]),
     rotation: arr(values["/Ares/Gains/Rotation"]),
+    auto: str(values["/Ares/Auto/Selected"]) ?? "",
+    autoStart: poses(values["/Ares/Auto/StartPose"])[0] ?? null,
   }
 }
 

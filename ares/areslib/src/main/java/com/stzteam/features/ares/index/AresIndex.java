@@ -44,9 +44,9 @@ public final class AresIndex {
    * (PathPlanner's "Reset Odometry"): whether it sets the robot's pose to its
    * first path's start; null leaves it to {@code Config.withResetPoseAtAutoStart}.
    */
-  public record Auto(String name, double budgetS, List<Step> steps, Boolean resetOdometry) {
+  public record Auto(String name, double budgetS, List<Step> steps, Boolean resetOdometry, String folder) {
     public Auto(String name, double budgetS, List<Step> steps) {
-      this(name, budgetS, steps, null);
+      this(name, budgetS, steps, null, null);
     }
   }
 
@@ -148,7 +148,8 @@ public final class AresIndex {
     for (var a : n.path("autos")) {
       var auto = new Auto(
           a.path("name").asText(), a.path("budgetS").asDouble(15), steps(a.path("steps")),
-          a.hasNonNull("resetOdometry") ? a.path("resetOdometry").asBoolean() : null);
+          a.hasNonNull("resetOdometry") ? a.path("resetOdometry").asBoolean() : null,
+          text(a, "folder"));
       autos.put(auto.name(), auto);
     }
     return new AresIndex(folder, n.path("robot").path("name").asText(""), List.copyOf(modules), paths, autos);

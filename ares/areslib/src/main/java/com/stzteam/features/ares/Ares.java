@@ -1,18 +1,23 @@
 package com.stzteam.features.ares;
 
-import com.stzteam.features.ares.index.AresIndex;
 import com.stzteam.features.ares.index.AresIndex.Step;
+import com.stzteam.features.ares.index.AresIndex;
+import com.stzteam.features.ares.trajectory.AresSample;
 import com.stzteam.features.ares.trajectory.AresTrajectory;
 import com.stzteam.features.ares.trajectory.FieldSymmetry;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
-import edu.wpi.first.wpilibj.Alert;
+import edu.wpi.first.networktables.NetworkTableEvent;
+import edu.wpi.first.networktables.NetworkTableInstance;
 import edu.wpi.first.wpilibj.Alert.AlertType;
-import edu.wpi.first.wpilibj.DriverStation;
+import edu.wpi.first.wpilibj.Alert;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
+import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.Filesystem;
 import edu.wpi.first.wpilibj.Timer;
+import edu.wpi.first.wpilibj.smartdashboard.Field2d;
 import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.FunctionalCommand;
@@ -20,14 +25,17 @@ import edu.wpi.first.wpilibj2.command.Subsystem;
 import edu.wpi.first.wpilibj2.command.button.Trigger;
 import java.io.File;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Queue;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
@@ -64,6 +72,8 @@ public final class Ares {
     double fieldLengthM = 16.541;
     double fieldWidthM = 8.0692;
     BooleanSupplier flip = () -> DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red;
+    NetworkTableInstance nt = NetworkTableInstance.getDefault();
+    boolean hotReload = true;
     AresPathfinder pathfinder;
     AresPathfinder.Constraints pathfindConstraints = new AresPathfinder.Constraints(3.0, 3.0, 2 * Math.PI, 4 * Math.PI);
     double estimateToleranceM = 0.3;
@@ -133,6 +143,22 @@ public final class Ares {
     }
 
     /** Whether an auto resets odometry to its first path's start (when that start is known). */
+    /**
+     * Whether the Ares app can send paths and autos to the robot without a
+     * deploy (PathPlanner's hot reload); on by default. Never with a field
+     * connected, and only until the robot restarts.
+     */
+    public Config withHotReload(boolean on) {
+      this.hotReload = on;
+      return this;
+    }
+
+    /** The NetworkTables instance for hot reload (the default one, but in tests). */
+    public Config withNetworkTables(NetworkTableInstance nt) {
+      this.nt = nt;
+      return this;
+    }
+
     public Config withResetPoseAtAutoStart(boolean reset) {
       this.resetPoseAtAutoStart = reset;
       return this;
@@ -187,7 +213,13 @@ public final class Ares {
 
   private final AresDrive drive;
   private final Config config;
-  private final AresIndex index;
+  private volatile AresIndex index;
+  /** The auto choosers made, with the folder each shows (null: all), to refresh on hot reload. */
+  private final List<Map.Entry<SendableChooser<Command>, String>> choosers = new ArrayList<>();
+  /** Hot reloads received on NetworkTables' thread, applied on the robot's. */
+  private final Queue<Runnable> reloads = new ConcurrentLinkedQueue<>();
+  private Field2d autoField;
+  private String shownAuto = "";
   private final AresPathfinder pathfinder;
   private final Map<String, AresTrajectory> blue = new HashMap<>();
   private final Map<String, AresTrajectory> red = new HashMap<>();
@@ -204,8 +236,10 @@ public final class Ares {
     this.drive = drive;
     this.config = config;
     readGains(config);
-    // The robot's pose every loop, for the Live tab, path or not.
-    edu.wpi.first.wpilibj2.command.CommandScheduler.getInstance().getDefaultButtonLoop().bind(() -> AresTelemetry.robot(drive.pose()));
+    // Every loop: the robot's pose for the Live tab (path or not), the hot
+    // reloads that came in, and the selected auto's start.
+    edu.wpi.first.wpilibj2.command.CommandScheduler.getInstance().getDefaultButtonLoop().bind(this::periodic);
+    if (config.hotReload) listenForHotReload();
     this.pathfinder = config.pathfinder != null ? config.pathfinder : defaultPathfinder(drive, config);
     AresIndex loaded;
     try {
@@ -605,10 +639,93 @@ public final class Ares {
 
   /** Every auto, plus "None", for the dashboard. */
   public SendableChooser<Command> autoChooser() {
+    return autoChooser(null);
+  }
+
+  /**
+   * The autos in one folder of the Autos tab (PathPlanner's chooser with a
+   * filter), plus "None": a chooser for qualifiers, another for playoffs.
+   * While the robot is disabled, the one picked is published with where to
+   * put the robot for it (/Ares/Auto, and the "Ares Auto" field).
+   */
+  public SendableChooser<Command> autoChooser(String folder) {
     var chooser = new SendableChooser<Command>();
     chooser.setDefaultOption("None", Commands.none());
-    for (var name : autoNames()) chooser.addOption(name, auto(name));
+    fillChooser(chooser, folder);
+    choosers.add(Map.entry(chooser, folder == null ? "" : folder));
     return chooser;
+  }
+
+  private void fillChooser(SendableChooser<Command> chooser, String folder) {
+    for (var a : index.autos().values()) {
+      if (folder == null || folder.isEmpty() || folder.equals(a.folder())) chooser.addOption(a.name(), auto(a.name()));
+    }
+  }
+
+  // --- Every loop ------------------------------------------------------------
+
+  private void periodic() {
+    AresTelemetry.robot(drive.pose());
+    for (Runnable r; (r = reloads.poll()) != null; ) r.run();
+    if (DriverStation.isDisabled() && !choosers.isEmpty()) showSelectedAuto();
+  }
+
+  /** The auto picked in the last chooser made: its name, its start pose, its first path on the field. */
+  private void showSelectedAuto() {
+    var picked = choosers.get(choosers.size() - 1).getKey().getSelected();
+    var name = picked == null ? "None" : picked.getName();
+    var key = name + (config.flip.getAsBoolean() ? "@red" : "@blue");
+    if (key.equals(shownAuto)) return;
+    shownAuto = key;
+    var start = startPose(name).orElse(null);
+    AresTelemetry.selectedAuto(name, start);
+    if (autoField == null) {
+      autoField = new Field2d();
+      SmartDashboard.putData("Ares Auto", autoField);
+    }
+    if (start != null) autoField.setRobotPose(start);
+    var first = index.auto(name).map(a -> firstPath(a.steps(), new HashSet<>())).orElse(null);
+    var traj = first == null ? null : blue.get(first);
+    autoField.getObject("Path").setPoses(traj == null ? List.of()
+        : orient(traj, config.flip.getAsBoolean()).samples().stream().map(AresSample::pose).toList());
+  }
+
+  // --- Hot reload --------------------------------------------------------------
+
+  private static final String RELOAD = "/Ares/HotReload/";
+
+  private void listenForHotReload() {
+    config.nt.addListener(new String[] {RELOAD + "Trajectories/", RELOAD + "Index"}, EnumSet.of(NetworkTableEvent.Kind.kValueRemote), e -> {
+      var v = e.valueData;
+      if (v == null || !v.value.isString()) return;
+      var topic = v.getTopic().getName();
+      var json = v.value.getString();
+      reloads.add(() -> hotReload(topic, json));
+    });
+  }
+
+  private void hotReload(String topic, String json) {
+    var status = config.nt.getTable("Ares").getSubTable("HotReload");
+    var what = topic.startsWith(RELOAD + "Trajectories/") ? topic.substring((RELOAD + "Trajectories/").length()) : "the autos";
+    if (DriverStation.isFMSAttached()) {
+      status.getEntry("Last").setString("refused " + what + ": a field is connected");
+      return;
+    }
+    try {
+      if (what.equals("the autos")) {
+        index = AresIndex.parse(config.folder, json);
+        for (var c : choosers) fillChooser(c.getKey(), c.getValue());
+        shownAuto = "";
+      } else {
+        blue.put(what, AresTrajectory.parse(json));
+        red.remove(what);
+      }
+      status.getEntry("Last").setString("applied " + what);
+      status.getEntry("Count").setDouble(status.getEntry("Count").getDouble(0) + 1);
+      System.out.println("Ares: hot reload of " + what);
+    } catch (Exception ex) {
+      status.getEntry("Last").setString("failed " + what + ": " + ex.getMessage());
+    }
   }
 
   // The first path an auto drives, when it is the first thing that moves the

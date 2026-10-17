@@ -90,3 +90,11 @@ input {
     transition-duration: 1ms !important;
   }
 }
+
+/* Settings → Motion off. */
+.ares-no-motion *,
+.ares-no-motion *::before,
+.ares-no-motion *::after {
+  animation: none !important;
+  transition: none !important;
+}

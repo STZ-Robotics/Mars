@@ -18,8 +18,10 @@ import { useProjectSync } from "./vars/sync"
 import { ToastProvider } from "./ui/toasts"
 import SwerveIcon from "./ui/SwerveIcon"
 import PageBoundary from "./ui/PageBoundary"
+import SettingsPage from "./settings/SettingsPage"
+import { getSettings } from "./settings/settings"
 
-type Page = "robot" | "paths" | "autos" | "live" | "logs" | "tune" | "characterize" | "field" | "variables"
+type Page = "robot" | "paths" | "autos" | "live" | "logs" | "tune" | "characterize" | "field" | "variables" | "settings"
 
 const LAST_ROBOT_KEY = "ares.lastRobot"
 const LAST_PAGE_KEY = "ares.lastPage"
@@ -29,7 +31,7 @@ const LAST_PAGE_KEY = "ares.lastPage"
 // document the File menu opens and saves.
 export default function App() {
   const [page, setPage] = useState<Page>(() => {
-    try { const p = localStorage.getItem(LAST_PAGE_KEY); if (p === "robot" || p === "paths" || p === "autos" || p === "live" || p === "logs" || p === "tune" || p === "characterize" || p === "field" || p === "variables") return p } catch { /* first run */ }
+    try { const p = localStorage.getItem(LAST_PAGE_KEY); if (p === "robot" || p === "paths" || p === "autos" || p === "live" || p === "logs" || p === "tune" || p === "characterize" || p === "field" || p === "variables" || p === "settings") return p } catch { /* first run */ }
     return "robot"
   })
   useEffect(() => { try { localStorage.setItem(LAST_PAGE_KEY, page) } catch { /* nothing to remember */ } }, [page])
@@ -58,7 +60,7 @@ export default function App() {
     invoke<string | null>("startup_robot")
       .catch(() => null)
       .then(arg => {
-        const path = arg ?? recall()
+        const path = arg ?? (getSettings().openLastRobot ? recall() : null)
         if (path) openPath(path)
       })
   }, [openPath])
@@ -157,7 +159,8 @@ export default function App() {
           {page === "tune" && <TunePage robot={robot} robotPath={robotPath} />}
           {page === "characterize" && <CharacterizePage robot={robot} robotPath={robotPath} onRobot={setRobot} />}
           {page === "field" && <FieldPage robot={robot} robotPath={robotPath} />}
-          {page === "variables" && <VariablesPage robot={robot} robotPath={robotPath} onRobot={setRobot} />}
+          {page === "settings" && <SettingsPage robotPath={robotPath} />}
+        {page === "variables" && <VariablesPage robot={robot} robotPath={robotPath} onRobot={setRobot} />}
         </PageBoundary>
         </div>
       </div>
@@ -241,6 +244,7 @@ const PAGES: { id: Page; label: string; icon: string; ready: boolean }[] = [
   { id: "characterize", label: "Measure", icon: "ti-chart-dots", ready: true },
   { id: "field", label: "Field", icon: "ti-map-2", ready: true },
   { id: "variables", label: "Variables", icon: "ti-variable", ready: true },
+  { id: "settings", label: "Settings", icon: "ti-settings", ready: true },
 ]
 
 function Rail({ page, onSelect }: { page: Page; onSelect: (p: Page) => void }) {
@@ -248,8 +252,14 @@ function Rail({ page, onSelect }: { page: Page; onSelect: (p: Page) => void }) {
   const refs = useRef<Partial<Record<Page, HTMLButtonElement | null>>>({})
   const [mark, setMark] = useState<{ top: number; height: number } | null>(null)
   useLayoutEffect(() => {
-    const b = refs.current[page]
-    if (b) setMark({ top: b.offsetTop, height: b.offsetHeight })
+    const place = () => {
+      const b = refs.current[page]
+      if (b) setMark({ top: b.offsetTop, height: b.offsetHeight })
+    }
+    place()
+    // Settings sits at the bottom: it moves when the window is resized.
+    window.addEventListener("resize", place)
+    return () => window.removeEventListener("resize", place)
   }, [page])
   return (
     <div style={{ width: 52, flexShrink: 0, background: "var(--bg-sidebar)", borderRight: "1px solid var(--border-main)", display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 6, gap: 2, position: "relative" }}>
@@ -267,6 +277,8 @@ function Rail({ page, onSelect }: { page: Page; onSelect: (p: Page) => void }) {
           onMouseLeave={e => { if (page !== p.id) e.currentTarget.style.background = "transparent" }}
           style={{
             width: 46, padding: "6px 0", border: "none", borderRadius: 4, cursor: "pointer",
+            // Settings sits apart, at the bottom.
+            marginTop: p.id === "settings" ? "auto" : undefined, marginBottom: p.id === "settings" ? 6 : undefined,
             display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
             background: page === p.id ? "var(--toolbar-active-bg)" : "transparent",
             color: page === p.id ? "var(--ares-accent)" : p.ready ? "var(--icon-tree)" : "var(--text-light)", opacity: p.ready ? 1 : 0.6,

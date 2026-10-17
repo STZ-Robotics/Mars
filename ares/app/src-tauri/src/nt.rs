@@ -89,6 +89,32 @@ pub async fn nt_set_boolean(topic: String, value: bool, state: State<'_, NT4Stat
     c.set_value(&topic, "boolean", 0, rmpv::Value::from(value)).await
 }
 
+/// Hot reload: sends trajectories (by key, "path" or "path@variant") and,
+/// with `index`, the project's index (the autos) to the connected robot,
+/// where AresLib swaps them in without a deploy. Each trajectory on a topic
+/// of its own, so two sent together do not overwrite each other. Returns how
+/// many it sent; none when not connected.
+#[tauri::command]
+pub async fn nt_hot_reload(robot_path: String, keys: Vec<String>, index: bool, state: State<'_, NT4State>) -> Result<usize, String> {
+    let mut c = state.0.lock().await;
+    if !c.is_connected {
+        return Ok(0);
+    }
+    let mut sent = 0;
+    for key in keys {
+        let Some(t) = crate::project::trajectory_open(robot_path.clone(), key.clone()) else { continue };
+        let json = serde_json::to_string(&t).map_err(|e| e.to_string())?;
+        c.set_value(&format!("/Ares/HotReload/Trajectories/{key}"), "string", 4, rmpv::Value::from(json)).await?;
+        sent += 1;
+    }
+    if index {
+        let json = serde_json::to_string(&crate::project::index_json(&robot_path)).map_err(|e| e.to_string())?;
+        c.set_value("/Ares/HotReload/Index", "string", 4, rmpv::Value::from(json)).await?;
+        sent += 1;
+    }
+    Ok(sent)
+}
+
 #[cfg(test)]
 mod tests {
     #[test]

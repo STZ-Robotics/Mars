@@ -318,10 +318,12 @@ pub fn run() {
             tuning::calibration_save,
             tuning::calibration_open,
             tuning::calibration_delete,
+            app_info,
             logs::log_open,
             logs::log_run,
             logs::log_calibrate,
             logs::log_calibrate_cancel,
+            nt::nt_hot_reload,
             nt::nt_connect,
             nt::nt_disconnect,
             nt::nt_status,
@@ -407,6 +409,17 @@ mod tests {
 pub(crate) struct NtSettings {
     pub nt_retention_minutes: u32,
 }
+
+/// The app's and AresLib's versions, for Settings → About.
+#[tauri::command]
+fn app_info() -> serde_json::Value {
+    let feature: serde_json::Value = serde_json::from_str(include_str!("../../../areslib/MarsFeature.json")).unwrap_or_default();
+    serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "areslib": feature.get("version").and_then(|v| v.as_str()).unwrap_or("?"),
+    })
+}
+
 
 pub(crate) fn load_mars_settings() -> NtSettings {
     NtSettings { nt_retention_minutes: 2 }
