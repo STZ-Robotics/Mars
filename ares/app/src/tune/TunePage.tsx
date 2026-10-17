@@ -9,6 +9,7 @@ import { drawFieldBackground } from "../paths/FieldView"
 import { fieldSketch } from "../paths/fieldSketch"
 import { loadView } from "../paths/PathsPage"
 import { useToast } from "../ui/toasts"
+import SwerveIcon from "../ui/SwerveIcon"
 import { BEST, PopulationChart, TrainingChart, WorldsChart } from "./charts"
 import {
   AppliedGains, Criterion, DISTURBANCE_PRESETS, Disturbance, Method, PARAM_GROUPS, PARAM_INFO, Param, Progress, RobotCode, RobotTuning, SavedRun, TuneConfig, WORLD_VARS, World,
@@ -175,9 +176,9 @@ function Tuner({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) 
       <div className="ares-scroll" style={{ width: SIDEBAR, flexShrink: 0, overflowY: "auto", borderRight: "1px solid var(--border-main)", background: "var(--bg-panel)" }}>
         <div style={{ padding: "12px 12px 10px", borderBottom: "1px solid var(--border-light)" }}>
           <div style={{ fontSize: 10, color: "var(--text-header-eyebrow)", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 4 }}>Tune</div>
-          <div style={{ fontSize: 15, fontWeight: 600 }}>Gains that hold up</div>
+          <div style={{ fontSize: 15, fontWeight: 600 }}>Path following gains</div>
           <div style={{ fontSize: 10.5, color: "var(--text-header-subtitle)", marginTop: 5, lineHeight: 1.45 }}>
-            The robot is simulated on your paths in many worlds, with its own code's loops, and the search keeps the gains that do best where it goes worst.
+            Simulates the selected paths in each world with the robot code's controllers and searches the gains by the chosen criterion.
           </div>
         </div>
 
@@ -208,7 +209,13 @@ function Tuner({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) 
           title="gains.json in the project: what AresLib runs with after a deploy, unless the robot code calls withGains">
           <b>On the robot</b>{" "}
           {applied
-            ? <>(gains.json{applied.source ? `, ${applied.source}` : ""}): translation kP {fmt3(applied.translation.kp)} kD {fmt3(applied.translation.kd)} · rotation kP {fmt3(applied.rotation.kp)} kD {fmt3(applied.rotation.kd)}</>
+            ? <>(gains.json{applied.source ? `, ${applied.source}` : ""}): translation kP {fmt3(applied.translation.kp)} kD {fmt3(applied.translation.kd)} · rotation kP {fmt3(applied.rotation.kp)} kD {fmt3(applied.rotation.kd)}
+                {" "}<a href="#" style={{ color: "#c21c1c" }} onClick={async e => {
+                  e.preventDefault()
+                  if (!window.confirm("Remove gains.json? After the next deploy AresLib uses the code's withGains, or its defaults.")) return
+                  await invoke("gains_delete", { robotPath }).catch(err => toast({ kind: "error", title: "Could not remove it", body: String(err) }))
+                  refreshSaved()
+                }}>Remove</a></>
             : <>: no gains.json yet, so AresLib uses its defaults (kP 4) or the code's withGains. "Apply to robot" writes it.</>}
         </div>
         <div style={{ padding: "4px 12px 2px", fontSize: 10, color: "var(--text-muted)" }}>
@@ -320,16 +327,36 @@ function Tuner({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) 
         <Row label="Lost the path at" hint="Off the trajectory by more than this, a run counts as lost (PathFollowingTuner's abort)"><Num value={abortM} onChange={setAbortM} /> m</Row>
         <Note>About {totalRuns.toLocaleString()} runs, at several thousand a second.</Note>
 
-        <Heading label="Previous runs" />
+        <Heading label="Previous runs">
+          {saved.length > 0 && (
+            <IconAction icon="ti-trash" title="Delete every saved run" onClick={async () => {
+              if (!window.confirm(`Delete all ${saved.length} saved runs in tuning/?`)) return
+              try {
+                const n = await invoke<number>("tune_runs_clear", { robotPath })
+                setViewingSaved(null)
+                refreshSaved()
+                toast({ kind: "info", title: `Deleted ${n} run${n === 1 ? "" : "s"}` })
+              } catch (e) { toast({ kind: "error", title: "Could not delete them", body: String(e) }) }
+            }} />
+          )}
+        </Heading>
         {saved.length === 0 && <Note>None yet: each finished run is kept in tuning/.</Note>}
         {saved.map((r, i) => {
           const gain = r.baseline.score > 0 ? (1 - r.best.score / r.baseline.score) * 100 : 0
           return (
             <div key={r.savedAt} onClick={() => setViewingSaved(v => (v === i ? null : i))} title="Show this run's result"
               style={{ padding: "5px 12px", fontSize: 11, cursor: "pointer", borderBottom: "1px solid var(--border-light)", background: viewingSaved === i ? "var(--tree-selection-bg)" : "transparent", color: viewingSaved === i ? "var(--tree-selection-fg)" : "var(--text-primary)" }}>
-              <div style={{ display: "flex", gap: 6 }}>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                 <span>{new Date(r.savedAt * 1000).toLocaleString()}</span>
                 <span style={{ marginLeft: "auto", fontWeight: 600 }}>{gain >= 0 ? "−" : "+"}{Math.abs(gain).toFixed(0)}%</span>
+                <IconAction icon="ti-x" title="Delete this run" onClick={async ev => {
+                  ev.stopPropagation()
+                  try {
+                    await invoke("tune_run_delete", { robotPath, savedAt: r.savedAt })
+                    setViewingSaved(null)
+                    refreshSaved()
+                  } catch (e) { toast({ kind: "error", title: "Could not delete it", body: String(e) }) }
+                }} />
               </div>
               <div style={{ opacity: 0.8 }}>{r.paths.join(", ")}{r.cancelled ? " · stopped" : ""}</div>
             </div>
@@ -493,7 +520,7 @@ function ResultPanel({ progress, params, best, baseline, running, saved, notes, 
         <button onClick={onApply} disabled={running}
           title="Writes gains.json next to the robot: AresLib uses it after the next deploy, with no code to change"
           style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, height: 30, fontSize: 12, fontWeight: 600, cursor: running ? "default" : "pointer", border: "1px solid #c2410c", borderRadius: 2, background: isApplied ? "var(--btn-classic-bg)" : "#e95420", color: isApplied ? "#15803d" : "#fff", opacity: running ? 0.5 : 1 }}>
-          <i className={`ti ${isApplied ? "ti-circle-check" : "ti-robot"}`} /> {isApplied ? "Applied: on the robot after a deploy" : "Apply to robot"}
+          {isApplied ? <i className="ti ti-circle-check" /> : <SwerveIcon size={15} />} {isApplied ? "Applied: on the robot after a deploy" : "Apply to robot"}
         </button>
         <div style={{ display: "flex", gap: 6 }}>
           <SmallButton icon="ti-copy" label="Copy as Java" onClick={onCopy} />
@@ -655,11 +682,22 @@ function TuneField({ robot, trajs, tracks, baseTracks, hoverWorld }: {
   )
 }
 
-function Heading({ label }: { label: string }) {
+function Heading({ label, children }: { label: string; children?: ReactNode }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", height: 30, padding: "0 12px", marginTop: 6, background: "var(--bg-panel-header)", borderTop: "1px solid var(--border-main)", borderBottom: "1px solid var(--border-main)" }}>
+    <div style={{ display: "flex", alignItems: "center", height: 30, padding: "0 6px 0 12px", marginTop: 6, background: "var(--bg-panel-header)", borderTop: "1px solid var(--border-main)", borderBottom: "1px solid var(--border-main)" }}>
       <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", color: "var(--text-header-eyebrow)" }}>{label}</span>
+      <span style={{ marginLeft: "auto" }}>{children}</span>
     </div>
+  )
+}
+
+function IconAction({ icon, title, onClick }: { icon: string; title: string; onClick: (e: React.MouseEvent) => void }) {
+  return (
+    <button title={title} onClick={onClick}
+      style={{ border: "none", background: "transparent", cursor: "pointer", padding: "2px 4px", color: "var(--text-muted)", fontSize: 13 }}
+      onMouseEnter={e => (e.currentTarget.style.color = "#c21c1c")} onMouseLeave={e => (e.currentTarget.style.color = "var(--text-muted)")}>
+      <i className={`ti ${icon}`} />
+    </button>
   )
 }
 

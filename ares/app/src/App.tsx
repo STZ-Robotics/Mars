@@ -15,6 +15,7 @@ import LivePage from "./live/LivePage"
 import { VariablesProvider } from "./vars/context"
 import { useProjectSync } from "./vars/sync"
 import { ToastProvider } from "./ui/toasts"
+import SwerveIcon from "./ui/SwerveIcon"
 
 type Page = "robot" | "paths" | "autos" | "live" | "tune" | "characterize" | "field" | "variables"
 
@@ -225,7 +226,7 @@ function MenuBar({ menus }: { menus: { label: string; items: MenuEntry[] }[] }) 
 }
 
 const PAGES: { id: Page; label: string; icon: string; ready: boolean }[] = [
-  { id: "robot", label: "Robot", icon: "ti-robot", ready: true },
+  { id: "robot", label: "Robot", icon: "swerve", ready: true },
   { id: "paths", label: "Paths", icon: "ti-route", ready: true },
   { id: "autos", label: "Autos", icon: "ti-list-details", ready: true },
   { id: "live", label: "Live", icon: "ti-broadcast", ready: true },
@@ -250,7 +251,7 @@ function Rail({ page, onSelect }: { page: Page; onSelect: (p: Page) => void }) {
             color: p.ready ? "var(--icon-tree)" : "var(--text-light)", opacity: p.ready ? 1 : 0.6,
           }}
         >
-          <i className={`ti ${p.icon}`} style={{ fontSize: 20 }} aria-hidden />
+          {p.icon === "swerve" ? <SwerveIcon size={21} /> : <i className={`ti ${p.icon}`} style={{ fontSize: 20 }} aria-hidden />}
           <span style={{ fontSize: 9.5 }}>{p.label}</span>
         </button>
       ))}

@@ -100,6 +100,12 @@ export default function CharacterizePage({ robot, robotPath, onRobot }: { robot:
           <RoutineCard key={r} routine={r} st={routines[r]} connected={connected} onRun={on => run(r, on)}>
             <Results routine={r} st={routines[r]} tuning={tuning} robot={robot} saved={saved}
               onSave={save} onCopy={copy}
+              onForget={async what => {
+                if (!robotPath) return
+                await invoke("characterization_forget", { robotPath, what }).catch(e => toast({ kind: "error", title: "Could not forget it", body: String(e) }))
+                const d = await invoke<CharacterizationDoc | null>("characterization_open", { robotPath }).catch(() => null)
+                setSaved(d ?? {})
+              }}
               onRadius={m => { onRobot({ ...robot, drivetrain: { ...robot.drivetrain, wheelRadiusM: m } }); toast({ kind: "info", title: `Wheel radius ${(m * 1000).toFixed(2)} mm in the robot`, body: "Save the robot (Ctrl+S); generate the paths again so they use it." }) }} />
           </RoutineCard>
         ))}
@@ -144,9 +150,10 @@ function RoutineCard({ routine, st, connected, onRun, children }: { routine: Rou
   )
 }
 
-function Results({ routine, st, tuning, robot, saved, onSave, onCopy, onRadius }: {
+function Results({ routine, st, tuning, robot, saved, onSave, onCopy, onRadius, onForget }: {
   routine: Routine; st: RoutineState | null; tuning: RobotTuning | null; robot: RobotConfig; saved: CharacterizationDoc
   onSave: (d: CharacterizationDoc, what: string) => void; onCopy: (text: string, what: string) => void; onRadius: (m: number) => void
+  onForget: (what: "drive" | "steer" | "wheelRadiusM") => void
 }) {
   const info = INFO[routine]
   if (routine === "WheelRadius") {
@@ -159,9 +166,10 @@ function Results({ routine, st, tuning, robot, saved, onSave, onCopy, onRadius }
           ["TunerConstants", tuning?.wheelRadiusM ? `${(tuning.wheelRadiusM * 1000).toFixed(2)} mm` : "—", false],
           ["Last saved", saved.wheelRadiusM ? `${(saved.wheelRadiusM.value * 1000).toFixed(2)} mm` : "—", false],
         ]} />
+        {saved.wheelRadiusM && <Forget onClick={() => onForget("wheelRadiusM")} />}
         {st?.results.WheelRadiusM !== undefined && (
           <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-            <Button icon="ti-robot" onClick={() => onRadius(st.results.WheelRadiusM)}>Use in robot.json</Button>
+            <Button icon="ti-file-settings" onClick={() => onRadius(st.results.WheelRadiusM)}>Use in robot.json</Button>
             <Button icon="ti-device-floppy" onClick={() => onSave({ wheelRadiusM: { value: st.results.WheelRadiusM, at: Date.now() } }, "Wheel radius")}>Save</Button>
             <Button icon="ti-copy" onClick={() => onCopy(`private static final Distance kWheelRadius = Meters.of(${st.results.WheelRadiusM.toFixed(5)});`, "kWheelRadius")}>Copy for TunerConstants</Button>
           </div>
@@ -187,6 +195,7 @@ function Results({ routine, st, tuning, robot, saved, onSave, onCopy, onRadius }
         ] : []),
         ["Last saved", last ? `kS ${last.kS.toFixed(4)} · kV ${last.kV.toFixed(4)}` : "—", false, ""],
       ]} header={["", "measured", "TunerConstants"]} />
+      {last && <Forget onClick={() => onForget(routine === "Drive" ? "drive" : "steer")} />}
       {r2 !== undefined && r2 < 0.99 && done && <div style={{ color: "#b45309", marginTop: 6 }}><i className="ti ti-alert-triangle" /> R² under 0.99: a dusty carpet or a tired battery. Charge it and run again.</div>}
       {done && kS !== undefined && kV !== undefined && (
         <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
@@ -282,4 +291,13 @@ function Compare({ rows, header }: { rows: ([string, string, boolean] | [string,
 
 function fmtV(v: number | null | undefined, unit: string) {
   return v === undefined || v === null || !Number.isFinite(v) ? "—" : `${v.toFixed(4)}${unit ? " " + unit : ""}`
+}
+
+function Forget({ onClick }: { onClick: () => void }) {
+  return (
+    <a href="#" onClick={e => { e.preventDefault(); if (window.confirm("Forget the saved values? Tune goes back to the robot code's.")) onClick() }}
+      style={{ display: "inline-block", marginTop: 4, fontSize: 10.5, color: "#c21c1c" }}>
+      Forget the saved values
+    </a>
+  )
 }
