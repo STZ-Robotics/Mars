@@ -43,6 +43,8 @@ export default function FieldPage({ robot, robotPath }: { robot: RobotConfig; ro
   const [symmetry, setSymmetry] = useState<"rotate" | "mirror">("rotate")
   const [routeAB, setRouteAB] = useState<{ a: [number, number]; b?: [number, number] } | null>(null)
   const history = useRef<{ undo: (NavGrid | undefined)[]; redo: (NavGrid | undefined)[] }>({ undo: [], redo: [] })
+  const [showKeepOuts, setShowKeepOutsState] = useState(() => { try { return localStorage.getItem("ares.navgridKeepOuts") === "1" } catch { return false } })
+  const setShowKeepOuts = (on: boolean) => { setShowKeepOutsState(on); try { localStorage.setItem("ares.navgridKeepOuts", on ? "1" : "0") } catch { /* not remembered */ } }
   const [, setTick] = useState(0)
   const reach = Math.hypot(robot.bumper.lengthM, robot.bumper.widthM) / 2
 
@@ -167,6 +169,12 @@ export default function FieldPage({ robot, robotPath }: { robot: RobotConfig; ro
           <div style={{ fontSize: 10, color: "var(--text-header-subtitle)", marginTop: 5 }}>
             {L} × {W} m · {doc.keepOut.length} keep-out{doc.keepOut.length === 1 ? "" : "s"} (drawn in Paths)
           </div>
+          {doc.keepOut.length > 0 && (
+            <label style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, fontSize: 11, color: "var(--text-secondary)", cursor: "pointer" }}
+              title="The keep-outs drawn in Paths, as faint outlines under the grid: only to compare. The grid alone is what the pathfinder uses on the robot.">
+              <input type="checkbox" checked={showKeepOuts} onChange={e => setShowKeepOuts(e.target.checked)} /> Show the keep-outs under the grid
+            </label>
+          )}
         </div>
 
         <Heading label="Navgrid" />
@@ -260,7 +268,7 @@ export default function FieldPage({ robot, robotPath }: { robot: RobotConfig; ro
         </div>
         <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
           <GridCanvas
-            field={field} robot={robot} grid={grid} doc={doc} tool={tool} brushM={brushM} reach={reach}
+            field={field} robot={robot} grid={grid} doc={doc} tool={tool} brushM={brushM} reach={reach} showKeepOuts={showKeepOuts}
             route={path} routeAB={routeAB}
             onPaint={(cells, block, first) => setGrid(g => (g ? paint(g, cells, block) : g), first)}
             onBox={(a, b, block) => setGrid(g => (g ? paint(g, box(g, a, b), block) : g), true)}
@@ -286,6 +294,8 @@ function GridCanvas(p: {
   tool: Tool
   brushM: number
   reach: number
+  /** The keep-outs under the grid, faint, to compare; off by default (they cluttered the grid). */
+  showKeepOuts: boolean
   route: [number, number][] | null
   routeAB: { a: [number, number]; b?: [number, number] } | null
   onPaint: (cells: [number, number][], block: boolean, first: boolean) => void
@@ -348,17 +358,16 @@ function GridCanvas(p: {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     drawFieldBackground(ctx, size, toScreen, view.k, field, image, sketch, opts)
 
-    // Keep-outs for reference: the circle and how far the robot's center stays from it.
-    for (const c of p.doc.keepOut) {
-      const [cx, cy] = toScreen(c.x, c.y)
-      ctx.fillStyle = "rgba(194,28,28,0.18)"
-      ctx.strokeStyle = "rgba(194,28,28,0.8)"
-      ctx.lineWidth = 1.2
-      ctx.beginPath(); ctx.arc(cx, cy, c.radiusM * view.k, 0, 2 * Math.PI); ctx.fill(); ctx.stroke()
-      ctx.setLineDash([4, 4])
-      ctx.strokeStyle = "rgba(194,28,28,0.45)"
-      ctx.beginPath(); ctx.arc(cx, cy, (c.radiusM + p.reach) * view.k, 0, 2 * Math.PI); ctx.stroke()
-      ctx.setLineDash([])
+    // Keep-outs, only when asked: a faint outline of each, to compare.
+    if (p.showKeepOuts) {
+      for (const c of p.doc.keepOut) {
+        const [cx, cy] = toScreen(c.x, c.y)
+        ctx.strokeStyle = "rgba(194,28,28,0.45)"
+        ctx.lineWidth = 1
+        ctx.setLineDash([3, 4])
+        ctx.beginPath(); ctx.arc(cx, cy, c.radiusM * view.k, 0, 2 * Math.PI); ctx.stroke()
+        ctx.setLineDash([])
+      }
     }
 
     if (grid) {
@@ -418,7 +427,7 @@ function GridCanvas(p: {
       ctx.fillStyle = blockedAt(grid, cursor[0], cursor[1]) ? "#c21c1c" : "#1c1c1f"
       ctx.beginPath(); ctx.arc(sx, sy, 2.5, 0, 2 * Math.PI); ctx.fill()
     }
-  }, [size, view, image, sketch, grid, p.doc, cursor, boxDraft, tool, p.brushM, p.route, p.routeAB, p.reach])
+  }, [size, view, image, sketch, grid, p.doc, cursor, boxDraft, tool, p.brushM, p.route, p.routeAB, p.reach, p.showKeepOuts])
 
   const local = (e: React.MouseEvent): [number, number] => {
     const r = canvasRef.current!.getBoundingClientRect()

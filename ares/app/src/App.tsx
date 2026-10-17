@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { open, save } from "@tauri-apps/plugin-dialog"
@@ -146,15 +146,17 @@ export default function App() {
       />
       <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
         <Rail page={page} onSelect={setPage} />
-        {page === "robot" && <RobotSettingsPage robot={robot} onChange={setRobot} robotPath={robotPath} />}
-        {page === "paths" && <PathsPage robot={robot} robotPath={robotPath} onSaveRobot={fileSave} />}
-        {page === "autos" && <AutosPage robot={robot} robotPath={robotPath} />}
-        {page === "live" && <LivePage robot={robot} />}
-        {page === "logs" && <LogsPage robot={robot} robotPath={robotPath} />}
-        {page === "tune" && <TunePage robot={robot} robotPath={robotPath} />}
-        {page === "characterize" && <CharacterizePage robot={robot} robotPath={robotPath} onRobot={setRobot} />}
-        {page === "field" && <FieldPage robot={robot} robotPath={robotPath} />}
-        {page === "variables" && <VariablesPage robot={robot} robotPath={robotPath} onRobot={setRobot} />}
+        <div key={page} className="ares-page" style={{ flex: 1, display: "flex", minWidth: 0, minHeight: 0 }}>
+          {page === "robot" && <RobotSettingsPage robot={robot} onChange={setRobot} robotPath={robotPath} />}
+          {page === "paths" && <PathsPage robot={robot} robotPath={robotPath} onSaveRobot={fileSave} />}
+          {page === "autos" && <AutosPage robot={robot} robotPath={robotPath} />}
+          {page === "live" && <LivePage robot={robot} />}
+          {page === "logs" && <LogsPage robot={robot} robotPath={robotPath} />}
+          {page === "tune" && <TunePage robot={robot} robotPath={robotPath} />}
+          {page === "characterize" && <CharacterizePage robot={robot} robotPath={robotPath} onRobot={setRobot} />}
+          {page === "field" && <FieldPage robot={robot} robotPath={robotPath} />}
+          {page === "variables" && <VariablesPage robot={robot} robotPath={robotPath} onRobot={setRobot} />}
+        </div>
       </div>
       <StatusBar robot={robot.name} dirty={dirty} status={status} robotPath={robotPath} />
     </div>
@@ -185,14 +187,13 @@ function MenuBar({ menus }: { menus: { label: string; items: MenuEntry[] }[] }) 
   const [openMenu, setOpenMenu] = useState<string | null>(null)
   return (
     <div style={{ height: 30, background: "var(--bg-menubar-dark)", display: "flex", alignItems: "center", flexShrink: 0, position: "relative", zIndex: 20 }}>
-      <span style={{ color: "var(--text-menubar)", fontWeight: 700, letterSpacing: 2, fontSize: 12, padding: "0 14px 0 12px" }}>
-        <span style={{ color: "#e05a5a" }}>▲</span> ARES
-      </span>
+      <span style={{ color: "var(--text-menubar)", fontWeight: 700, letterSpacing: 2, fontSize: 12, padding: "0 14px 0 12px" }}>ARES</span>
       {menus.map(m => (
         <div key={m.label} style={{ position: "relative" }}>
           <button
             onClick={() => setOpenMenu(o => o === m.label ? null : m.label)}
-            onMouseEnter={() => openMenu && setOpenMenu(m.label)}
+            onMouseEnter={e => { if (openMenu) setOpenMenu(m.label); else e.currentTarget.style.background = "var(--bg-menubar-dark-hover)" }}
+            onMouseLeave={e => { if (openMenu !== m.label) e.currentTarget.style.background = "transparent" }}
             style={{
               height: 30, padding: "0 10px", border: "none", fontSize: 12, cursor: "pointer",
               background: openMenu === m.label ? "var(--bg-menubar-dark-active)" : "transparent", color: "var(--text-menubar)",
@@ -203,13 +204,13 @@ function MenuBar({ menus }: { menus: { label: string; items: MenuEntry[] }[] }) 
           {openMenu === m.label && (
             <>
               <div style={{ position: "fixed", inset: 0 }} onClick={() => setOpenMenu(null)} />
-              <div style={{ position: "absolute", top: 30, left: 0, minWidth: 220, background: "var(--bg-page)", border: "1px solid var(--border-dark)", boxShadow: "2px 2px 0 var(--shadow-soft)", padding: "3px 0" }}>
+              <div className="ares-pop" style={{ position: "absolute", top: 30, left: 0, minWidth: 220, background: "var(--bg-page)", border: "1px solid var(--border-dark)", boxShadow: "0 8px 24px rgba(0,0,0,0.16)", padding: "3px 0" }}>
                 {m.items.map(item => (
                   <div key={item.label}>
                     {item.separator && <div style={{ height: 1, background: "var(--border-light)", margin: "3px 0" }} />}
                     <div
                       onClick={() => { setOpenMenu(null); item.action() }}
-                      style={{ display: "flex", padding: "5px 14px", fontSize: 12, cursor: "pointer" }}
+                      style={{ display: "flex", padding: "5px 14px", fontSize: 12, cursor: "pointer", transition: "background-color 100ms" }}
                       onMouseEnter={e => (e.currentTarget.style.background = "var(--tree-hover-bg)")}
                       onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
                     >
@@ -240,22 +241,36 @@ const PAGES: { id: Page; label: string; icon: string; ready: boolean }[] = [
 ]
 
 function Rail({ page, onSelect }: { page: Page; onSelect: (p: Page) => void }) {
+  // A bar in the accent beside the page that is open; it slides to the next.
+  const refs = useRef<Partial<Record<Page, HTMLButtonElement | null>>>({})
+  const [mark, setMark] = useState<{ top: number; height: number } | null>(null)
+  useLayoutEffect(() => {
+    const b = refs.current[page]
+    if (b) setMark({ top: b.offsetTop, height: b.offsetHeight })
+  }, [page])
   return (
-    <div style={{ width: 52, flexShrink: 0, background: "var(--bg-sidebar)", borderRight: "1px solid var(--border-main)", display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 6, gap: 2 }}>
+    <div style={{ width: 52, flexShrink: 0, background: "var(--bg-sidebar)", borderRight: "1px solid var(--border-main)", display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 6, gap: 2, position: "relative" }}>
+      {mark && (
+        <div style={{ position: "absolute", left: 0, top: 0, width: 3, height: mark.height - 8, borderRadius: "0 2px 2px 0", background: "var(--ares-accent)",
+          transform: `translateY(${mark.top + 4}px)`, transition: "transform 220ms var(--ares-ease), height 220ms var(--ares-ease)" }} />
+      )}
       {PAGES.map(p => (
         <button
           key={p.id}
+          ref={el => { refs.current[p.id] = el }}
           title={p.ready ? p.label : `${p.label} (coming)`}
           onClick={() => onSelect(p.id)}
+          onMouseEnter={e => { if (page !== p.id) e.currentTarget.style.background = "rgba(0,0,0,0.05)" }}
+          onMouseLeave={e => { if (page !== p.id) e.currentTarget.style.background = "transparent" }}
           style={{
-            width: 46, padding: "6px 0", border: "none", borderRadius: 3, cursor: "pointer",
+            width: 46, padding: "6px 0", border: "none", borderRadius: 4, cursor: "pointer",
             display: "flex", flexDirection: "column", alignItems: "center", gap: 2,
             background: page === p.id ? "var(--toolbar-active-bg)" : "transparent",
-            color: p.ready ? "var(--icon-tree)" : "var(--text-light)", opacity: p.ready ? 1 : 0.6,
+            color: page === p.id ? "var(--ares-accent)" : p.ready ? "var(--icon-tree)" : "var(--text-light)", opacity: p.ready ? 1 : 0.6,
           }}
         >
           {p.icon === "swerve" ? <SwerveIcon size={21} /> : <i className={`ti ${p.icon}`} style={{ fontSize: 20 }} aria-hidden />}
-          <span style={{ fontSize: 9.5 }}>{p.label}</span>
+          <span style={{ fontSize: 9.5, color: page === p.id ? "var(--text-primary)" : undefined, fontWeight: page === p.id ? 600 : 400 }}>{p.label}</span>
         </button>
       ))}
     </div>
@@ -313,7 +328,7 @@ function WherePanel({ robotPath, onClose }: { robotPath: string; onClose: () => 
   return (
     <>
       <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={onClose} />
-      <div style={{ position: "absolute", left: 12, bottom: 30, zIndex: 41, width: 560, background: "var(--bg-page)", border: "1px solid var(--border-dark)", boxShadow: "0 8px 22px rgba(0,0,0,0.18)", padding: "10px 14px", fontSize: 11.5, color: "var(--text-primary)" }}>
+      <div className="ares-rise" style={{ position: "absolute", left: 12, bottom: 30, zIndex: 41, width: 560, background: "var(--bg-page)", border: "1px solid var(--border-dark)", boxShadow: "0 8px 22px rgba(0,0,0,0.18)", padding: "10px 14px", fontSize: 11.5, color: "var(--text-primary)" }}>
         <div style={{ fontWeight: 600, marginBottom: 4 }}>Where Ares keeps things</div>
         <div style={{ color: "var(--text-muted)", marginBottom: 8, wordBreak: "break-all" }}>
           {dir}{project ? " — inside the robot project's deploy folder, so a deploy carries all of it to the roboRIO." : " — not inside a robot project: File → Open project… sets Ares up in one."}

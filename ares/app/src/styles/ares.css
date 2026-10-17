@@ -1,0 +1,71 @@
+/* Ares on top of MARS Desktop's styles: the menu bar in the accent, and
+   motion. Short and quiet: things fade in and settle a few pixels, controls
+   ease between states. Nothing moves when the system asks for less motion. */
+
+:root {
+  --ares-accent: #e95420;
+  --ares-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --bg-menubar-dark: #e95420;
+  --bg-menubar-dark-hover: #f06a3a;
+  --bg-menubar-dark-active: #c8431a;
+  --text-menubar: #ffffff;
+}
+
+button,
+select,
+input {
+  transition: background-color 120ms var(--ares-ease), color 120ms var(--ares-ease), border-color 120ms var(--ares-ease),
+    box-shadow 120ms var(--ares-ease), opacity 120ms var(--ares-ease);
+}
+
+/* Menus and popovers: they drop in from where they open. */
+.ares-pop {
+  animation: ares-pop 140ms var(--ares-ease) both;
+  transform-origin: top left;
+}
+.ares-pop.from-right {
+  transform-origin: top right;
+}
+@keyframes ares-pop {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+/* A page coming in. */
+.ares-page {
+  animation: ares-page 180ms var(--ares-ease) both;
+}
+@keyframes ares-page {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Panels and rows that appear. */
+.ares-fade {
+  animation: ares-fade 160ms ease-out both;
+}
+@keyframes ares-fade {
+  from { opacity: 0; }
+}
+.ares-rise {
+  animation: ares-rise 200ms var(--ares-ease) both;
+}
+@keyframes ares-rise {
+  from { opacity: 0; transform: translateY(8px); }
+}
+
+/* A chevron that turns as its section opens. */
+.ares-chevron {
+  display: inline-block;
+  transition: transform 160ms var(--ares-ease);
+}
+.ares-chevron.open {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+}

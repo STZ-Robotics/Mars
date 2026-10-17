@@ -340,6 +340,7 @@ export default function ConfigPanel(p: Props) {
 
   return (
     <div
+      className="ares-rise"
       onPointerDown={e => e.stopPropagation()}
       style={{
         position: "absolute", left: 12, bottom: 12, width: 330, background: "var(--bg-page)", border: "1px solid var(--border-dark)",

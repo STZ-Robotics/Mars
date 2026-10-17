@@ -69,7 +69,7 @@ export function FolderRow({ name, count, open, onToggle, onDropItem, onRename, o
         borderBottom: "1px solid var(--border-light)", background: over ? "rgba(233,84,32,0.12)" : "var(--bg-panel)",
         outline: over ? "1px dashed #e95420" : "none", outlineOffset: -1,
       }}>
-      <i className={`ti ti-chevron-${open ? "down" : "right"}`} style={{ fontSize: 12, color: "var(--text-muted)" }} />
+      <i className={`ti ti-chevron-right ares-chevron${open ? " open" : ""}`} style={{ fontSize: 12, color: "var(--text-muted)" }} />
       <i className={`ti ${open ? "ti-folder-open" : "ti-folder"}`} style={{ fontSize: 15, color: "#ca8a04" }} />
       {editing ? (
         <input autoFocus value={text} onClick={e => e.stopPropagation()} onChange={e => setText(e.target.value)}

@@ -189,7 +189,7 @@ function Card({ ctx, s, at, i, badge }: { ctx: Ctx; s: Step; at: StepPath; i: nu
         {nested && (
           <button onClick={() => ctx.toggle(k)} title={open ? "Collapse" : "Expand"}
             style={{ border: "none", background: "transparent", cursor: "pointer", padding: 0, color: "var(--text-muted)", width: 14 }}>
-            <i className={`ti ti-chevron-${open ? "down" : "right"}`} />
+            <i className={`ti ti-chevron-right ares-chevron${open ? " open" : ""}`} />
           </button>
         )}
         <i className={`ti ${ICON[s.type]}`} style={{ color, fontSize: 15 }} />
@@ -380,7 +380,7 @@ function AddMenu({ ctx, onPick, big }: { ctx: Ctx; onPick: (s: Step) => void; bi
         <i className="ti ti-plus" />{big && " Add"}
       </button>
       {open && (
-        <div style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: 50, width: 290, background: "var(--bg-page)", border: "1px solid var(--border-dark)", boxShadow: "0 8px 22px rgba(0,0,0,0.18)", borderRadius: 4, padding: "4px 0" }}>
+        <div className="ares-pop from-right" style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: 50, width: 290, background: "var(--bg-page)", border: "1px solid var(--border-dark)", boxShadow: "0 8px 22px rgba(0,0,0,0.18)", borderRadius: 4, padding: "4px 0" }}>
           {sep("Commands")}
           {item(ICON.path, COLOR.path, "Follow Path", "drive a path", () => (ctx.paths[0] ? { type: "path", path: ctx.paths[0].name } : null))}
           {item(ICON.command, COLOR.command, "Named Command", "from the robot code", () => ({ type: "command", name: firstCommand }))}
