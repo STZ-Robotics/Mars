@@ -8,6 +8,11 @@
 #[allow(dead_code)]
 pub mod client;
 
+/// MARS Desktop's .wpilog reader and writer, for the Logs tab.
+#[path = "../../../../desktop/src-tauri/src/nt4/wpilog.rs"]
+#[allow(dead_code)]
+pub mod wpilog;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 

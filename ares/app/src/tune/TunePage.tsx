@@ -10,6 +10,7 @@ import { fieldSketch } from "../paths/fieldSketch"
 import { loadView } from "../paths/PathsPage"
 import { useToast } from "../ui/toasts"
 import SwerveIcon from "../ui/SwerveIcon"
+import type { CalibrationDoc } from "../logs/LogsPage"
 import { BEST, PopulationChart, TrainingChart, WorldsChart } from "./charts"
 import {
   AppliedGains, Criterion, DISTURBANCE_PRESETS, Disturbance, Method, PARAM_GROUPS, PARAM_INFO, Param, Progress, RobotCode, RobotTuning, SavedRun, TuneConfig, WORLD_VARS, World,
@@ -100,7 +101,16 @@ function Tuner({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) 
       if (t?.driveFrictionV != null) setWorld(w => ({ ...w, driveFrictionV: t.driveFrictionV! }))
     })
   }, [robotPath])
-  useEffect(() => setWorld(w => ({ ...nominalWorld(robot), latencyS: w.latencyS, driveFrictionV: w.driveFrictionV })), [robot])
+  useEffect(() => setWorld(w => ({ ...nominalWorld(robot), latencyS: w.latencyS, driveFrictionV: w.driveFrictionV, ...(calibration?.values ?? {}) })), [robot])
+  // The world the Logs tab found the robot in: the worlds are centered on it.
+  const [calibration, setCalibration] = useState<CalibrationDoc | null>(null)
+  useEffect(() => {
+    if (!robotPath) return
+    invoke<CalibrationDoc | null>("calibration_open", { robotPath }).then(c => {
+      setCalibration(c)
+      if (c) setWorld(w => ({ ...w, ...c.values }))
+    }).catch(() => {})
+  }, [robotPath])
 
   // Progress, as the search sends it.
   useEffect(() => {
@@ -250,6 +260,12 @@ function Tuner({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) 
           <span style={{ flex: 1 }} title="The nominal world, and the rest sampled so every range is covered (a Latin hypercube)">How many</span>
           <Num value={environments} onChange={v => setEnvironments(Math.max(1, Math.min(256, Math.round(v))))} />
         </div>
+        {calibration && (
+          <div style={{ margin: "2px 12px 6px", padding: "5px 8px", fontSize: 10.5, lineHeight: 1.45, background: "rgba(46,158,91,0.09)", border: "1px solid rgba(46,158,91,0.35)" }}>
+            Nominal values from the log calibration ({calibration.path}, {calibration.log}): {Object.keys(calibration.values).map(k => WORLD_VARS.find(v => v.key === k)?.label ?? k).join(", ")}.{" "}
+            <a href="#" onClick={e => { e.preventDefault(); setCalibration(null); setWorld(w => ({ ...nominalWorld(robot), latencyS: 0.02, driveFrictionV: w.driveFrictionV })) }}>Use the robot.json's</a>
+          </div>
+        )}
         <div style={{ display: "grid", gridTemplateColumns: "18px 1fr 60px 14px 52px 38px", gap: 4, padding: "0 12px", fontSize: 9.5, color: "var(--text-muted)" }}>
           <span /><span /><span>nominal</span><span /><span>±</span><span />
         </div>

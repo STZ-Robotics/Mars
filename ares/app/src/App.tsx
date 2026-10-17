@@ -12,12 +12,13 @@ import FieldPage from "./field/FieldPage"
 import TunePage from "./tune/TunePage"
 import CharacterizePage from "./characterize/CharacterizePage"
 import LivePage from "./live/LivePage"
+import LogsPage from "./logs/LogsPage"
 import { VariablesProvider } from "./vars/context"
 import { useProjectSync } from "./vars/sync"
 import { ToastProvider } from "./ui/toasts"
 import SwerveIcon from "./ui/SwerveIcon"
 
-type Page = "robot" | "paths" | "autos" | "live" | "tune" | "characterize" | "field" | "variables"
+type Page = "robot" | "paths" | "autos" | "live" | "logs" | "tune" | "characterize" | "field" | "variables"
 
 const LAST_ROBOT_KEY = "ares.lastRobot"
 const LAST_PAGE_KEY = "ares.lastPage"
@@ -27,7 +28,7 @@ const LAST_PAGE_KEY = "ares.lastPage"
 // document the File menu opens and saves.
 export default function App() {
   const [page, setPage] = useState<Page>(() => {
-    try { const p = localStorage.getItem(LAST_PAGE_KEY); if (p === "robot" || p === "paths" || p === "autos" || p === "live" || p === "tune" || p === "characterize" || p === "field" || p === "variables") return p } catch { /* first run */ }
+    try { const p = localStorage.getItem(LAST_PAGE_KEY); if (p === "robot" || p === "paths" || p === "autos" || p === "live" || p === "logs" || p === "tune" || p === "characterize" || p === "field" || p === "variables") return p } catch { /* first run */ }
     return "robot"
   })
   useEffect(() => { try { localStorage.setItem(LAST_PAGE_KEY, page) } catch { /* nothing to remember */ } }, [page])
@@ -149,6 +150,7 @@ export default function App() {
         {page === "paths" && <PathsPage robot={robot} robotPath={robotPath} onSaveRobot={fileSave} />}
         {page === "autos" && <AutosPage robot={robot} robotPath={robotPath} />}
         {page === "live" && <LivePage robot={robot} />}
+        {page === "logs" && <LogsPage robot={robot} robotPath={robotPath} />}
         {page === "tune" && <TunePage robot={robot} robotPath={robotPath} />}
         {page === "characterize" && <CharacterizePage robot={robot} robotPath={robotPath} onRobot={setRobot} />}
         {page === "field" && <FieldPage robot={robot} robotPath={robotPath} />}
@@ -230,6 +232,7 @@ const PAGES: { id: Page; label: string; icon: string; ready: boolean }[] = [
   { id: "paths", label: "Paths", icon: "ti-route", ready: true },
   { id: "autos", label: "Autos", icon: "ti-list-details", ready: true },
   { id: "live", label: "Live", icon: "ti-broadcast", ready: true },
+  { id: "logs", label: "Logs", icon: "ti-file-analytics", ready: true },
   { id: "tune", label: "Tune", icon: "ti-adjustments-alt", ready: true },
   { id: "characterize", label: "Measure", icon: "ti-chart-dots", ready: true },
   { id: "field", label: "Field", icon: "ti-map-2", ready: true },
@@ -303,6 +306,7 @@ function WherePanel({ robotPath, onClose }: { robotPath: string; onClose: () => 
     ["variables.json", "the project's variables (Variables tab)"],
     ["gains.json", "the gains and recovery Tune applied: AresLib uses them"],
     ["characterization.json", "what Measure found on the robot"],
+    ["calibration.json", "the world Logs found the robot in, which Tune starts from"],
     ["tuning/", "every Tune run"],
   ]
   return (

@@ -6,6 +6,7 @@ mod project;
 mod robot_code;
 mod tuning;
 mod open_project;
+mod logs;
 mod nt;
 
 use std::fs;
@@ -314,6 +315,13 @@ pub fn run() {
             tuning::tune_run_delete,
             tuning::tune_runs_clear,
             tuning::gains_delete,
+            tuning::calibration_save,
+            tuning::calibration_open,
+            tuning::calibration_delete,
+            logs::log_open,
+            logs::log_run,
+            logs::log_calibrate,
+            logs::log_calibrate_cancel,
             nt::nt_connect,
             nt::nt_disconnect,
             nt::nt_status,

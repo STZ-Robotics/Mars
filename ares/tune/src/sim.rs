@@ -275,11 +275,19 @@ pub struct SimOptions {
     pub settle_s: f64,
     /// Keep the robot's true path every 0.1 s, to draw it.
     pub record: bool,
+    /// Every how many control steps (of 20 ms) the track keeps a point: 5
+    /// (0.1 s) to draw, 1 to compare against a log.
+    #[serde(default = "default_record_every")]
+    pub record_every: usize,
+}
+
+fn default_record_every() -> usize {
+    5
 }
 
 impl Default for SimOptions {
     fn default() -> Self {
-        SimOptions { abort_m: 0.5, settle_s: 0.5, record: false }
+        SimOptions { abort_m: 0.5, settle_s: 0.5, record: false, record_every: 5 }
     }
 }
 
@@ -504,7 +512,7 @@ pub fn simulate(robot: &RobotConfig, traj: &Trajectory, code: &RobotCode, world:
                 }
             }
         }
-        if opts.record && tick % 5 == 1 {
+        if opts.record && (tick - 1) % opts.record_every.max(1) == 0 {
             out.track.push([x as f32, y as f32, th as f32]);
         }
         // Lost: off by more than abort_m with no recovery left, or far off

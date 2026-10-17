@@ -3,5 +3,6 @@
 
 pub mod sim;
 pub mod tune;
+pub mod calibrate;
 
 pub use sim::{simulate, Pid, RobotCode, RunResult, SimOptions, World};
