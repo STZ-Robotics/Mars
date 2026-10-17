@@ -291,6 +291,8 @@ pub fn run() {
             tuning::tune_start,
             tuning::tune_cancel,
             tuning::tune_runs,
+            tuning::gains_save,
+            tuning::gains_open,
             project::path_time,
             project::path_plan,
             project::trajectory_open,

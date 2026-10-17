@@ -180,8 +180,23 @@ pub struct Progress {
     pub baseline_tracks: Vec<Track>,
     /// The worlds, as sampled.
     pub worlds: Vec<World>,
+    /// How much the score moves when each tuned gain moves off the best, at
+    /// the end: flat means any value near it does, steep means it matters.
+    #[serde(default)]
+    pub sensitivity: Vec<Sensitivity>,
     pub done: bool,
     pub cancelled: bool,
+}
+
+/// The best's score with one gain at ×0.8 and at ×1.25 (or ±0.05 from 0).
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Sensitivity {
+    pub key: String,
+    pub lower_value: f64,
+    pub lower_score: f64,
+    pub upper_value: f64,
+    pub upper_score: f64,
 }
 
 /// The worlds: the nominal one first, the rest a Latin hypercube over the
@@ -391,6 +406,10 @@ pub fn run(robot: &RobotConfig, paths: &[Trajectory], cfg: &TuneConfig, cancel: 
         }
     }
     state.cancelled = cancel.load(Ordering::Relaxed);
+    if !state.cancelled && !tuned.is_empty() {
+        state.sensitivity = sensitivity(robot, paths, cfg, &envs, &state.best.values, &tuned, &cancel);
+        state.runs += 2 * tuned.len() * envs.len() * paths.len();
+    }
     state.done = true;
     state.elapsed_s = started.elapsed().as_secs_f64();
     if state.tracks.is_empty() {
@@ -398,6 +417,31 @@ pub fn run(robot: &RobotConfig, paths: &[Trajectory], cfg: &TuneConfig, cancel: 
     }
     progress(&state);
     state
+}
+
+fn sensitivity(robot: &RobotConfig, paths: &[Trajectory], cfg: &TuneConfig, envs: &[World], best: &[f64], tuned: &[usize], cancel: &AtomicBool) -> Vec<Sensitivity> {
+    let mut cands = Vec::new();
+    for &i in tuned {
+        let v = best[i];
+        let (lo, hi) = if v.abs() < 1e-6 { (v, v + 0.05) } else { (v * 0.8, v * 1.25) };
+        for x in [lo, hi] {
+            let mut c = best.to_vec();
+            c[i] = x;
+            cands.push(c);
+        }
+    }
+    let scored = evaluate(robot, paths, cfg, envs, &cands, cancel);
+    tuned
+        .iter()
+        .enumerate()
+        .map(|(k, &i)| Sensitivity {
+            key: cfg.params[i].key.clone(),
+            lower_value: scored[2 * k].values[i],
+            lower_score: scored[2 * k].score,
+            upper_value: scored[2 * k + 1].values[i],
+            upper_score: scored[2 * k + 1].score,
+        })
+        .collect()
 }
 
 fn code_for(cfg: &TuneConfig, values: &[f64]) -> RobotCode {

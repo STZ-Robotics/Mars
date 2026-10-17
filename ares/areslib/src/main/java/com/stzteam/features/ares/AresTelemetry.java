@@ -66,6 +66,14 @@ public final class AresTelemetry {
         String.format("Ares: %.2f m off the trajectory, finding the way back (%d)", offM, count), false);
   }
 
+  /** Which gains the robot runs with, and from where: /Ares/Gains. */
+  static void gains(String source, AresController.Gains t, AresController.Gains r) {
+    var table = NetworkTableInstance.getDefault().getTable(TABLE).getSubTable("Gains");
+    table.getEntry("Source").setString(source);
+    table.getEntry("Translation").setDoubleArray(new double[] {t.kP(), t.kI(), t.kD()});
+    table.getEntry("Rotation").setDoubleArray(new double[] {r.kP(), r.kI(), r.kD()});
+  }
+
   static void idle() {
     open();
     active.set("");

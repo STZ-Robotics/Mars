@@ -8,12 +8,11 @@ import type { PathEntry, Trajectory } from "../paths/types"
 import { drawFieldBackground } from "../paths/FieldView"
 import { fieldSketch } from "../paths/fieldSketch"
 import { loadView } from "../paths/PathsPage"
-import { Toggle } from "../ui/controls"
 import { useToast } from "../ui/toasts"
 import { BEST, PopulationChart, TrainingChart, WorldsChart } from "./charts"
 import {
-  Criterion, Method, PARAM_INFO, Param, Progress, RobotCode, RobotTuning, TuneConfig, WORLD_VARS, World,
-  defaultParams, gripUsed, javaSnippet, nominalWorld, robotCode,
+  AppliedGains, Criterion, Method, PARAM_INFO, Param, Progress, RobotCode, RobotTuning, SavedRun, TuneConfig, WORLD_VARS, World,
+  appliedGains, defaultParams, findings, fmt3, gripUsed, javaSnippet, nominalWorld, robotCode,
 } from "./model"
 
 // The Tune tab: the gains that follow your paths best, found by simulating
@@ -52,7 +51,18 @@ function Tuner({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) 
   const [baseTracks, setBaseTracks] = useState<Progress["tracks"]>([])
   const [showBase, setShowBase] = useState(false)
   const [hoverWorld, setHoverWorld] = useState<number | null>(null)
-  const [ranWith, setRanWith] = useState<{ params: Param[]; paths: string[] } | null>(null)
+  // Every gain set tried in this run, for the population cloud.
+  const [cloud, setCloud] = useState<{ gen: number; c: Progress["best"] }[]>([])
+  const [ranWith, setRanWith] = useState<{ params: Param[]; paths: string[]; forceFf: boolean } | null>(null)
+  // What the robot runs with (gains.json), and the runs kept in tuning/.
+  const [applied, setApplied] = useState<AppliedGains | null>(null)
+  const [saved, setSaved] = useState<SavedRun[]>([])
+  const [viewingSaved, setViewingSaved] = useState<number | null>(null)
+  const refreshSaved = () => {
+    invoke<AppliedGains | null>("gains_open", { robotPath }).then(setApplied).catch(() => setApplied(null))
+    invoke<SavedRun[]>("tune_runs", { robotPath }).then(setSaved).catch(() => setSaved([]))
+  }
+  useEffect(refreshSaved, [robotPath])
 
   // The paths with a trajectory, and what the robot code has now.
   useEffect(() => {
@@ -65,7 +75,7 @@ function Tuner({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) 
       }))
       setTrajs(loaded)
       setPaths(names.filter(n => loaded[n]))
-      setChosen(c => (c.length ? c.filter(n => loaded[n]) : names.filter(n => loaded[n]).slice(0, 1)))
+      setChosen(c => (c.length ? c.filter(n => loaded[n]) : names.filter(n => loaded[n]).slice(0, 4)))
     })
     let folder: string | null = null
     try { folder = localStorage.getItem(`ares.robotCode:${robotPath}`) } catch { /* none */ }
@@ -84,10 +94,12 @@ function Tuner({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) 
     const un = listen<Progress>("tune-progress", e => {
       const p = e.payload
       setProgress(p)
+      if (!p.done) setCloud(c => [...c, ...p.population.map(x => ({ gen: p.generation, c: x }))].slice(-3000))
       if (p.baselineTracks.length) setBaseTracks(p.baselineTracks)
       if (p.tracks.length) setTracks(p.tracks)
       if (p.done) {
         setRunning(false)
+        setTimeout(refreshSaved, 300)
         const gain = p.baseline.score > 0 ? (1 - p.best.score / p.baseline.score) * 100 : 0
         toast(p.cancelled
           ? { kind: "stopped", title: "Tuning stopped", body: `Best so far: ${gain.toFixed(0)}% better than the gains now, after ${p.runs.toLocaleString()} runs.` }
@@ -104,9 +116,11 @@ function Tuner({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) 
       sim: { abortM, settleS: 0.5, record: false }, seed: 2026,
     }
     setProgress(null)
+    setCloud([])
     setTracks([])
     setBaseTracks([])
-    setRanWith({ params, paths: chosen })
+    setRanWith({ params, paths: chosen, forceFf: code.forceFf })
+    setViewingSaved(null)
     try {
       setRunning(true)
       await invoke("tune_start", { robot, robotPath, paths: chosen, config })
@@ -116,12 +130,30 @@ function Tuner({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) 
     }
   }
 
-  const best = progress?.best ?? null
-  const baseline = progress?.baseline ?? null
-  const shownParams = ranWith?.params ?? params
+  // A run from tuning/ shows as a finished progress, without the field lines.
+  const savedRun = viewingSaved !== null ? saved[viewingSaved] : null
+  const shown: Progress | null = savedRun
+    ? { generation: savedRun.history[savedRun.history.length - 1]?.generation ?? 0, generations: savedRun.history[savedRun.history.length - 1]?.generation ?? 0, runs: savedRun.runs, elapsedS: savedRun.elapsedS,
+        baseline: savedRun.baseline, best: savedRun.best, population: [], history: savedRun.history, tracks: [], baselineTracks: [], worlds: [], done: true, cancelled: savedRun.cancelled }
+    : progress
+  const best = shown?.best ?? null
+  const baseline = shown?.baseline ?? null
+  const shownParams = savedRun?.config.params ?? ranWith?.params ?? params
+  const shownPaths = savedRun?.paths ?? ranWith?.paths ?? chosen
   const margins = chosen.map(n => ({ name: n, grip: trajs[n] ? gripUsed(trajs[n].samples) : 0 }))
   const tight = margins.filter(m => m.grip > 0.95)
   const tunedCount = params.filter(p => p.tune).length
+  const apply = async () => {
+    if (!best || !baseline) return
+    const g = appliedGains(shownParams, best.values, { source: `Tune, ${new Date().toLocaleString()}`, score: best.score, baselineScore: baseline.score, paths: shownPaths })
+    try {
+      await invoke("gains_save", { robotPath, gains: g })
+      setApplied(g)
+      toast({ kind: "success", title: "Applied to the robot", body: "Saved in gains.json: AresLib uses it after the next deploy (unless the code calls withGains). /Ares/Gains on NetworkTables says which gains it runs." })
+    } catch (e) {
+      toast({ kind: "error", title: "Could not apply them", body: String(e) })
+    }
+  }
   const totalRuns = method.kind === "grid"
     ? Math.pow(Math.max(2, method.steps), tunedCount) * environments * Math.max(1, chosen.length)
     : method.generations * method.population * environments * Math.max(1, chosen.length)
@@ -160,6 +192,13 @@ function Tuner({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) 
         )}
 
         <Heading label="Gains" />
+        <div style={{ margin: "6px 12px", padding: "6px 8px", border: "1px solid var(--border-light)", background: "var(--bg-page)", fontSize: 10.5, lineHeight: 1.5 }}
+          title="gains.json in the project: what AresLib runs with after a deploy, unless the robot code calls withGains">
+          <b>On the robot</b>{" "}
+          {applied
+            ? <>(gains.json{applied.source ? `, ${applied.source}` : ""}): translation kP {fmt3(applied.translation.kp)} kD {fmt3(applied.translation.kd)} · rotation kP {fmt3(applied.rotation.kp)} kD {fmt3(applied.rotation.kd)}</>
+            : <>: no gains.json yet, so AresLib uses its defaults (kP 4) or the code's withGains. "Apply to robot" writes it.</>}
+        </div>
         <div style={{ padding: "4px 12px 2px", fontSize: 10, color: "var(--text-muted)" }}>
           {tuning?.file ? <>From the robot code: <span title={tuning.file}>{tuning.file.split(/[\\/]/).pop()}</span>. </> : "Robot code not found: Tuner X's defaults. "}
           Checked gains are searched between min and max; the rest stay at their value.
@@ -237,6 +276,22 @@ function Tuner({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) 
         </Row>
         <Row label="Lost the path at" hint="Off the trajectory by more than this, a run counts as lost (PathFollowingTuner's abort)"><Num value={abortM} onChange={setAbortM} /> m</Row>
         <Note>About {totalRuns.toLocaleString()} runs, at several thousand a second.</Note>
+
+        <Heading label="Previous runs" />
+        {saved.length === 0 && <Note>None yet: each finished run is kept in tuning/.</Note>}
+        {saved.map((r, i) => {
+          const gain = r.baseline.score > 0 ? (1 - r.best.score / r.baseline.score) * 100 : 0
+          return (
+            <div key={r.savedAt} onClick={() => setViewingSaved(v => (v === i ? null : i))} title="Show this run's result"
+              style={{ padding: "5px 12px", fontSize: 11, cursor: "pointer", borderBottom: "1px solid var(--border-light)", background: viewingSaved === i ? "var(--tree-selection-bg)" : "transparent", color: viewingSaved === i ? "var(--tree-selection-fg)" : "var(--text-primary)" }}>
+              <div style={{ display: "flex", gap: 6 }}>
+                <span>{new Date(r.savedAt * 1000).toLocaleString()}</span>
+                <span style={{ marginLeft: "auto", fontWeight: 600 }}>{gain >= 0 ? "−" : "+"}{Math.abs(gain).toFixed(0)}%</span>
+              </div>
+              <div style={{ opacity: 0.8 }}>{r.paths.join(", ")}{r.cancelled ? " · stopped" : ""}</div>
+            </div>
+          )
+        })}
       </div>
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
@@ -250,25 +305,15 @@ function Tuner({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) 
               {progress.done ? (progress.cancelled ? "Stopped" : "Done") : "Generation"} {progress.generation}/{progress.generations} · {progress.runs.toLocaleString()} runs · {progress.elapsedS.toFixed(1)} s
             </span>
           )}
-          {best && baseline && (
-            <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, fontSize: 11.5 }}>
-              <span title="The score: meters equivalent (rms + ¼·max + final + 0.15·heading), lower is better">
-                now <b>{baseline.score.toFixed(3)}</b> → best <b style={{ color: BEST }}>{best.score.toFixed(3)}</b>
-                {baseline.score > 0 && <span style={{ color: "#16a34a", fontWeight: 600 }}> ({((1 - best.score / baseline.score) * 100).toFixed(0)}% better)</span>}
-              </span>
-              <span title="Copy the gains as Java"><Toggle on={false} icon="ti-copy" label="Java" onClick={() => {
-                navigator.clipboard?.writeText(javaSnippet(shownParams, best.values))
-                toast({ kind: "info", title: "Copied the gains as Java", body: "Paste them into the Ares.Config in the robot code." })
-              }} /></span>
-              <span title="Make the best gains the starting point (the next run starts from them)"><Toggle on={false} icon="ti-check" label="Use as now" onClick={() => {
-                setParams(ps => ps.map((p, i) => ({ ...p, start: best.values[i] ?? p.start })))
-                toast({ kind: "info", title: "The best gains are now the starting point" })
-              }} /></span>
+          {best && running && (
+            <span style={{ marginLeft: "auto", fontSize: 11, color: "var(--text-secondary)", fontFamily: "Consolas, monospace" }} title="The best gains so far">
+              best so far: {shownParams.map((p, i) => (p.tune ? `${PARAM_INFO[p.key].label.replace("Translation", "t").replace("Rotation", "r").replace("Drive", "d")} ${fmt3(best.values[i])}` : null)).filter(Boolean).join(" · ")}
             </span>
           )}
         </div>
-        <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
-          <TuneField robot={robot} trajs={(ranWith?.paths ?? chosen).map(n => trajs[n]).filter(Boolean)} tracks={tracks} baseTracks={showBase ? baseTracks : []} hoverWorld={hoverWorld} />
+        <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
+        <div style={{ flex: 1, minWidth: 0, position: "relative" }}>
+          <TuneField robot={robot} trajs={shownPaths.map(n => trajs[n]).filter(Boolean)} tracks={savedRun ? [] : tracks} baseTracks={showBase && !savedRun ? baseTracks : []} hoverWorld={hoverWorld} />
           {(tracks.length > 0) && (
             <div style={{ position: "absolute", left: 10, top: 10, background: "rgba(255,255,255,0.94)", border: "1px solid var(--border-main)", padding: "6px 10px", fontSize: 11, lineHeight: 1.6 }}>
               <div><span style={{ color: "#1c1c1f" }}>━</span> the trajectory</div>
@@ -279,16 +324,30 @@ function Tuner({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) 
               </label>
             </div>
           )}
-          {best && (
-            <ResultCard params={shownParams} best={best} baseline={baseline} />
+        </div>
+          {best && baseline && shown && (
+            <ResultPanel
+              progress={shown} params={shownParams} best={best} baseline={baseline} running={running} saved={!!savedRun}
+              notes={findings(shownParams, best, baseline, shown.sensitivity, shownPaths.filter(n => trajs[n] && gripUsed(trajs[n].samples) > 0.95), savedRun?.config.code.forceFf ?? ranWith?.forceFf ?? code.forceFf)}
+              applied={applied}
+              onApply={apply}
+              onCopy={() => {
+                navigator.clipboard?.writeText(javaSnippet(shownParams, best.values))
+                toast({ kind: "info", title: "Copied the gains as Java", body: "Paste them into the Ares.Config (withGains), or use Apply to robot and change no code." })
+              }}
+              onUseAsStart={() => {
+                setParams(ps => ps.map(p => ({ ...p, start: best.values[shownParams.findIndex(q => q.key === p.key)] ?? p.start })))
+                toast({ kind: "info", title: "The best gains are now the starting point" })
+              }}
+            />
           )}
         </div>
         <div style={{ height: 200, flexShrink: 0, display: "flex", borderTop: "1px solid var(--border-main)", background: "var(--bg-page)" }}>
-          {progress ? (
+          {shown ? (
             <>
-              <TrainingChart history={progress.history} baseline={baseline?.score ?? null} />
-              <WorldsChart best={best} baseline={baseline} worlds={progress.worlds} hovered={hoverWorld} onHover={setHoverWorld} />
-              <PopulationChart population={progress.population} best={best} params={shownParams} />
+              <TrainingChart history={shown.history} baseline={baseline?.score ?? null} />
+              <WorldsChart best={best} baseline={baseline} worlds={shown.worlds} hovered={hoverWorld} onHover={setHoverWorld} />
+              <PopulationChart cloud={savedRun ? [] : cloud} best={best} params={shownParams} />
             </>
           ) : (
             <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 12 }}>
@@ -301,28 +360,107 @@ function Tuner({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) 
   )
 }
 
-function ResultCard({ params, best, baseline }: { params: Param[]; best: NonNullable<Progress["best"]>; baseline: Progress["baseline"] | null }) {
+/** The result, big: the gains to use, how much better they are, and what to make of it. */
+function ResultPanel({ progress, params, best, baseline, running, saved, notes, applied, onApply, onCopy, onUseAsStart }: {
+  progress: Progress; params: Param[]; best: Progress["best"]; baseline: Progress["baseline"]; running: boolean; saved: boolean
+  notes: ReturnType<typeof findings>; applied: AppliedGains | null
+  onApply: () => void; onCopy: () => void; onUseAsStart: () => void
+}) {
+  const gain = baseline.score > 0 ? (1 - best.score / baseline.score) * 100 : 0
+  const title = saved ? "Saved run" : running ? "Best so far" : progress.cancelled ? "Stopped: best so far" : "Final gains"
+  const isApplied = applied && params.every((p, i) => {
+    const v = best.values[i]
+    const a = p.key === "translationKp" ? applied.translation.kp : p.key === "translationKi" ? applied.translation.ki : p.key === "translationKd" ? applied.translation.kd
+      : p.key === "rotationKp" ? applied.rotation.kp : p.key === "rotationKi" ? applied.rotation.ki : p.key === "rotationKd" ? applied.rotation.kd : v
+    return Math.abs(a - v) < 1e-9
+  })
+  const sens = new Map((progress.sensitivity ?? []).map(x => [x.key, x]))
+  const color = { warn: "#b45309", info: "var(--text-secondary)", good: "#15803d" }
+  const icon = { warn: "ti-alert-triangle", info: "ti-info-circle", good: "ti-circle-check" }
   return (
-    <div style={{ position: "absolute", right: 10, top: 10, width: 260, background: "rgba(255,255,255,0.96)", border: "1px solid var(--border-main)", boxShadow: "0 2px 8px rgba(0,0,0,0.08)", fontSize: 11.5 }}>
-      <div style={{ padding: "6px 10px", fontWeight: 600, borderBottom: "1px solid var(--border-light)" }}>Best gains</div>
-      <table style={{ width: "100%", borderCollapse: "collapse" }}>
-        <thead><tr style={{ color: "var(--text-muted)", fontSize: 10 }}><th style={{ textAlign: "left", padding: "3px 10px", fontWeight: 400 }}></th><th style={{ textAlign: "right", fontWeight: 400 }}>now</th><th style={{ textAlign: "right", padding: "0 10px", fontWeight: 400 }}>best</th></tr></thead>
+    <div className="ares-scroll" style={{ width: 330, flexShrink: 0, overflowY: "auto", borderLeft: "1px solid var(--border-main)", background: "var(--bg-panel)", fontSize: 11.5 }}>
+      <div style={{ padding: "12px 14px 10px", borderBottom: "1px solid var(--border-light)" }}>
+        <div style={{ fontSize: 10, color: "var(--text-header-eyebrow)", letterSpacing: 1.5, textTransform: "uppercase" }}>{title}</div>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 4 }}>
+          <span style={{ fontSize: 30, fontWeight: 700, color: "var(--text-primary)", fontVariantNumeric: "tabular-nums" }}>{gain >= 0 ? "−" : "+"}{Math.abs(gain).toFixed(0)}%</span>
+          <span style={{ color: "var(--text-secondary)" }}>error {gain >= 0 ? "less" : "more"} than the gains now</span>
+        </div>
+        <div style={{ color: "var(--text-muted)", marginTop: 2 }}>
+          score {baseline.score.toFixed(3)} → <b style={{ color: "var(--text-primary)" }}>{best.score.toFixed(3)}</b> · {progress.runs.toLocaleString()} runs in {progress.elapsedS.toFixed(1)} s
+        </div>
+      </div>
+
+      <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 4 }}>
+        <thead>
+          <tr style={{ color: "var(--text-muted)", fontSize: 10 }}>
+            <th style={{ textAlign: "left", padding: "4px 14px", fontWeight: 400 }}>gain</th>
+            <th style={{ textAlign: "right", fontWeight: 400 }}>now</th>
+            <th style={{ textAlign: "right", fontWeight: 400, padding: "0 14px" }}>use</th>
+          </tr>
+        </thead>
         <tbody>
-          {params.map((p, i) => (p.tune || (baseline && baseline.values[i] !== best.values[i])) && (
-            <tr key={p.key}>
-              <td style={{ padding: "2px 10px" }}>{PARAM_INFO[p.key].label}</td>
-              <td style={{ textAlign: "right", fontFamily: "Consolas, monospace", color: "var(--text-muted)" }}>{baseline?.values[i]?.toFixed(3)}</td>
-              <td style={{ textAlign: "right", padding: "0 10px", fontFamily: "Consolas, monospace", fontWeight: 600 }}>{best.values[i]?.toFixed(3)}</td>
-            </tr>
-          ))}
+          {params.map((p, i) => {
+            if (!p.tune) return null
+            const s = sens.get(p.key)
+            const steep = s ? Math.max(s.lowerScore, s.upperScore) / Math.max(best.score, 1e-9) - 1 : null
+            return (
+              <tr key={p.key} style={{ borderTop: "1px solid var(--border-light)" }}>
+                <td style={{ padding: "5px 14px" }}>
+                  {PARAM_INFO[p.key].label}
+                  {steep !== null && (
+                    <div style={{ fontSize: 9.5, color: "var(--text-muted)" }} title={`Score with it at ${fmt3(s!.lowerValue)}: ${s!.lowerScore.toFixed(3)}; at ${fmt3(s!.upperValue)}: ${s!.upperScore.toFixed(3)}`}>
+                      {steep < 0.03 ? "flat: round it freely" : steep < 0.15 ? "matters a little" : "matters: keep it close"}
+                    </div>
+                  )}
+                </td>
+                <td style={{ textAlign: "right", fontFamily: "Consolas, monospace", color: "var(--text-muted)" }}>{fmt3(baseline.values[i])}</td>
+                <td style={{ textAlign: "right", padding: "0 14px", fontFamily: "Consolas, monospace", fontWeight: 700, fontSize: 13, color: "var(--text-primary)" }}>{fmt3(best.values[i])}</td>
+              </tr>
+            )
+          })}
         </tbody>
       </table>
-      <div style={{ padding: "6px 10px", borderTop: "1px solid var(--border-light)", color: "var(--text-secondary)", lineHeight: 1.5 }}>
-        Off the path: {(best.meanRmsM * 100).toFixed(1)} cm on average{baseline ? ` (now ${(baseline.meanRmsM * 100).toFixed(1)})` : ""}<br />
-        Worst end: {(best.worstFinalM * 100).toFixed(1)} cm{baseline ? ` (now ${(baseline.worstFinalM * 100).toFixed(1)})` : ""}<br />
-        {best.aborts > 0 ? <span style={{ color: "#b45309" }}>Lost the path in {best.aborts} run{best.aborts === 1 ? "" : "s"}</span> : "Never lost the path"}
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: "3px 10px", padding: "10px 14px", borderTop: "1px solid var(--border-light)", color: "var(--text-secondary)" }}>
+        <span /><span style={{ fontSize: 10, color: "var(--text-muted)" }}>now</span><span style={{ fontSize: 10, color: "var(--text-muted)" }}>best</span>
+        <span>Off the path, average</span><span>{(baseline.meanRmsM * 100).toFixed(1)} cm</span><b>{(best.meanRmsM * 100).toFixed(1)} cm</b>
+        <span>Worst end</span><span>{(baseline.worstFinalM * 100).toFixed(1)} cm</span><b>{(best.worstFinalM * 100).toFixed(1)} cm</b>
+        <span>Runs that lost the path</span><span>{baseline.aborts}</span><b>{best.aborts}</b>
+      </div>
+
+      {notes.length > 0 && (
+        <div style={{ padding: "8px 14px", borderTop: "1px solid var(--border-light)", display: "flex", flexDirection: "column", gap: 6 }}>
+          {notes.map((n, i) => (
+            <div key={i} style={{ display: "flex", gap: 6, color: color[n.level], lineHeight: 1.45 }}>
+              <i className={`ti ${icon[n.level]}`} style={{ marginTop: 2 }} /><span>{n.text}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ padding: "10px 14px 14px", borderTop: "1px solid var(--border-light)", display: "flex", flexDirection: "column", gap: 6 }}>
+        <button onClick={onApply} disabled={running}
+          title="Writes gains.json next to the robot: AresLib uses it after the next deploy, with no code to change"
+          style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, height: 30, fontSize: 12, fontWeight: 600, cursor: running ? "default" : "pointer", border: "1px solid #c2410c", borderRadius: 2, background: isApplied ? "var(--btn-classic-bg)" : "#e95420", color: isApplied ? "#15803d" : "#fff", opacity: running ? 0.5 : 1 }}>
+          <i className={`ti ${isApplied ? "ti-circle-check" : "ti-robot"}`} /> {isApplied ? "Applied: on the robot after a deploy" : "Apply to robot"}
+        </button>
+        <div style={{ display: "flex", gap: 6 }}>
+          <SmallButton icon="ti-copy" label="Copy as Java" onClick={onCopy} />
+          <SmallButton icon="ti-arrow-back-up" label="Start from these" onClick={onUseAsStart} />
+        </div>
+        <div style={{ fontSize: 10, color: "var(--text-muted)", lineHeight: 1.45 }}>
+          Then check them on the robot: run the path a few times and watch /Ares/ErrorM (and /Ares/Gains, which says which gains it runs).
+        </div>
       </div>
     </div>
+  )
+}
+
+function SmallButton({ icon, label, onClick }: { icon: string; label: string; onClick: () => void }) {
+  return (
+    <button onClick={onClick} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5, height: 26, fontSize: 11, cursor: "pointer", border: "1px solid var(--btn-classic-border)", borderRadius: 2, background: "var(--btn-classic-bg)", color: "var(--text-primary)" }}>
+      <i className={`ti ${icon}`} /> {label}
+    </button>
   )
 }
 

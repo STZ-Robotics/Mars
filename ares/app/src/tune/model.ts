@@ -75,6 +75,33 @@ export interface Candidate {
 export interface HistoryPoint { generation: number; best: number; genBest: number; genMedian: number; genWorst: number }
 export interface Track { env: number; path: number; cost: number; aborted: boolean; points: [number, number, number][] }
 
+export interface Sensitivity { key: ParamKey; lowerValue: number; lowerScore: number; upperValue: number; upperScore: number }
+
+/** gains.json: what "Apply to robot" writes and AresLib reads at startup. */
+export interface AppliedGains {
+  translation: Pid
+  rotation: Pid
+  drive?: { kp: number; ks: number; kv: number }
+  source?: string
+  score?: number
+  baselineScore?: number
+  paths?: string[]
+  savedAt?: number
+}
+
+/** A run saved in tuning/. */
+export interface SavedRun {
+  savedAt: number
+  paths: string[]
+  config: TuneConfig
+  baseline: Candidate
+  best: Candidate
+  history: HistoryPoint[]
+  runs: number
+  elapsedS: number
+  cancelled: boolean
+}
+
 export interface Progress {
   generation: number
   generations: number
@@ -87,6 +114,7 @@ export interface Progress {
   tracks: Track[]
   baselineTracks: Track[]
   worlds: World[]
+  sensitivity?: Sensitivity[]
   done: boolean
   cancelled: boolean
 }
@@ -189,4 +217,48 @@ export function gripUsed(samples: { modules: { gripUsed: number }[] }[]): number
   let m = 0
   for (const s of samples) for (const w of s.modules) m = Math.max(m, w.gripUsed)
   return m
+}
+
+/** The tuned values as gains.json. */
+export function appliedGains(params: Param[], values: number[], extra: Partial<AppliedGains> = {}): AppliedGains {
+  const v = (k: ParamKey) => values[params.findIndex(p => p.key === k)] ?? 0
+  const out: AppliedGains = {
+    translation: { kp: v("translationKp"), ki: v("translationKi"), kd: v("translationKd") },
+    rotation: { kp: v("rotationKp"), ki: v("rotationKi"), kd: v("rotationKd") },
+    ...extra,
+  }
+  if (params.some(p => p.tune && p.key.startsWith("drive"))) out.drive = { kp: v("driveKp"), ks: v("driveKs"), kv: v("driveKv") }
+  return out
+}
+
+/** What the result says about itself, as plain advice. */
+export function findings(params: Param[], best: Candidate, baseline: Candidate | null, sensitivity: Sensitivity[] | undefined, tightPaths: string[], forceFf: boolean): { level: "warn" | "info" | "good"; text: string }[] {
+  const out: { level: "warn" | "info" | "good"; text: string }[] = []
+  params.forEach((p, i) => {
+    if (!p.tune || p.max <= p.min) return
+    const v = best.values[i]
+    const u = p.log && p.min > 0 ? (Math.log(v) - Math.log(p.min)) / (Math.log(p.max) - Math.log(p.min)) : (v - p.min) / (p.max - p.min)
+    if (u > 0.97) out.push({ level: "warn", text: `${PARAM_INFO[p.key].label} ended at the top of its range (${p.max}): the best may be higher. Raise its max and run again.` })
+    else if (u < 0.03 && p.min > 0) out.push({ level: "warn", text: `${PARAM_INFO[p.key].label} ended at the bottom of its range (${p.min}): the best may be lower. Lower its min and run again.` })
+  })
+  if (best.aborts > 0) out.push({ level: "warn", text: `Even the best gains lose the path in ${best.aborts} run${best.aborts === 1 ? "" : "s"}: some worlds are beyond what gains can fix (see the cost per world).` })
+  if (tightPaths.length) out.push({ level: "warn", text: `${tightPaths.join(", ")} use${tightPaths.length === 1 ? "s" : ""} all the grip: plan with margin and tune again; the error left is the path's, not the gains'.` })
+  if (baseline && baseline.score > 0) {
+    const gain = 1 - best.score / baseline.score
+    if (gain < 0.03) out.push({ level: "good", text: "The gains you have now are already about right: the search found less than 3% to gain." })
+    if (baseline.aborts > 0 && best.aborts === 0) out.push({ level: "good", text: `The gains now lose the path in ${baseline.aborts} run${baseline.aborts === 1 ? "" : "s"}; the best ones in none.` })
+  }
+  const flat = (sensitivity ?? []).filter(s => Math.max(s.lowerScore, s.upperScore) / Math.max(best.score, 1e-9) - 1 < 0.03)
+  if (flat.length) {
+    out.push({ level: "info", text: `Flat around the best, so round ${flat.length === 1 ? "it" : "them"} freely: ${flat.map(s => `${PARAM_INFO[s.key].label} ${fmt3(s.lowerValue)}–${fmt3(s.upperValue)}`).join(", ")}.` })
+  }
+  if (!forceFf) out.push({ level: "info", text: "Tuned without the wheel forces fed forward: on a robot running AresLib (which feeds them), tune with them on." })
+  return out
+}
+
+export function fmt3(v: number): string {
+  if (!Number.isFinite(v)) return "—"
+  if (Math.abs(v) >= 10) return v.toFixed(1)
+  if (Math.abs(v) >= 1) return v.toFixed(2)
+  return v.toFixed(3)
 }

@@ -57,6 +57,8 @@ public final class Ares {
     File folder = new File(Filesystem.getDeployDirectory(), "ares");
     AresController.Gains translation = new AresController.Gains(4.0, 0, 0);
     AresController.Gains rotation = new AresController.Gains(4.0, 0, 0);
+    /** Set by withGains: then gains.json is not read. */
+    boolean gainsInCode;
     FieldSymmetry symmetry = FieldSymmetry.ROTATIONAL;
     double fieldLengthM = 16.541;
     double fieldWidthM = 8.0692;
@@ -86,6 +88,7 @@ public final class Ares {
     public Config withGains(AresController.Gains translation, AresController.Gains rotation) {
       this.translation = translation;
       this.rotation = rotation;
+      this.gainsInCode = true;
       return this;
     }
 
@@ -145,6 +148,15 @@ public final class Ares {
       return this;
     }
 
+    /** The path controller's gains in use, after reading gains.json. */
+    public AresController.Gains translation() {
+      return translation;
+    }
+
+    public AresController.Gains rotation() {
+      return rotation;
+    }
+
     public Config withPeriod(double seconds) {
       this.periodS = seconds;
       return this;
@@ -169,6 +181,7 @@ public final class Ares {
   public Ares(AresDrive drive, Config config) {
     this.drive = drive;
     this.config = config;
+    readGains(config);
     this.pathfinder = config.pathfinder != null ? config.pathfinder : defaultPathfinder(drive, config);
     AresIndex loaded;
     try {
@@ -228,6 +241,34 @@ public final class Ares {
       return new AresSetpoint(setpoint.target(), setpoint.fieldSpeeds(), setpoint.robotSpeeds(), zero, zero, zero, zero, setpoint.sample());
     }
     return setpoint.reordered(driveOrder);
+  }
+
+  // The gains Tune applied (gains.json in the project), unless the code set
+  // its own: what the robot runs with is then what was last tuned and
+  // deployed, with no code to change.
+  private void readGains(Config c) {
+    var file = new File(c.folder, "gains.json");
+    String source = "the defaults";
+    if (c.gainsInCode) {
+      source = "the robot code (withGains)";
+    } else if (file.isFile()) {
+      try {
+        var n = new com.fasterxml.jackson.databind.ObjectMapper().readTree(file);
+        var t = n.path("translation");
+        var r = n.path("rotation");
+        if (t.has("kp") && r.has("kp")) {
+          c.translation = new AresController.Gains(t.path("kp").asDouble(), t.path("ki").asDouble(0), t.path("kd").asDouble(0));
+          c.rotation = new AresController.Gains(r.path("kp").asDouble(), r.path("ki").asDouble(0), r.path("kd").asDouble(0));
+          source = "gains.json" + (n.hasNonNull("source") ? " (" + n.path("source").asText() + ")" : "");
+        }
+      } catch (Exception e) {
+        fail("Ares could not read gains.json (" + e.getMessage() + "): using " + (c.gainsInCode ? "the code's" : "the default") + " gains");
+      }
+    }
+    var msg = String.format("Ares: path gains from %s: translation kP %.3f kI %.3f kD %.3f, rotation kP %.3f kI %.3f kD %.3f",
+        source, c.translation.kP(), c.translation.kI(), c.translation.kD(), c.rotation.kP(), c.rotation.kI(), c.rotation.kD());
+    System.out.println(msg);
+    AresTelemetry.gains(source, c.translation, c.rotation);
   }
 
   // Around the navgrid when the project has one (navgrid.json, from the Field

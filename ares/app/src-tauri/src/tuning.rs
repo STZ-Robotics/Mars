@@ -84,3 +84,22 @@ pub fn tune_runs(robot_path: String) -> Vec<serde_json::Value> {
     out.sort_by_key(|v| std::cmp::Reverse(v["savedAt"].as_u64().unwrap_or(0)));
     out
 }
+
+/// The gains the robot runs with, as Tune applied them: `gains.json` next to
+/// the robot, deployed with the project. AresLib reads it at startup unless
+/// the robot code sets its gains itself.
+#[tauri::command]
+pub fn gains_save(robot_path: String, gains: serde_json::Value) -> Result<(), String> {
+    let path = Path::new(&robot_path).parent().unwrap_or(Path::new(".")).join("gains.json");
+    let mut doc = gains;
+    let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    doc["format"] = 1.into();
+    doc["savedAt"] = secs.into();
+    std::fs::write(path, serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())? + "\n").map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn gains_open(robot_path: String) -> Option<serde_json::Value> {
+    let path = Path::new(&robot_path).parent().unwrap_or(Path::new(".")).join("gains.json");
+    std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str(&t).ok())
+}

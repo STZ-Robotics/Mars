@@ -72,6 +72,9 @@ fn a_population_search_beats_the_gains_it_started_from() {
     assert!(out.history.windows(2).all(|w| w[1].best <= w[0].best + 1e-12));
     assert_eq!(out.best.per_env.len(), 8);
     assert_eq!(out.tracks.len(), 8);
+    // How much each tuned gain matters around the best: never better than the best.
+    assert_eq!(out.sensitivity.len(), 2);
+    assert!(out.sensitivity.iter().all(|s| s.lower_score >= out.best.score - 1e-9 || s.upper_score >= out.best.score - 1e-9));
     println!("baseline {:.4} -> best {:.4} with {:?} in {:.2} s ({} runs)", out.baseline.score, out.best.score, out.best.values, out.elapsed_s, out.runs);
 }
 
@@ -79,7 +82,8 @@ fn a_population_search_beats_the_gains_it_started_from() {
 fn a_grid_tries_every_combination() {
     let cfg = config(Method::Grid { steps: 4 }, 5.0);
     let out = run(&robot(), &[traj("Alt")], &cfg, Arc::new(AtomicBool::new(false)), |_| {});
-    assert_eq!(out.runs, (1 + 16) * 8);
+    // The now, 16 combinations, and the sensitivity check (2 per tuned gain), in 8 worlds.
+    assert_eq!(out.runs, (1 + 16 + 2 * 2) * 8);
     assert!(out.best.score <= out.baseline.score);
 }
 
@@ -125,7 +129,7 @@ fn the_app_s_config_reads_as_is() {
     assert_eq!(cfg.method, Method::Population { generations: 40, population: 32 });
     // And the progress goes back with the names the app reads.
     let p = serde_json::to_value(ares_tune::tune::Progress::default()).unwrap();
-    for k in ["generation", "generations", "runs", "elapsedS", "baseline", "best", "population", "history", "tracks", "baselineTracks", "worlds", "done", "cancelled"] {
+    for k in ["generation", "generations", "runs", "elapsedS", "baseline", "best", "population", "history", "tracks", "baselineTracks", "worlds", "sensitivity", "done", "cancelled"] {
         assert!(p.get(k).is_some(), "{k}");
     }
     let c = serde_json::to_value(ares_tune::tune::Candidate::default()).unwrap();

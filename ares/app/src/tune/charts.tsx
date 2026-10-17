@@ -74,18 +74,26 @@ export function TrainingChart({ history, baseline }: { history: HistoryPoint[]; 
   const pts = history.filter(p => Number.isFinite(p.best))
   const gens = pts.map(p => p.generation)
   const x0 = Math.min(0, ...gens), x1 = Math.max(1, ...gens)
-  const ys = pts.flatMap(p => [p.best, p.genMedian]).filter(Number.isFinite)
+  const ys = pts.flatMap(p => [p.best, p.genMedian]).filter(v => Number.isFinite(v) && v > 0)
   const yTop = Math.max(...ys, baseline ?? 0, 1e-6)
+  const yLow = Math.max(1e-4, Math.min(...ys, yTop))
+  // Lost runs cost ten times a good one: on a linear axis the progress that
+  // matters would sit flat on the floor. A log axis when the range is wide.
+  const log = yTop / yLow > 8
+  const lo = log ? Math.log10(yLow * 0.8) : 0, hi = log ? Math.log10(yTop * 1.2) : yTop * 1.05
   const sx = (g: number) => PAD.l + (g - x0) / (x1 - x0) * (width - PAD.l - PAD.r)
-  const sy = (v: number) => PAD.t + (1 - v / (yTop * 1.05)) * (h - PAD.t - PAD.b)
+  const sy = (v: number) => PAD.t + (1 - ((log ? Math.log10(Math.max(v, 1e-6)) : v) - lo) / (hi - lo)) * (h - PAD.t - PAD.b)
+  const yTicks = log
+    ? [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20].filter(v => Math.log10(v) >= lo && Math.log10(v) <= hi)
+    : ticks(0, hi)
   const line = (k: "best" | "genMedian") => pts.filter(p => Number.isFinite(p[k])).map((p, i) => `${i ? "L" : "M"}${sx(p.generation)},${sy(p[k])}`).join("")
   const band = pts.length > 1
-    ? `M${pts.map(p => `${sx(p.generation)},${sy(Math.min(p.genWorst, yTop * 1.05))}`).join("L")}L${[...pts].reverse().map(p => `${sx(p.generation)},${sy(p.genBest)}`).join("L")}Z`
+    ? `M${pts.map(p => `${sx(p.generation)},${sy(Math.min(p.genWorst, yTop * 1.2))}`).join("L")}L${[...pts].reverse().map(p => `${sx(p.generation)},${sy(p.genBest)}`).join("L")}Z`
     : ""
   const last = pts[pts.length - 1]
   const hp = hover !== null ? pts.find(p => p.generation === hover) : null
   return (
-    <Frame title="Training" legend={<><Key color={BEST} label="best so far" /><Key color={GEN} label="generation median" /></>}
+    <Frame title={log ? "Training (log scale)" : "Training"} legend={<><Key color={BEST} label="best so far" /><Key color={GEN} label="generation median" /></>}
       tip={hp && <Tip x={sx(hp.generation)} y={sy(hp.best)}>
         <b>Generation {hp.generation}</b><br />
         best so far <b>{fmt(hp.best)}</b><br />
@@ -99,7 +107,7 @@ export function TrainingChart({ history, baseline }: { history: HistoryPoint[]; 
             const near = pts.reduce<HistoryPoint | null>((a, p) => (!a || Math.abs(p.generation - g) < Math.abs(a.generation - g) ? p : a), null)
             setHover(near?.generation ?? null)
           }}>
-          {ticks(0, yTop * 1.05).map(v => (
+          {yTicks.map(v => (
             <g key={v}>
               <line x1={PAD.l} x2={width - PAD.r} y1={sy(v)} y2={sy(v)} stroke={GRID} />
               <text x={PAD.l - 6} y={sy(v) + 3} textAnchor="end" fontSize={9.5} fill={INK}>{fmt(v)}</text>
@@ -133,7 +141,9 @@ export function WorldsChart({ best, baseline, worlds, hovered, onHover }: {
   const [ref, width] = useWidth()
   const h = 170
   const n = best?.perEnv.length ?? 0
-  const top = Math.max(1e-6, ...(best?.perEnv ?? []), ...(baseline?.perEnv ?? []))
+  // Scaled to the best: where the gains now lose the path (ten times the
+  // cost) their tick stops at the top with an arrow and its value.
+  const top = Math.max(1e-6, ...(best?.perEnv ?? [])) * 1.6
   const bw = n ? (width - PAD.l - 12) / n : 0
   const sy = (v: number) => PAD.t + (1 - v / (top * 1.08)) * (h - PAD.t - PAD.b)
   const worst = best ? best.perEnv.indexOf(Math.max(...best.perEnv)) : -1
@@ -162,7 +172,9 @@ export function WorldsChart({ best, baseline, worlds, hovered, onHover }: {
                 <rect x={x} y={PAD.t} width={bw} height={h - PAD.t - PAD.b} fill="transparent" />
                 <path d={`M${x + 1},${sy(0)} V${sy(c) + Math.min(4, bh)} q0,-4 4,-4 H${x + bw - 5} q4,0 4,4 V${sy(0)} Z`}
                   fill={GEN} opacity={hovered === null || hovered === i ? 1 : 0.45} />
-                {baseline && <line x1={x + 1} x2={x + bw - 1} y1={sy(baseline.perEnv[i])} y2={sy(baseline.perEnv[i])} stroke="var(--text-muted)" strokeWidth={2} strokeDasharray="3 2" />}
+                {baseline && (baseline.perEnv[i] <= top * 1.08
+                  ? <line x1={x + 1} x2={x + bw - 1} y1={sy(baseline.perEnv[i])} y2={sy(baseline.perEnv[i])} stroke="var(--text-muted)" strokeWidth={2} strokeDasharray="3 2" />
+                  : <text x={x + bw / 2} y={PAD.t + 8} textAnchor="middle" fontSize={9} fill="var(--text-muted)">↑</text>)}
               </g>
             )
           })}
@@ -174,8 +186,11 @@ export function WorldsChart({ best, baseline, worlds, hovered, onHover }: {
   )
 }
 
-/** This generation's gain sets on two of the tuned gains, darker the better. */
-export function PopulationChart({ population, best, params }: { population: Candidate[]; best: Candidate | null; params: Param[] }) {
+/**
+ * Every gain set tried so far on two of the tuned gains: older generations
+ * light, the latest dark, so the cloud shows where the search converged.
+ */
+export function PopulationChart({ cloud, best, params }: { cloud: { gen: number; c: Candidate }[]; best: Candidate | null; params: Param[] }) {
   const [ref, width] = useWidth()
   const [hover, setHover] = useState<number | null>(null)
   const h = 170
@@ -189,16 +204,11 @@ export function PopulationChart({ population, best, params }: { population: Cand
   const ux = scale(a), uy = scale(b)
   const sx = (v: number) => PAD.l + ux(v) * (width - PAD.l - 16)
   const sy = (v: number) => PAD.t + (1 - uy(v)) * (h - PAD.t - PAD.b)
-  const ranked = [...population].sort((p, q) => p.score - q.score)
-  const shade = (rank: number) => {
-    // One hue, light (worse) to dark (better).
-    const f = ranked.length > 1 ? 1 - rank / (ranked.length - 1) : 1
-    const l = 82 - f * 47
-    return `hsl(217 70% ${l}%)`
-  }
-  const hp = hover !== null ? ranked[hover] : null
+  const lastGen = Math.max(1, ...cloud.map(p => p.gen))
+  const shade = (gen: number) => `hsl(217 70% ${86 - (gen / lastGen) * 52}%)`
+  const hp = hover !== null ? cloud[hover]?.c : null
   return (
-    <Frame title="Population" legend={<span>darker = better · <span style={{ color: BEST }}>●</span> best so far</span>}
+    <Frame title="Every gain set tried" legend={<span>lighter = earlier generations · <span style={{ color: BEST }}>●</span> best</span>}
       tip={hp && <Tip x={sx(hp.values[a.i])} y={sy(hp.values[b.i])}>
         score <b>{fmt(hp.score)}</b>{hp.aborts ? ` · ${hp.aborts} runs lost the path` : ""}<br />
         {tuned.map(q => <span key={q.i}>{PARAM_INFO[q.p.key].label} {fmt(hp.values[q.i])}<br /></span>)}
@@ -212,12 +222,12 @@ export function PopulationChart({ population, best, params }: { population: Cand
           <text x={8} y={PAD.t + 8} fontSize={9.5} fill={INK}>{fmt(b.p.max)}</text>
           <text x={8} y={h - PAD.b} fontSize={9.5} fill={INK}>{fmt(b.p.min)}</text>
           <text x={PAD.l + 4} y={PAD.t + 10} fontSize={9.5} fill={INK}>↑ {PARAM_INFO[b.p.key].label}</text>
-          {ranked.map((c, k) => (
+          {cloud.map(({ gen, c }, k) => (
             <g key={k} onMouseEnter={() => setHover(k)}>
-              <circle cx={sx(c.values[a.i])} cy={sy(c.values[b.i])} r={9} fill="transparent" />
-              <circle cx={sx(c.values[a.i])} cy={sy(c.values[b.i])} r={4.5} fill={shade(k)} stroke="var(--bg-page)" strokeWidth={1.5} />
+              <circle cx={sx(c.values[a.i])} cy={sy(c.values[b.i])} r={7} fill="transparent" />
+              <circle cx={sx(c.values[a.i])} cy={sy(c.values[b.i])} r={3.5} fill={shade(gen)} stroke="var(--bg-page)" strokeWidth={1} />
             </g>
-          )).reverse()}
+          ))}
           {best && <circle cx={sx(best.values[a.i])} cy={sy(best.values[b.i])} r={6} fill={BEST} stroke="var(--bg-page)" strokeWidth={2} />}
         </svg>
       </div>

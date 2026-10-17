@@ -91,3 +91,7 @@ release/
 # They keep their own licenses (MIT and BSD-3); see ares/README.md.
 ares/reference/
 ares/target/
+
+# The Tune harness replays a recorded run: regenerate with
+#   ARES_HARNESS=ares/app/harness/fixtures cargo test -p ares-tune --test probe record -- --ignored
+ares/app/harness/fixtures/

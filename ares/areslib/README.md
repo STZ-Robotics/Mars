@@ -47,6 +47,12 @@ SendableChooser<Command> autos = ares.autoChooser();     // every auto, plus Non
 SmartDashboard.putData("Auto", autos);
 ```
 
+**The gains.** Leave `withGains` out and AresLib reads `gains.json` from the
+project: what the Tune tab's "Apply to robot" writes after tuning, so a deploy
+carries the tuned gains with no code to change. `withGains` in the code wins
+over the file. Either way it prints which gains it runs with and from where,
+and publishes them on `/Ares/Gains`.
+
 Not CTRE? `AresDrive.of(pose, robotSpeeds, resetPose, setpoint -> ..., subsystem)`
 takes four lambdas. The setpoint has the speeds (field and robot frame) and
 each wheel's force (field and robot frame) to feed forward however your
