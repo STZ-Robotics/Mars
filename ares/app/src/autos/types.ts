@@ -29,7 +29,12 @@ export type Trigger =
   /** A NamedCondition becomes true. */
   | { kind: "condition"; name: string }
 
-export interface Auto { name: string; budgetS?: number; steps: Step[] }
+/**
+ * An auto. `resetOdometry`: whether it sets the robot's pose to its first
+ * path's start (PathPlanner's "Reset Odometry"); unset, the robot code's
+ * Config decides (yes by default). `folder` groups it in the list.
+ */
+export interface Auto { name: string; budgetS?: number; resetOdometry?: boolean; folder?: string; steps: Step[] }
 
 export const DEFAULT_BUDGET_S = 15
 

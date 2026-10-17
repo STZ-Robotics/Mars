@@ -13,6 +13,7 @@ import { applyScope, evaluateAll, withOverrides } from "../vars/variables"
 import { Auto, DEFAULT_BUDGET_S, Leg, ListKey, Step, StepPath, Trigger, children, conditionsOf, duration, getList, legs, migrateAuto, namesOf, newAuto, pathKey, updateList, zonesOf } from "./types"
 import CommandTree, { STEP_MIME } from "./CommandTree"
 import { markerLink, useRobotNames } from "./robotNames"
+import { FolderRow, ITEM_MIME, LooseDrop, groupByFolder, newFolderName, useFolders } from "../ui/Folders"
 
 interface Props {
   robot: RobotConfig
@@ -418,6 +419,33 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
     return () => cancelAnimationFrame(frame)
   }, [playing, timeline.end])
 
+  // --- Folders ----------------------------------------------------------------
+  const autoFolders = useFolders(robotPath, "autos")
+  const setAutoFolder = async (names: string[], folder: string | undefined) => {
+    const put = (a: Auto): Auto => { const { folder: _, ...rest } = a; return folder ? { ...rest, folder } : rest }
+    for (const name of names) {
+      if (current?.savedName === name) { edit(put); continue }
+      const a = autoMap.get(name)
+      if (!a || a.folder === folder) continue
+      await invoke("auto_save", { robotPath, auto: put(a), previous: name }).catch(e => toast({ kind: "error", title: `Could not move ${name}`, body: String(e) }))
+    }
+    await refresh()
+  }
+  const autoRow = (a: Auto, depth: number) => {
+    const active = current?.savedName === a.name
+    const r = duration(a.steps, durations, autoMap)
+    return (
+      <Row key={a.name} active={active} indent={depth} dragName={a.name} onClick={() => { if (!active) { setCurrent({ auto: a, savedName: a.name }); setPlayhead(null); setRenaming(false) } }}
+        onDoubleClick={() => { setCurrent({ auto: a, savedName: a.name }); setRenaming(true) }} title="Double-click to rename">
+        <i className="ti ti-list-details" style={{ fontSize: 14 }} />
+        {active && renaming && auto
+          ? <span style={{ flex: 1 }} onClick={e => e.stopPropagation()}><TextField value={auto.name} autoFocus onCommit={name => edit(x => ({ ...x, name: unique(name) }))} onDone={() => setRenaming(false)} /></span>
+          : <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</span>}
+        {active && <span style={{ fontSize: 10, fontFamily: "Consolas, 'Cascadia Mono', monospace", opacity: 0.85 }}>{fmtRange(r.min, r.max)}</span>}
+      </Row>
+    )
+  }
+
   return (
     <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
       <div style={{ width: SIDEBAR_WIDTH, flexShrink: 0, minHeight: 0, display: "flex", flexDirection: "column", borderRight: "1px solid var(--border-main)", background: "var(--bg-panel)" }}>
@@ -430,26 +458,30 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
         </div>
         <div className="ares-scroll" style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
           <Heading label="Autos" count={autos.length}>
+            <SmallIcon icon="ti-folder-plus" title="New folder (drag autos onto it)" onClick={() => autoFolders.save([...autoFolders.folders, newFolderName(autoFolders.folders)])} />
             <SmallIcon icon="ti-plus" title="New auto" onClick={create} />
             <SmallIcon icon="ti-copy" title="Duplicate auto" onClick={duplicate} />
             <SmallIcon icon="ti-flip-horizontal" title="Mirror: a copy on the other side of the field (left and right swapped), with mirrored copies of its paths. Red and blue need nothing: AresLib flips on red." onClick={mirror} />
             <SmallIcon icon="ti-trash" title="Delete auto" onClick={remove} />
           </Heading>
           {autos.length === 0 && !current && <None>No autos yet. Make one with +.</None>}
-          {autos.map(a => {
-            const active = current?.savedName === a.name
-            const r = duration(a.steps, durations, autoMap)
+          {(() => {
+            const { groups, loose } = groupByFolder(autos, a => a.folder, autoFolders.folders)
             return (
-              <Row key={a.name} active={active} onClick={() => { if (!active) { setCurrent({ auto: a, savedName: a.name }); setPlayhead(null); setRenaming(false) } }}
-                onDoubleClick={() => { setCurrent({ auto: a, savedName: a.name }); setRenaming(true) }} title="Double-click to rename">
-                <i className="ti ti-list-details" style={{ fontSize: 14 }} />
-                {active && renaming && auto
-                  ? <span style={{ flex: 1 }} onClick={e => e.stopPropagation()}><TextField value={auto.name} autoFocus onCommit={name => edit(x => ({ ...x, name: unique(name) }))} onDone={() => setRenaming(false)} /></span>
-                  : <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</span>}
-                {active && <span style={{ fontSize: 10, fontFamily: "Consolas, 'Cascadia Mono', monospace", opacity: 0.85 }}>{fmtRange(r.min, r.max)}</span>}
-              </Row>
+              <>
+                {groups.map(([f, list]) => (
+                  <div key={`folder:${f}`}>
+                    <FolderRow name={f} count={list.length} open={autoFolders.open(f)} onToggle={() => autoFolders.toggle(f)}
+                      onDropItem={name => setAutoFolder([name], f)}
+                      onRename={to => { if (autoFolders.folders.includes(to)) return; autoFolders.save(autoFolders.folders.map(x => (x === f ? to : x))); setAutoFolder(list.map(a => a.name), to) }}
+                      onDelete={() => { autoFolders.save(autoFolders.folders.filter(x => x !== f)); setAutoFolder(list.map(a => a.name), undefined) }} />
+                    {autoFolders.open(f) && list.map(a => autoRow(a, 1))}
+                  </div>
+                ))}
+                <LooseDrop onDropItem={name => setAutoFolder([name], undefined)}>{loose.map(a => autoRow(a, 0))}</LooseDrop>
+              </>
             )
-          })}
+          })()}
           {current && current.savedName === null && <Row active><i className="ti ti-list-details" /> {current.auto.name}</Row>}
 
           {auto && (
@@ -524,6 +556,19 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
               <div style={{ padding: "6px 12px", display: "flex", alignItems: "center", gap: 8, fontSize: 11.5 }} title="The time the auto must fit in. FRC's autonomous period is 15 s.">
                 <span style={{ flex: 1 }}>Time budget</span>
                 <NumberField value={budget} onCommit={v => edit(a => ({ ...a, budgetS: v }))} /> s
+              </div>
+              <div style={{ padding: "6px 12px", display: "flex", alignItems: "center", gap: 8, fontSize: 11.5 }}
+                title="PathPlanner's Reset Odometry: at the start, the robot's pose is set to where the first path begins (flipped on red). Off when the pose estimate already knows where the robot is (vision), or when the auto continues another.">
+                <span style={{ flex: 1 }}>Reset odometry at the start</span>
+                <select style={{ ...propertyInputStyle, width: 150 }} value={auto.resetOdometry === undefined ? "" : auto.resetOdometry ? "yes" : "no"}
+                  onChange={e => edit(a => {
+                    const { resetOdometry: _, ...rest } = a
+                    return e.target.value === "" ? rest : { ...rest, resetOdometry: e.target.value === "yes" }
+                  })}>
+                  <option value="">As the robot code says</option>
+                  <option value="yes">Yes, to the first path</option>
+                  <option value="no">No, keep the pose</option>
+                </select>
               </div>
             </>
           )}
@@ -857,10 +902,13 @@ function Heading({ label, count, children }: { label: string; count?: number; ch
   )
 }
 
-function Row({ children, active, onClick, onDoubleClick, title }: { children: ReactNode; active?: boolean; onClick?: () => void; onDoubleClick?: () => void; title?: string }) {
+function Row({ children, active, onClick, onDoubleClick, title, indent = 0, dragName }: {
+  children: ReactNode; active?: boolean; onClick?: () => void; onDoubleClick?: () => void; title?: string; indent?: number; dragName?: string
+}) {
   return (
     <div onClick={onClick} onDoubleClick={onDoubleClick} title={title}
-      style={{ display: "flex", alignItems: "center", gap: 7, height: 28, padding: "0 10px", fontSize: 12, cursor: onClick ? "pointer" : "default", borderBottom: "1px solid var(--border-light)",
+      draggable={!!dragName} onDragStart={e => { if (dragName) { e.dataTransfer.setData(ITEM_MIME, dragName); e.dataTransfer.effectAllowed = "move" } }}
+      style={{ display: "flex", alignItems: "center", gap: 7, height: 28, padding: `0 10px 0 ${10 + indent * 16}px`, fontSize: 12, cursor: onClick ? "pointer" : "default", borderBottom: "1px solid var(--border-light)",
         background: active ? "var(--tree-selection-bg)" : "transparent", color: active ? "var(--tree-selection-fg)" : "var(--text-primary)" }}>
       {children}
     </div>

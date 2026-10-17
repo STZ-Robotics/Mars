@@ -345,6 +345,20 @@
           ]
         }
       ]
+    },
+    {
+      "name": "Branchy kept",
+      "steps": [
+        {
+          "type": "path",
+          "path": "Main"
+        },
+        {
+          "type": "path",
+          "path": "Alt"
+        }
+      ],
+      "resetOdometry": false
     }
   ]
 }

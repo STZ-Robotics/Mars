@@ -19,6 +19,8 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   trajectory_open: a => trajs[a.name as string] ?? null,
   robot_names: () => ({ root: "/home/team/robot", commands: ["intake", "shoot", "feed", "kick"], conditions: ["hasNote"], events: ["spin"], files: 14 }),
   variables_open: () => ({ variables: [] }),
+  folders_open: () => ({ paths: ["Amp side", "Source side"], autos: ["Qualifiers", "Playoffs"] }),
+  folders_save: () => null,
   resolve_model_path: () => null,
   path_time: () => null,
   path_save: () => null,
@@ -43,8 +45,11 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     React.createElement(PathsPage as never, { robot, robotPath: "/x/bot.robot.json", onSaveRobot: () => {} }))),
 )
 const pick = () => {
-  const name = new URLSearchParams(location.search).get("marker") ?? "load"
-  const row = [...document.querySelectorAll("div")].find(d => d.children.length > 1 && d.textContent?.trim().startsWith(name) && d.querySelector(".ti-map-pin-bolt"))
+  const q = new URLSearchParams(location.search)
+  const name = q.get("marker") ?? "load"
+  const want = q.get("constraint") ?? name
+  const rows = [...document.querySelectorAll("div")].filter(d => d.children.length > 1 && d.textContent?.trim().startsWith(want) && d.textContent!.length < 60 && d.querySelector(".ti-trash"))
+  const row = rows[rows.length - 1]
   if (!row) return setTimeout(pick, 150)
   row.click()
 }

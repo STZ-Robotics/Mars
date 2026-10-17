@@ -130,6 +130,15 @@ fn auto_file(robot_path: &str, name: &str) -> Result<PathBuf, String> {
 
 /// A fingerprint of what a trajectory comes from. FNV-1a over the JSON: not
 /// cryptographic, only "did anything change".
+/// The spec as its trajectory depends on it: the folder it is listed in does not.
+fn hashed(spec: &PathSpec) -> serde_json::Value {
+    let mut v = serde_json::to_value(spec).unwrap_or_default();
+    if let Some(o) = v.as_object_mut() {
+        o.remove("folder");
+    }
+    v
+}
+
 pub fn source_hash(parts: &[&serde_json::Value]) -> String {
     let mut h: u64 = 0xcbf29ce484222325;
     for p in parts {
@@ -367,7 +376,7 @@ pub async fn path_plan(
         let started = Instant::now();
         // What it is generated from, before anything below changes it.
         let json = |v: serde_json::Result<serde_json::Value>| v.unwrap_or(serde_json::Value::Null);
-        let hash = source_hash(&[&json(serde_json::to_value(&spec)), &field_for(&field, &spec), &json(serde_json::to_value(&robot))]);
+        let hash = source_hash(&[&hashed(&spec), &field_for(&field, &spec), &json(serde_json::to_value(&robot))]);
         let mut spec = spec;
         let mut options = PlannerOptions::default();
         if let Some(rp) = robot_path.as_ref() {
@@ -432,7 +441,7 @@ pub fn paths_status(robot_path: String, robot: RobotConfig, field: FieldDoc) -> 
         .filter_map(|e| e.spec)
         .map(|spec| {
             let traj = trajectory_open(robot_path.clone(), spec.name.clone());
-            let now = source_hash(&[&json(serde_json::to_value(&spec)), &field_for(&field, &spec), &robot_json]);
+            let now = source_hash(&[&hashed(&spec), &field_for(&field, &spec), &robot_json]);
             PathStatus {
                 generated: traj.is_some(),
                 outdated: traj.as_ref().is_none_or(|t| t.source_hash.as_deref() != Some(now.as_str()) || lacks_forces(t)),
@@ -444,6 +453,30 @@ pub fn paths_status(robot_path: String, robot: RobotConfig, field: FieldDoc) -> 
 }
 
 /// Every auto in the project, sorted by name, as stored.
+/// The project's folders (folders.json), empty ones included: what each
+/// item is in lives on the item (its `folder`).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Folders {
+    #[serde(default)]
+    pub paths: Vec<String>,
+    #[serde(default)]
+    pub autos: Vec<String>,
+}
+
+#[tauri::command]
+pub fn folders_open(robot_path: String) -> Folders {
+    std::fs::read_to_string(project_dir(&robot_path).join("folders.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+pub fn folders_save(robot_path: String, folders: Folders) -> Result<(), String> {
+    let text = serde_json::to_string_pretty(&folders).map_err(|e| e.to_string())? + "\n";
+    std::fs::write(project_dir(&robot_path).join("folders.json"), text).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub fn autos_list(robot_path: String) -> Vec<serde_json::Value> {
     let dir = project_dir(&robot_path).join("autos");
@@ -625,6 +658,19 @@ mod tests {
     }
 
     #[test]
+    fn folders_are_kept_and_a_folder_does_not_outdate_a_path() {
+        let rp = temp_project("folders");
+        assert_eq!(folders_open(rp.clone()), Folders::default());
+        let f = Folders { paths: vec!["Amp side".into()], autos: vec!["Qualifiers".into(), "Empty".into()] };
+        folders_save(rp.clone(), f.clone()).unwrap();
+        assert_eq!(folders_open(rp), f);
+        let mut a = spec("A");
+        let before = hashed(&a);
+        a.folder = Some("Amp side".into());
+        assert_eq!(hashed(&a), before);
+    }
+
+    #[test]
     fn autos_crud_and_the_index() {
         let rp = temp_project("autos");
         path_save(rp.clone(), spec("Out"), None).unwrap();
@@ -658,7 +704,7 @@ mod tests {
         assert!(!paths_status(rp.clone(), robot.clone(), field.clone())[0].generated);
         let json = |v: serde_json::Result<serde_json::Value>| v.unwrap();
         let mut t = solve(&robot, &s, &SolverOptions::default()).unwrap();
-        t.source_hash = Some(source_hash(&[&json(serde_json::to_value(&s)), &field_for(&field, &s), &json(serde_json::to_value(&robot))]));
+        t.source_hash = Some(source_hash(&[&hashed(&s), &field_for(&field, &s), &json(serde_json::to_value(&robot))]));
         write(&traj_file(&rp, "P").unwrap(), &serde_json::to_string(&t).unwrap()).unwrap();
         let st = &paths_status(rp.clone(), robot.clone(), field.clone())[0];
         assert!(st.generated && !st.outdated);

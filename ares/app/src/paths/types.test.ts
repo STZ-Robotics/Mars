@@ -101,3 +101,19 @@ describe("mirroring and moving", () => {
     expect(m.waypoints[2]).toBe(s.waypoints[2])
   })
 })
+
+describe("point-at", () => {
+  it("names the side that aims, and mirrors it", async () => {
+    const { facingDeg, sideName, mirrorPath } = await import("./types")
+    expect(sideName(facingDeg({ flip: true }))).toBe("Back")
+    expect(sideName(facingDeg({ offsetDeg: 90 }))).toBe("Left")
+    expect(facingDeg({ flip: true, offsetDeg: 90 })).toBe(-90)
+    const s = {
+      name: "P", waypoints: [{ x: 1, y: 1 }, { x: 5, y: 1 }], constraints: {},
+      scoped: [{ type: "pointAt" as const, x: 3, y: 6, toleranceDeg: 5, offsetDeg: 90, from: "first" as const, to: "last" as const }],
+    }
+    const m = mirrorPath(s, "vertical", 16, 8).scoped[0] as { x: number; y: number; offsetDeg?: number }
+    // Across the field: the target goes to the other side, and the left side aiming becomes the right.
+    expect(m).toMatchObject({ x: 3, y: 2, offsetDeg: -90 })
+  })
+})

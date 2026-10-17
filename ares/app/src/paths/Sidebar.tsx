@@ -1,6 +1,7 @@
 import { ReactNode, useState } from "react"
 import type { RobotNames } from "../autos/CommandTree"
 import { markerLink } from "../autos/robotNames"
+import { FolderRow, ITEM_MIME, LooseDrop, groupByFolder } from "../ui/Folders"
 import { GLYPH, StopIcon, WaypointIcon, positionColor } from "./glyphs"
 import { linkedPose } from "../vars/variables"
 import {
@@ -29,6 +30,14 @@ interface Props {
   onDeleteEvent: (i: number) => void
   /** The robot code's names, for marking the event markers that do nothing on the robot. */
   robotNames?: RobotNames | null
+  /** Folders (PathPlanner's path folders): the project's, and moving paths into them. */
+  folders: string[]
+  folderOpen: (name: string) => boolean
+  onToggleFolder: (name: string) => void
+  onMoveToFolder: (path: string, folder: string | undefined) => void
+  onAddFolder: () => void
+  onRenameFolder: (from: string, to: string) => void
+  onDeleteFolder: (name: string) => void
   onDeleteRotation: (i: number) => void
   /** Per path: generated and up to date. */
   status: Record<string, PathStatus>
@@ -48,6 +57,32 @@ export const KIND_LABEL: Record<WaypointKind, string> = { pose: "Pose", translat
 // on the row itself: a waypoint's type, its stop, deleting it, dragging it
 // to reorder. Hovering a row lights it up on the field.
 export default function Sidebar(p: Props) {
+  const row = ({ entry: e, depth }: { entry: PathEntry; depth: number }) => {
+    const st = p.status[e.name]
+    const sp = e.spec
+    const isBranch = !!sp?.continuesFrom && sp.continuesAt !== undefined
+    const isChain = !!sp?.continuesFrom && sp.continuesAt === undefined
+    const active = p.activeName === e.name
+    const dot = !st?.generated ? "var(--text-light)" : st.outdated ? "#d97706" : "#16a34a"
+    return (
+      <Item key={e.name} active={active} onClick={() => p.onOpen(e)}
+        draggable onDragStart={ev => { ev.dataTransfer.setData(ITEM_MIME, e.name); ev.dataTransfer.effectAllowed = "move" }}
+        title={e.error ?? `${e.name}${isBranch ? `: branch of ${sp!.continuesFrom} at waypoint ${sp!.continuesAt! + 1}, when ${sp!.condition ?? "?"}` : isChain ? `: continues ${sp!.continuesFrom}` : ""}. ${!st?.generated ? "Not generated." : st.outdated ? "Out of date: generate again." : "Up to date."}`}
+        style={{ paddingLeft: 8 + depth * 16 }}>
+        {e.error ? <i className="ti ti-alert-triangle" style={{ fontSize: 14, color: "var(--status-error)" }} />
+          : isBranch ? <span style={{ color: active ? "#ffffff" : "#db2777", fontSize: 12, width: 14, textAlign: "center" }}>◆</span>
+          : isChain ? <span style={{ color: active ? "#ffffff" : "#0e7490", fontSize: 13, width: 14, textAlign: "center" }}>↪</span>
+          : <i className="ti ti-route" style={{ fontSize: 14, color: active ? "#ffffff" : "var(--icon-tree)" }} />}
+        <Label>
+          {e.name}
+          {isBranch && sp!.condition && <Dim sel={active}> · if {sp!.condition}</Dim>}
+          {(sp?.variants?.length ?? 0) > 0 && <Dim sel={active}> · {sp!.variants!.length} variant{sp!.variants!.length > 1 ? "s" : ""}</Dim>}
+        </Label>
+        {st?.durationS !== undefined && <span style={{ fontSize: 10, opacity: 0.8, fontFamily: "Consolas, 'Cascadia Mono', monospace" }}>{st.durationS.toFixed(2)} s</span>}
+        <span style={{ width: 8, height: 8, borderRadius: 4, background: dot, flexShrink: 0, boxShadow: active ? "0 0 0 1.5px #ffffff" : undefined }} />
+      </Item>
+    )
+  }
   const spec = p.spec
   const n = spec?.waypoints.length ?? 0
   const [drag, setDrag] = useState<{ from: number; over: number | null } | null>(null)
@@ -57,37 +92,34 @@ export default function Sidebar(p: Props) {
       <Heading label="Paths" count={p.entries.length}>
         <IconButton icon="ti-refresh-alert" title="Generate all outdated: every path not generated, or generated from something that changed, in order (a path before what continues from it)" onClick={() => p.onGenerateMany("outdated")} />
         <IconButton icon="ti-stack-2" title="Generate all: every path and variant, in order" onClick={() => p.onGenerateMany("all")} />
+        <IconButton icon="ti-folder-plus" title="New folder (drag paths onto it)" onClick={p.onAddFolder} />
         <IconButton icon="ti-plus" title="New path" onClick={p.onNewPath} />
         <IconButton icon="ti-copy" title="Duplicate path" onClick={p.onDuplicatePath} disabled={!spec} />
         <IconButton icon="ti-trash" title="Delete path" onClick={p.onDeletePath} disabled={!spec} />
       </Heading>
-      <div style={{ maxHeight: 150, overflowY: "auto" }}>
+      <div style={{ maxHeight: 240, overflowY: "auto" }}>
         {p.entries.length === 0 && !p.unsavedName && <None>No paths yet.</None>}
-        {tree(p.entries).map(({ entry: e, depth }) => {
-          const st = p.status[e.name]
-          const sp = e.spec
-          const isBranch = !!sp?.continuesFrom && sp.continuesAt !== undefined
-          const isChain = !!sp?.continuesFrom && sp.continuesAt === undefined
-          const active = p.activeName === e.name
-          const dot = !st?.generated ? "var(--text-light)" : st.outdated ? "#d97706" : "#16a34a"
+        {(() => {
+          // Each path goes with the top of its chain: branches stay under their path.
+          const rows = tree(p.entries)
+          const chains: { entry: PathEntry; depth: number }[][] = []
+          for (const r of rows) { if (r.depth === 0 || !chains.length) chains.push([r]); else chains[chains.length - 1].push(r) }
+          const { groups, loose } = groupByFolder(chains, c => c[0].entry.spec?.folder, p.folders)
           return (
-            <Item key={e.name} active={active} onClick={() => p.onOpen(e)}
-              title={e.error ?? `${e.name}${isBranch ? `: branch of ${sp!.continuesFrom} at waypoint ${sp!.continuesAt! + 1}, when ${sp!.condition ?? "?"}` : isChain ? `: continues ${sp!.continuesFrom}` : ""}. ${!st?.generated ? "Not generated." : st.outdated ? "Out of date: generate again." : "Up to date."}`}
-              style={{ paddingLeft: 8 + depth * 16 }}>
-              {e.error ? <i className="ti ti-alert-triangle" style={{ fontSize: 14, color: "var(--status-error)" }} />
-                : isBranch ? <span style={{ color: active ? "#ffffff" : "#db2777", fontSize: 12, width: 14, textAlign: "center" }}>◆</span>
-                : isChain ? <span style={{ color: active ? "#ffffff" : "#0e7490", fontSize: 13, width: 14, textAlign: "center" }}>↪</span>
-                : <i className="ti ti-route" style={{ fontSize: 14, color: active ? "#ffffff" : "var(--icon-tree)" }} />}
-              <Label>
-                {e.name}
-                {isBranch && sp!.condition && <Dim sel={active}> · if {sp!.condition}</Dim>}
-                {(sp?.variants?.length ?? 0) > 0 && <Dim sel={active}> · {sp!.variants!.length} variant{sp!.variants!.length > 1 ? "s" : ""}</Dim>}
-              </Label>
-              {st?.durationS !== undefined && <span style={{ fontSize: 10, opacity: 0.8, fontFamily: "Consolas, 'Cascadia Mono', monospace" }}>{st.durationS.toFixed(2)} s</span>}
-              <span style={{ width: 8, height: 8, borderRadius: 4, background: dot, flexShrink: 0, boxShadow: active ? "0 0 0 1.5px #ffffff" : undefined }} />
-            </Item>
+            <>
+              {groups.map(([f, cs]) => (
+                <div key={`folder:${f}`}>
+                  <FolderRow name={f} count={cs.reduce((n, c) => n + c.length, 0)} open={p.folderOpen(f)} onToggle={() => p.onToggleFolder(f)}
+                    onDropItem={name => p.onMoveToFolder(name, f)} onRename={to => p.onRenameFolder(f, to)} onDelete={() => p.onDeleteFolder(f)} />
+                  {p.folderOpen(f) && cs.flat().map(r => row({ ...r, depth: r.depth + 1 }))}
+                </div>
+              ))}
+              <LooseDrop onDropItem={name => p.onMoveToFolder(name, undefined)}>
+                {loose.flat().map(row)}
+              </LooseDrop>
+            </>
           )
-        })}
+        })()}
         {p.unsavedName && (
           <Item active>
             <i className="ti ti-route" style={{ fontSize: 14 }} />

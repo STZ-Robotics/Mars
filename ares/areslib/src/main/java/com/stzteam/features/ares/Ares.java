@@ -527,7 +527,8 @@ public final class Ares {
     // When the auto started, for the when steps that wait for a time.
     double[] started = {Double.NaN};
     var body = build(steps, new ArrayList<>(List.of(name)), started);
-    if (config.resetPoseAtAutoStart) {
+    var reset = auto.get().resetOdometry();
+    if (reset != null ? reset : config.resetPoseAtAutoStart) {
       var first = firstPath(steps, new HashSet<>());
       var traj = first == null ? null : blue.get(first);
       if (traj != null && traj.start() == AresTrajectory.Start.KNOWN) {

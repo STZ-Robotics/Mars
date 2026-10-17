@@ -9,6 +9,7 @@ import CommandTree, { RobotNames } from "../autos/CommandTree"
 import { markerLink } from "../autos/robotNames"
 import type { Step } from "../autos/types"
 import {
+  facingDeg,
   EventMarker, KeepOut, PathSpec, PathfindOptions, RotationTarget, ScopedConstraint, SlowZone, SegmentMode, Selection, Target, Trajectory, Waypoint, WaypointKind,
   constraintMeta, kindOf, segmentMode,
 } from "./types"
@@ -390,12 +391,26 @@ function ConstraintFields({ c, n, onChange, onUpdate }: {
           <Q label="Target X" dim="length" unit="m" {...b("x")} />
           <Q label="Target Y" dim="length" unit="m" {...b("y")} />
           <Q label="Tolerance" dim="plain" unit="°" {...b("toleranceDeg")} />
-          <PropertyRow label="Face">
-            <select style={propertyInputStyle} value={c.flip ? "back" : "front"} onChange={e => set({ flip: e.target.value === "back" })}>
-              <option value="front">Front toward it</option>
-              <option value="back">Back toward it</option>
+          <PropertyRow label="Aims">
+            <select style={propertyInputStyle} value={[0, 90, 180, -90].includes(facingDeg(c)) ? String(facingDeg(c)) : "other"}
+              onChange={e => set({ flip: false, offsetDeg: e.target.value === "other" ? 45 : Number(e.target.value) })}>
+              <option value="0">The front</option>
+              <option value="90">The left side</option>
+              <option value="180">The back</option>
+              <option value="-90">The right side</option>
+              <option value="other">Another angle</option>
             </select>
           </PropertyRow>
+          {![0, 90, 180, -90].includes(facingDeg(c)) && (
+            <PropertyRow label="Angle from the front">
+              <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <QInput dim="plain" value={facingDeg(c)} onChange={v => set({ flip: false, offsetDeg: v })} />°
+              </span>
+            </PropertyRow>
+          )}
+          <div style={{ padding: "2px 10px 6px", fontSize: 10.5, color: "var(--text-muted)", lineHeight: 1.4 }}>
+            PathPlanner's point-towards zone: between the two waypoints the robot turns so that side faces the target (a shooter, an intake). Counterclockwise is positive.
+          </div>
         </>
       )}
       {(c.type === "keepInCircle" || c.type === "keepOutCircle") && (

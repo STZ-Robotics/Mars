@@ -220,10 +220,25 @@ fn point_at_keeps_the_front_on_the_target() {
     use ares_core::path::ConstraintKind;
     let r = robot();
     let mut s = spec(vec![wp(1.0, 1.0, None), wp(6.0, 1.0, None)]);
-    s.scoped.push(scoped(0, Some(1), ConstraintKind::PointAt { x: 3.5, y: 4.0, tolerance_deg: 5.0, flip: false }));
+    s.scoped.push(scoped(0, Some(1), ConstraintKind::PointAt { x: 3.5, y: 4.0, tolerance_deg: 5.0, flip: false, offset_deg: 0.0 }));
     let p = run(&r, &s, &Environment::default());
     for q in &p.trajectory.samples {
         let want = (4.0 - q.y).atan2(3.5 - q.x);
+        let err = ares_core::geometry::wrap_angle(q.heading - want).abs().to_degrees();
+        assert!(err <= 5.5, "{err:.1}° off at t = {:.2}", q.t);
+    }
+}
+
+#[test]
+fn point_at_can_aim_a_side() {
+    // A side shooter: the left (90° from the front) on the target.
+    use ares_core::path::ConstraintKind;
+    let r = robot();
+    let mut s = spec(vec![wp(1.0, 1.0, None), wp(6.0, 1.0, None)]);
+    s.scoped.push(scoped(0, Some(1), ConstraintKind::PointAt { x: 3.5, y: 4.0, tolerance_deg: 5.0, flip: false, offset_deg: 90.0 }));
+    let p = run(&r, &s, &Environment::default());
+    for q in &p.trajectory.samples {
+        let want = (4.0 - q.y).atan2(3.5 - q.x) - std::f64::consts::FRAC_PI_2;
         let err = ares_core::geometry::wrap_angle(q.heading - want).abs().to_degrees();
         assert!(err <= 5.5, "{err:.1}° off at t = {:.2}", q.t);
     }

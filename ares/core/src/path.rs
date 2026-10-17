@@ -202,8 +202,19 @@ pub enum ConstraintKind {
     MaxVelocity { mps: f64 },
     MaxAcceleration { mps2: f64 },
     MaxAngularVelocity { dps: f64 },
-    /// The front (or the back, `flip`) faces a field point, within a tolerance.
-    PointAt { x: f64, y: f64, tolerance_deg: f64, #[serde(default)] flip: bool },
+    /// A side of the robot faces a field point, within a tolerance
+    /// (PathPlanner's point-towards zones, Choreo's point-at): the front,
+    /// or the side `offset_deg` counterclockwise from it (90: the left, a
+    /// side shooter). `flip` is the back (180 more), from older files.
+    PointAt {
+        x: f64,
+        y: f64,
+        tolerance_deg: f64,
+        #[serde(default)]
+        flip: bool,
+        #[serde(default, skip_serializing_if = "is_zero")]
+        offset_deg: f64,
+    },
     /// Every bumper corner inside a circle.
     KeepInCircle { x: f64, y: f64, radius_m: f64 },
     /// Every bumper corner inside an axis-aligned rectangle (x, y is its
@@ -213,6 +224,11 @@ pub enum ConstraintKind {
     KeepInLane { tolerance_m: f64 },
     /// The bumper clear of a circle, on this part of the path only.
     KeepOutCircle { x: f64, y: f64, radius_m: f64 },
+}
+
+/// The side of the robot a point-at turns to its target, in radians from the front.
+pub fn facing_offset_rad(flip: bool, offset_deg: f64) -> f64 {
+    offset_deg.to_radians() + if flip { std::f64::consts::PI } else { 0.0 }
 }
 
 impl ScopedConstraint {
@@ -318,6 +334,10 @@ pub struct PathSpec {
     /// them; each generates its own trajectory).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub variants: Vec<PathVariant>,
+    /// The folder it is listed in (PathPlanner's path folders); none for the
+    /// top. Only for the list: it changes nothing about the trajectory.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
 }
 
 /// A version of a path: the same path with some variables set otherwise.
@@ -352,6 +372,7 @@ impl PathSpec {
             condition: None,
             first_section: None,
             variants: vec![],
+            folder: None,
         }
     }
 }
@@ -747,7 +768,7 @@ mod format_tests {
         assert_eq!(spec.scoped[1].from, Target::Index(1));
         assert_eq!(spec.scoped[1].to, Some(Target::Last));
         assert!(!spec.scoped[2].enabled);
-        assert_eq!(spec.scoped[2].kind, ConstraintKind::PointAt { x: 8.0, y: 4.0, tolerance_deg: 5.0, flip: true });
+        assert_eq!(spec.scoped[2].kind, ConstraintKind::PointAt { x: 8.0, y: 4.0, tolerance_deg: 5.0, flip: true, offset_deg: 0.0 });
         let back: PathSpec = serde_json::from_str(&serde_json::to_string(&spec).unwrap()).unwrap();
         assert_eq!(back, spec);
     }

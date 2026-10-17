@@ -260,6 +260,22 @@ class FollowPathTest {
   }
 
   @Test
+  void eachAutoSaysWhetherItResetsThePose() {
+    // "Branchy" resets to its first path's start (the default); "Branchy
+    // kept", the same auto, was set in the Autos tab not to.
+    var placed = new Pose2d(9, 7, new Rotation2d(1));
+    for (var name : List.of("Branchy", "Branchy kept")) {
+      drive.pose = placed;
+      var c = ares.auto(name);
+      CommandScheduler.getInstance().schedule(c);
+      CommandScheduler.getInstance().run();
+      CommandScheduler.getInstance().cancel(c);
+      boolean reset = drive.pose.getTranslation().getDistance(placed.getTranslation()) > 1;
+      assertEquals(name.equals("Branchy"), reset, name);
+    }
+  }
+
+  @Test
   void anAutoThatGoesOnToABranchLeavesAtTheBranchPoint() throws Exception {
     // Main then Alt: Main is driven only up to the waypoint Alt leaves from.
     var main = TrajectoryTest.main();

@@ -364,11 +364,13 @@ extern "C" int ares_nlp_solve(const AresNlpProblem* p, AresNlpResult* out) {
               problem.subject_to(w[k] * w[k] <= q.p[0] * q.p[0]);
               break;
             case ARES_C_POINT_AT: {
-              // facing · (target − position) >= cos(tol)·|target − position|
-              const double sign = q.p[3] > 0.5 ? -1.0 : 1.0;
+              // facing · (target − position) >= cos(tol)·|target − position|,
+              // facing being the heading turned by p[3] (the side that aims).
+              const double co = std::cos(q.p[3]), so = std::sin(q.p[3]);
               Var dx = q.p[0] - x[k], dy = q.p[1] - y[k];
               Var dist = slp::sqrt(dx * dx + dy * dy + 1e-6);
-              problem.subject_to(sign * (c[k] * dx + s[k] * dy) >= std::cos(q.p[2]) * dist);
+              Var fx = c[k] * co - s[k] * so, fy = s[k] * co + c[k] * so;
+              problem.subject_to(fx * dx + fy * dy >= std::cos(q.p[2]) * dist);
               break;
             }
             case ARES_C_KEEP_IN_CIRCLE:

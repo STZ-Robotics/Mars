@@ -333,6 +333,8 @@ pub fn run() {
             project::variables_open,
             project::variables_save,
             project::autos_list,
+            project::folders_open,
+            project::folders_save,
             project::auto_save,
             project::auto_delete,
             project::index_write,

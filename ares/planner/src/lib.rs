@@ -490,6 +490,7 @@ fn sub_spec(spec: &PathSpec, a: usize, b: usize, cuts: &[usize]) -> PathSpec {
         condition: None,
         first_section: None,
         variants: vec![],
+        folder: None,
     }
 }
 
@@ -661,8 +662,10 @@ fn plan_fixed(
             ConstraintKind::MaxAngularVelocity { dps } => {
                 constraints.push(rec(ffi::C_MAX_OMEGA, [dps.to_radians(), 0.0, 0.0, 0.0, 0.0]))
             }
-            ConstraintKind::PointAt { x, y, tolerance_deg, flip } => constraints
-                .push(rec(ffi::C_POINT_AT, [x, y, tolerance_deg.to_radians(), if flip { 1.0 } else { 0.0 }, 0.0])),
+            ConstraintKind::PointAt { x, y, tolerance_deg, flip, offset_deg } => constraints.push(rec(
+                ffi::C_POINT_AT,
+                [x, y, tolerance_deg.to_radians(), ares_core::path::facing_offset_rad(flip, offset_deg), 0.0],
+            )),
             ConstraintKind::KeepInCircle { x, y, radius_m } => constraints.push(rec(ffi::C_KEEP_IN_CIRCLE, [x, y, radius_m, 0.0, 0.0])),
             ConstraintKind::KeepInRectangle { x, y, width_m, height_m } => {
                 constraints.push(rec(ffi::C_KEEP_IN_RECT, [x, y, width_m, height_m, 0.0]))
@@ -1084,11 +1087,11 @@ pub fn check_physics(robot: &RobotConfig, spec: &PathSpec, env: &Environment, t:
                 ConstraintKind::MaxVelocity { mps } => q.vx.hypot(q.vy) <= mps * LIMIT_TOL,
                 ConstraintKind::MaxAcceleration { mps2 } => q.ax.hypot(q.ay) <= mps2 * LIMIT_TOL,
                 ConstraintKind::MaxAngularVelocity { dps } => q.omega.abs() <= dps.to_radians() * LIMIT_TOL,
-                ConstraintKind::PointAt { x, y, tolerance_deg, flip } => {
+                ConstraintKind::PointAt { x, y, tolerance_deg, flip, offset_deg } => {
                     let (dx, dy) = (x - q.x, y - q.y);
-                    let sign = if flip { -1.0 } else { 1.0 };
+                    let facing = q.heading + ares_core::path::facing_offset_rad(flip, offset_deg);
                     let dist = dx.hypot(dy);
-                    dist < 1e-3 || sign * (q.heading.cos() * dx + q.heading.sin() * dy) >= cos_tol(tolerance_deg) * dist - 1e-3
+                    dist < 1e-3 || facing.cos() * dx + facing.sin() * dy >= cos_tol(tolerance_deg) * dist - 1e-3
                 }
                 _ => true,
             };

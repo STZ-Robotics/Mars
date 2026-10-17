@@ -5,6 +5,7 @@ import { propertyInputStyle } from "@desktop/styles/pageForm"
 import { FIELDS } from "@desktop/utils/field/fieldImages"
 import type { RobotConfig } from "../robot/types"
 import { useRobotNames } from "../autos/robotNames"
+import { newFolderName, useFolders } from "../ui/Folders"
 import { renderTopView, TopView } from "../robot/topView"
 import { bindField } from "../vars/bind"
 import { useVariables } from "../vars/context"
@@ -464,6 +465,32 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
     })
     if (final) { setCommit(c => c + 1); setHistoryTick(t => t + 1) }
   }
+  // --- Folders ----------------------------------------------------------------
+  const pathFolders = useFolders(robotPath, "paths")
+  /** Puts a path, with the whole chain it belongs to (what continues it, and what it continues), in a folder. */
+  const moveToFolder = async (name: string, folder: string | undefined) => {
+    const byName = new Map(entries.map(e => [e.name, e]))
+    let root = name
+    for (let k = 0; k < 50 && byName.get(root)?.spec?.continuesFrom && byName.has(byName.get(root)!.spec!.continuesFrom!); k++) root = byName.get(root)!.spec!.continuesFrom!
+    const chain = new Set([root])
+    for (let grew = true; grew;) {
+      grew = false
+      for (const e of entries) if (e.spec?.continuesFrom && chain.has(e.spec.continuesFrom) && !chain.has(e.name)) { chain.add(e.name); grew = true }
+    }
+    await setFolderOf([...chain], folder)
+  }
+  const setFolderOf = async (names: string[], folder: string | undefined) => {
+    const put = (s: PathSpec): PathSpec => { const { folder: _, ...rest } = s; return folder ? { ...rest, folder } : rest }
+    for (const name of names) {
+      if (current?.savedName === name) { editSpec(put, true); continue }
+      const e = entries.find(x => x.name === name)
+      if (!e?.spec || (e.spec.folder ?? undefined) === folder) continue
+      await invoke("path_save", { robotPath, spec: put(e.spec), previous: name }).catch(err => toast({ kind: "error", title: `Could not move ${name}`, body: String(err) }))
+    }
+    await refresh()
+  }
+  const inFolder = (f: string) => entries.filter(e => e.spec?.folder === f).map(e => e.name)
+
   const travel = (dir: "undo" | "redo") => {
     const h = history.current
     const from = dir === "undo" ? h.undo : h.redo
@@ -758,6 +785,13 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
         </div>
         <Sidebar
           robotNames={robotNames}
+          folders={pathFolders.folders}
+          folderOpen={pathFolders.open}
+          onToggleFolder={pathFolders.toggle}
+          onMoveToFolder={moveToFolder}
+          onAddFolder={() => pathFolders.save([...pathFolders.folders, newFolderName(pathFolders.folders)])}
+          onRenameFolder={(from, to) => { if (pathFolders.folders.includes(to)) return; pathFolders.save(pathFolders.folders.map(f => (f === from ? to : f))); setFolderOf(inFolder(from), to) }}
+          onDeleteFolder={f => { pathFolders.save(pathFolders.folders.filter(x => x !== f)); setFolderOf(inFolder(f), undefined) }}
           entries={entries}
           activeName={current?.savedName ?? null}
           unsavedName={current && current.savedName === null ? current.spec.name : null}

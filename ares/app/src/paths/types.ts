@@ -55,7 +55,8 @@ export type ConstraintKind =
   | { type: "maxVelocity"; mps: number }
   | { type: "maxAcceleration"; mps2: number }
   | { type: "maxAngularVelocity"; dps: number }
-  | { type: "pointAt"; x: number; y: number; toleranceDeg: number; flip?: boolean }
+  /** A side faces a field point: the front turned `offsetDeg` counterclockwise (the back too, with the old `flip`). */
+  | { type: "pointAt"; x: number; y: number; toleranceDeg: number; flip?: boolean; offsetDeg?: number }
   | { type: "keepInCircle"; x: number; y: number; radiusM: number }
   | { type: "keepInRectangle"; x: number; y: number; widthM: number; heightM: number }
   | { type: "keepInLane"; toleranceM: number }
@@ -102,6 +103,8 @@ export interface PathSpec {
   firstSection?: string
   /** Versions of the path that set some variables otherwise. */
   variants?: PathVariant[]
+  /** The folder it is listed in; none for the top. */
+  folder?: string
 }
 
 export interface PathVariant { name: string; overrides: Record<string, string> }
@@ -245,7 +248,7 @@ export const CONSTRAINTS: { type: ConstraintType; label: string; icon: string; s
   { type: "maxVelocity", label: "Max Velocity", icon: "ti-gauge", scope: "both", hint: "A cap on the chassis' speed." },
   { type: "maxAcceleration", label: "Max Acceleration", icon: "ti-trending-up", scope: "both", hint: "A cap on the chassis' acceleration." },
   { type: "maxAngularVelocity", label: "Max Angular Velocity", icon: "ti-rotate", scope: "both", hint: "A cap on the turn rate." },
-  { type: "pointAt", label: "Point At", icon: "ti-target-arrow", scope: "both", hint: "The front (or back) faces a field point, within a tolerance." },
+  { type: "pointAt", label: "Point At", icon: "ti-target-arrow", scope: "both", hint: "A side of the robot (the front, the back, a side, any angle) faces a field point, within a tolerance: PathPlanner's point-towards zones." },
   { type: "keepInCircle", label: "Keep In Circle", icon: "ti-circle-dashed", scope: "both", hint: "Every bumper corner stays inside a circle." },
   { type: "keepInRectangle", label: "Keep In Rectangle", icon: "ti-square-dashed", scope: "both", hint: "Every bumper corner stays inside a rectangle." },
   { type: "keepInLane", label: "Keep In Lane", icon: "ti-road", scope: "segment", hint: "The center stays within a distance of the straight line between the ends." },
@@ -412,7 +415,7 @@ export function constraintChip(c: ScopedConstraint): string {
     case "maxVelocity": return `≤ ${c.mps} m/s`
     case "maxAcceleration": return `≤ ${c.mps2} m/s²`
     case "maxAngularVelocity": return `≤ ${c.dps} °/s`
-    case "pointAt": return c.flip ? "Back at ⊕" : "Point at ⊕"
+    case "pointAt": return `${sideName(facingDeg(c))} at ⊕`
     case "keepInCircle": return "Keep in ◯"
     case "keepInRectangle": return "Keep in ▭"
     case "keepInLane": return `Lane ±${c.toleranceM} m`
@@ -522,6 +525,12 @@ export function mirrorPath(spec: PathSpec, how: "alliance" | "vertical", L: numb
     }, ["x", "y", "headingDeg"])),
     scoped: spec.scoped.map(c => {
       if (!("x" in c)) return c
+      if (c.type === "pointAt") {
+        // A reflection swaps left and right: the side that aims mirrors too.
+        const { flip: _, ...rest } = c
+        const f = -facingDeg(c)
+        return drop({ ...rest, x: mx(c.x), y: my(c.y), offsetDeg: f === -180 ? 180 : f }, ["x", "y"])
+      }
       if (c.type === "keepInRectangle") {
         return drop({ ...c, x: how === "alliance" ? L - c.x - c.widthM : c.x, y: how === "vertical" ? W - c.y - c.heightM : c.y }, ["x", "y"])
       }
@@ -544,4 +553,14 @@ export function moveWaypoints(spec: PathSpec, indices: number[], dx: number, dy:
       return { ...moved, x: w.x + dx, y: w.y + dy, exprs: exprs && Object.keys(exprs).length ? exprs : undefined }
     }),
   }
+}
+
+/** The side of the robot a point-at aims, in degrees counterclockwise from the front, in (-180, 180]. */
+export function facingDeg(c: { flip?: boolean; offsetDeg?: number }): number {
+  const d = (((c.offsetDeg ?? 0) + (c.flip ? 180 : 0)) % 360 + 360) % 360
+  return d > 180 ? d - 360 : d
+}
+
+export function sideName(deg: number): string {
+  return deg === 0 ? "Front" : deg === 180 ? "Back" : deg === 90 ? "Left" : deg === -90 ? "Right" : `${deg}°`
 }

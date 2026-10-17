@@ -5,6 +5,7 @@ import type { FieldConfig } from "@desktop/utils/field/fieldImages"
 import type { RobotConfig } from "../robot/types"
 import {
   KeepOut, PathSpec, RotationTarget, Sample, ScopedConstraint, Selection, SlowZone, Tool, Trajectory, ViewOptions, constraintChip, kindOf, rangeOf, sampleAt, stopAt, waitAt,
+  facingDeg, sideName,
 } from "./types"
 import { GLYPH, drawChip, drawHeadingTriangle, drawStop, positionColor } from "./glyphs"
 import type { TopView } from "../robot/topView"
@@ -1485,7 +1486,7 @@ function constraintLine(c: ScopedConstraint, n: number): string {
   const [a, b] = rangeOf(c, n)
   const scope = a === b ? `at waypoint ${a + 1}` : `from waypoint ${a + 1} to ${b + 1}`
   switch (c.type) {
-    case "pointAt": return `The ${c.flip ? "back" : "front"} faces (${c.x.toFixed(2)}, ${c.y.toFixed(2)}) within ${c.toleranceDeg}°, ${scope}.`
+    case "pointAt": return `The ${sideName(facingDeg(c)).toLowerCase()}${[0, 90, 180, -90].includes(facingDeg(c)) ? "" : " side"} faces (${c.x.toFixed(2)}, ${c.y.toFixed(2)}) within ${c.toleranceDeg}°, ${scope}.`
     case "keepInCircle": return `The bumper stays inside r = ${c.radiusM} m, ${scope}.`
     case "keepInRectangle": return `The bumper stays inside ${c.widthM} × ${c.heightM} m, ${scope}.`
     case "keepOutCircle": return `The bumper stays out of r = ${c.radiusM} m, ${scope}.`

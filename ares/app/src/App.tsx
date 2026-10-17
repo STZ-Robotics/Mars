@@ -307,6 +307,7 @@ function WherePanel({ robotPath, onClose }: { robotPath: string; onClose: () => 
     ["gains.json", "the gains and recovery Tune applied: AresLib uses them"],
     ["characterization.json", "what Measure found on the robot"],
     ["calibration.json", "the world Logs found the robot in, which Tune starts from"],
+    ["folders.json", "the folders of the Paths and Autos lists"],
     ["tuning/", "every Tune run"],
   ]
   return (

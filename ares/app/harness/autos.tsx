@@ -9,7 +9,7 @@ import find from "./fixtures/Find.traj.json"
 
 const spec = (name: string) => ({ name, waypoints: [{ x: 1, y: 1 }, { x: 3, y: 2 }], constraints: {}, scoped: [] })
 const autos = [{
-  name: "Two pieces", budgetS: 15, steps: [
+  name: "Two pieces", budgetS: 15, folder: "Qualifiers", resetOdometry: false, steps: [
     { type: "path", path: "Main" },
     { type: "deadline", steps: [{ type: "path", path: "Alt" }, { type: "command", name: "intake" }] },
     { type: "command", name: "shoot", estimateS: 0.6 },
@@ -18,6 +18,7 @@ const autos = [{
     { type: "command", name: "climb", estimateS: 1 },
   ],
 }]
+autos.push({ name: "Taxi", budgetS: 15, folder: "Qualifiers", steps: [{ type: "path", path: "Find" }] } as never, { name: "Do nothing", budgetS: 15, steps: [] } as never)
 const trajs: Record<string, unknown> = { Main: main, Alt: alt, Find: find }
 const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   autos_list: () => autos,
@@ -28,6 +29,8 @@ const commands: Record<string, (a: Record<string, unknown>) => unknown> = {
   robot_names: () => ({ root: "/home/team/robot", commands: ["intake", "shoot", "feed", "kick"], conditions: ["hasNote"], events: ["spin"], files: 14 }),
   auto_save: () => null,
   variables_open: () => ({ variables: [] }),
+  folders_open: () => ({ paths: ["Amp side", "Source side"], autos: ["Qualifiers", "Playoffs"] }),
+  folders_save: () => null,
 }
 ;(window as unknown as { __TAURI_INTERNALS__: unknown }).__TAURI_INTERNALS__ = {
   invoke: async (cmd: string, args: Record<string, unknown>) => {
