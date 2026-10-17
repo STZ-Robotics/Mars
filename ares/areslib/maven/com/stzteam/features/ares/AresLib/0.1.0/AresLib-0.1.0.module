@@ -27,11 +27,11 @@
         {
           "name": "AresLib-0.1.0.jar",
           "url": "AresLib-0.1.0.jar",
-          "size": 113626,
-          "sha512": "d0e5f20e46e6ed7dd270ef3f48ef1d7fc2c6048d20ccbab3e0c1124bc05a9a5deeb93e5b6c4f8b44d598d4b130848e6e598efb22da93661efc5f036c63d3428d",
-          "sha256": "689b25f6bce93bcd17833267b7edea6700d43989047e1bdb19a2b1ec71b74180",
-          "sha1": "c3aac7a01d6629045234f05f1edfee462dd21541",
-          "md5": "ed5192f3ba184c0f9b947df50b68a167"
+          "size": 114310,
+          "sha512": "a74240033c4162a00443eb851e89718d8a0732d7476339fb69828498080c8b0f136240d8bfee3850522b62770c1d6f2d5c5f3b10b5e0afd0e79f4783d55b3605",
+          "sha256": "c04ecbe00bd255633a893abf0bb4380f253d9a243e2bb104783947d701620f31",
+          "sha1": "4418cac30a9f15fa1cfc43526d8cc68a5e231d7b",
+          "md5": "104a15a85035706ee97f90da1ecc50da"
         }
       ]
     },
@@ -190,11 +190,11 @@
         {
           "name": "AresLib-0.1.0.jar",
           "url": "AresLib-0.1.0.jar",
-          "size": 113626,
-          "sha512": "d0e5f20e46e6ed7dd270ef3f48ef1d7fc2c6048d20ccbab3e0c1124bc05a9a5deeb93e5b6c4f8b44d598d4b130848e6e598efb22da93661efc5f036c63d3428d",
-          "sha256": "689b25f6bce93bcd17833267b7edea6700d43989047e1bdb19a2b1ec71b74180",
-          "sha1": "c3aac7a01d6629045234f05f1edfee462dd21541",
-          "md5": "ed5192f3ba184c0f9b947df50b68a167"
+          "size": 114310,
+          "sha512": "a74240033c4162a00443eb851e89718d8a0732d7476339fb69828498080c8b0f136240d8bfee3850522b62770c1d6f2d5c5f3b10b5e0afd0e79f4783d55b3605",
+          "sha256": "c04ecbe00bd255633a893abf0bb4380f253d9a243e2bb104783947d701620f31",
+          "sha1": "4418cac30a9f15fa1cfc43526d8cc68a5e231d7b",
+          "md5": "104a15a85035706ee97f90da1ecc50da"
         }
       ]
     }

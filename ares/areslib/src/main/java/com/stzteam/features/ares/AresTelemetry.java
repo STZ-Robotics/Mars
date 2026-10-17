@@ -24,6 +24,8 @@ public final class AresTelemetry {
   private static DoublePublisher time;
   private static StringArrayPublisher events;
   private static edu.wpi.first.networktables.IntegerPublisher replans;
+  private static edu.wpi.first.networktables.DoubleArrayPublisher commandedSpeeds;
+  private static edu.wpi.first.networktables.DoubleArrayPublisher measuredSpeeds;
 
   private AresTelemetry() {}
 
@@ -38,6 +40,8 @@ public final class AresTelemetry {
     time = t.getDoubleTopic("TimeS").publish();
     events = t.getStringArrayTopic("Events").publish();
     replans = t.getIntegerTopic("Replans").publish();
+    commandedSpeeds = t.getDoubleArrayTopic("CommandedSpeeds").publish();
+    measuredSpeeds = t.getDoubleArrayTopic("MeasuredSpeeds").publish();
   }
 
   static void path(String name, Pose2d[] poses) {
@@ -72,6 +76,23 @@ public final class AresTelemetry {
     table.getEntry("Source").setString(source);
     table.getEntry("Translation").setDoubleArray(new double[] {t.kP(), t.kI(), t.kD()});
     table.getEntry("Rotation").setDoubleArray(new double[] {r.kP(), r.kI(), r.kD()});
+  }
+
+  /**
+   * What the follower asks for and what the robot does, field frame
+   * {vx, vy, omega}: /Ares/CommandedSpeeds and /Ares/MeasuredSpeeds, for
+   * Ares's Live tab (PathPlanner's telemetry graphs).
+   */
+  static void speeds(edu.wpi.first.math.kinematics.ChassisSpeeds commanded, edu.wpi.first.math.kinematics.ChassisSpeeds measured) {
+    open();
+    commandedSpeeds.set(new double[] {commanded.vxMetersPerSecond, commanded.vyMetersPerSecond, commanded.omegaRadiansPerSecond});
+    measuredSpeeds.set(new double[] {measured.vxMetersPerSecond, measured.vyMetersPerSecond, measured.omegaRadiansPerSecond});
+  }
+
+  /** Where the robot is, every loop, path or not. */
+  static void robot(Pose2d pose) {
+    open();
+    robot.set(pose);
   }
 
   static void idle() {

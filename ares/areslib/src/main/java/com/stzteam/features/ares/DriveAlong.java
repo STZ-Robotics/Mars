@@ -80,6 +80,7 @@ final class DriveAlong extends Command {
     var pose = drive.pose();
     var speeds = controller.calculate(pose, target);
     drive.drive(AresSetpoint.speeds(target.pose(), speeds, pose.getRotation(), 0));
+    AresTelemetry.speeds(speeds, ChassisSpeeds.fromRobotRelativeSpeeds(drive.robotSpeeds(), pose.getRotation()));
     AresTelemetry.target(target.pose(), pose, controller.errorM());
   }
 

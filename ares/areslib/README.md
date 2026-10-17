@@ -105,8 +105,12 @@ modules take it.
   paths together) are an alert and only the first runs, not a crash. An auto that starts at a
   known pose resets odometry there (`withResetPoseAtAutoStart(false)` to not).
   `ares.startPose(auto)` gives that pose for placing the robot before a match.
-- **Telemetry** under `/Ares` on NetworkTables: the active path, where the
-  trajectory is, where the robot is, the error, the active events.
+- **Telemetry** under `/Ares` on NetworkTables, for Ares's Live tab (or
+  AdvantageScope): the active path (`Path`, Pose2d[]), where the trajectory
+  says to be (`Target`) and where the robot is (`Robot`, every loop), the
+  error, the time, the active events, the replans, the speeds commanded and
+  measured (`CommandedSpeeds`, `MeasuredSpeeds`: field vx, vy, omega) and the
+  gains in use (`Gains/`).
 - **Never stops the robot from booting.** A missing or broken project, an
   ungenerated path, a command or condition nobody registered: an alert on the
   dashboard and a message in the Driver Station, not an exception.

@@ -256,6 +256,7 @@ public final class FollowPath extends Command {
     }
     var speeds = controller.calculate(pose, target);
     ares.drive().drive(ares.forDrive(AresSetpoint.of(target, speeds, pose.getRotation())));
+    AresTelemetry.speeds(speeds, edu.wpi.first.math.kinematics.ChassisSpeeds.fromRobotRelativeSpeeds(ares.drive().robotSpeeds(), pose.getRotation()));
     AresTelemetry.target(target.pose(), pose, controller.errorM());
   }
 

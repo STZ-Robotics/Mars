@@ -135,6 +135,30 @@ class FollowPathTest {
   }
 
   @Test
+  void itPublishesWhatItCommandsAndWhatTheRobotDoes() throws Exception {
+    var traj = TrajectoryTest.main();
+    drive.pose = traj.initial().pose();
+    var c = ares.path("Main");
+    CommandScheduler.getInstance().schedule(c);
+    for (int i = 0; i < 25; i++) {
+      CommandScheduler.getInstance().run();
+      SimHooks.stepTiming(0.02);
+      drive.step(0.02);
+    }
+    var t = edu.wpi.first.networktables.NetworkTableInstance.getDefault().getTable("Ares");
+    var cmd = t.getEntry("CommandedSpeeds").getDoubleArray(new double[0]);
+    var meas = t.getEntry("MeasuredSpeeds").getDoubleArray(new double[0]);
+    assertEquals(3, cmd.length);
+    assertEquals(3, meas.length);
+    // A perfect drive does what it is told (one loop late).
+    assertTrue(Math.hypot(cmd[0], cmd[1]) > 1.0);
+    assertEquals(Math.hypot(cmd[0], cmd[1]), Math.hypot(meas[0], meas[1]), 0.5);
+    // The path and the robot are out there for the Live tab.
+    assertTrue(t.getEntry("Path").getRaw(new byte[0]).length >= 24 * traj.samples().size());
+    assertEquals("Main", t.getEntry("Active").getString(""));
+  }
+
+  @Test
   void theFeedbackPullsItBackOn() throws Exception {
     var traj = TrajectoryTest.main();
     drive.pose = new Pose2d(traj.initial().x() + 0.15, traj.initial().y() - 0.1, new Rotation2d(0.2));

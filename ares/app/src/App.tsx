@@ -11,11 +11,12 @@ import AutosPage from "./autos/AutosPage"
 import FieldPage from "./field/FieldPage"
 import TunePage from "./tune/TunePage"
 import CharacterizePage from "./characterize/CharacterizePage"
+import LivePage from "./live/LivePage"
 import { VariablesProvider } from "./vars/context"
 import { useProjectSync } from "./vars/sync"
 import { ToastProvider } from "./ui/toasts"
 
-type Page = "robot" | "paths" | "autos" | "tune" | "characterize" | "field" | "variables"
+type Page = "robot" | "paths" | "autos" | "live" | "tune" | "characterize" | "field" | "variables"
 
 const LAST_ROBOT_KEY = "ares.lastRobot"
 const LAST_PAGE_KEY = "ares.lastPage"
@@ -25,7 +26,7 @@ const LAST_PAGE_KEY = "ares.lastPage"
 // document the File menu opens and saves.
 export default function App() {
   const [page, setPage] = useState<Page>(() => {
-    try { const p = localStorage.getItem(LAST_PAGE_KEY); if (p === "robot" || p === "paths" || p === "autos" || p === "tune" || p === "characterize" || p === "field" || p === "variables") return p } catch { /* first run */ }
+    try { const p = localStorage.getItem(LAST_PAGE_KEY); if (p === "robot" || p === "paths" || p === "autos" || p === "live" || p === "tune" || p === "characterize" || p === "field" || p === "variables") return p } catch { /* first run */ }
     return "robot"
   })
   useEffect(() => { try { localStorage.setItem(LAST_PAGE_KEY, page) } catch { /* nothing to remember */ } }, [page])
@@ -86,14 +87,33 @@ export default function App() {
   }
   const fileSave = () => (robotPath ? saveTo(robotPath) : fileSaveAs())
 
+  // A MARS robot project: Ares lives in its src/main/deploy/ares/, and is
+  // set up there (the robot read from PathPlanner or TunerConstants) the
+  // first time.
+  const fileOpenProject = async () => {
+    if (!confirmDiscard()) return
+    const root = await open({ directory: true, title: "Open a robot project (the folder with build.gradle)" })
+    if (typeof root !== "string") return
+    try {
+      const p = await invoke<{ root: string; aresDir: string; robotPath: string; created: string | null; navgridImported: boolean; paths: number; autos: number }>("project_open", { root })
+      await openPath(p.robotPath)
+      setStatus(p.created
+        ? `Set up Ares in ${p.aresDir}: the robot came from ${p.created}${p.navgridImported ? "; PathPlanner's navgrid came along" : ""}. Check it in the Robot tab.`
+        : `Opened ${fileNameOf(p.root)}: ${p.paths} path${p.paths === 1 ? "" : "s"}, ${p.autos} auto${p.autos === 1 ? "" : "s"}${p.navgridImported ? "; PathPlanner's navgrid came along" : ""}`)
+    } catch (e) {
+      setStatus(String(e))
+    }
+  }
+
   // Ctrl+S / Ctrl+O / Ctrl+N, through a ref so the listener sees the latest.
-  const keys = useRef({ fileSave, fileOpen, fileNew })
-  keys.current = { fileSave, fileOpen, fileNew }
+  const keys = useRef({ fileSave, fileOpen, fileNew, fileOpenProject })
+  keys.current = { fileSave, fileOpen, fileNew, fileOpenProject }
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.ctrlKey || e.metaKey)) return
       const k = e.key.toLowerCase()
       if (k === "s") { e.preventDefault(); keys.current.fileSave() }
+      else if (k === "o" && e.shiftKey) { e.preventDefault(); keys.current.fileOpenProject() }
       else if (k === "o") { e.preventDefault(); keys.current.fileOpen() }
       else if (k === "n") { e.preventDefault(); keys.current.fileNew() }
     }
@@ -114,7 +134,8 @@ export default function App() {
       <MenuBar
         menus={[
           { label: "File", items: [
-            { label: "New robot", shortcut: "Ctrl+N", action: fileNew },
+            { label: "Open project…", shortcut: "Ctrl+Shift+O", action: fileOpenProject },
+            { label: "New robot", shortcut: "Ctrl+N", action: fileNew, separator: true },
             { label: "Open robot…", shortcut: "Ctrl+O", action: fileOpen },
             { label: "Save", shortcut: "Ctrl+S", action: fileSave, separator: true },
             { label: "Save as…", action: fileSaveAs },
@@ -126,12 +147,13 @@ export default function App() {
         {page === "robot" && <RobotSettingsPage robot={robot} onChange={setRobot} robotPath={robotPath} />}
         {page === "paths" && <PathsPage robot={robot} robotPath={robotPath} onSaveRobot={fileSave} />}
         {page === "autos" && <AutosPage robot={robot} robotPath={robotPath} />}
+        {page === "live" && <LivePage robot={robot} />}
         {page === "tune" && <TunePage robot={robot} robotPath={robotPath} />}
         {page === "characterize" && <CharacterizePage robot={robot} robotPath={robotPath} onRobot={setRobot} />}
         {page === "field" && <FieldPage robot={robot} robotPath={robotPath} />}
         {page === "variables" && <VariablesPage robot={robot} robotPath={robotPath} onRobot={setRobot} />}
       </div>
-      <StatusBar robot={robot.name} dirty={dirty} status={status} />
+      <StatusBar robot={robot.name} dirty={dirty} status={status} robotPath={robotPath} />
     </div>
     </VariablesProvider>
     </ToastProvider>
@@ -206,6 +228,7 @@ const PAGES: { id: Page; label: string; icon: string; ready: boolean }[] = [
   { id: "robot", label: "Robot", icon: "ti-robot", ready: true },
   { id: "paths", label: "Paths", icon: "ti-route", ready: true },
   { id: "autos", label: "Autos", icon: "ti-list-details", ready: true },
+  { id: "live", label: "Live", icon: "ti-broadcast", ready: true },
   { id: "tune", label: "Tune", icon: "ti-adjustments-alt", ready: true },
   { id: "characterize", label: "Measure", icon: "ti-chart-dots", ready: true },
   { id: "field", label: "Field", icon: "ti-map-2", ready: true },
@@ -235,11 +258,71 @@ function Rail({ page, onSelect }: { page: Page; onSelect: (p: Page) => void }) {
   )
 }
 
-function StatusBar({ robot, dirty, status }: { robot: string; dirty: boolean; status: string }) {
+function StatusBar({ robot, dirty, status, robotPath }: { robot: string; dirty: boolean; status: string; robotPath: string | null }) {
+  const [where, setWhere] = useState(false)
+  const project = projectOf(robotPath)
   return (
-    <div style={{ height: 26, background: "var(--bg-dark)", borderTop: "1px solid var(--border-main)", display: "flex", alignItems: "center", gap: 16, padding: "0 12px", fontSize: 11, color: "var(--text-secondary)", flexShrink: 0 }}>
+    <div style={{ height: 26, background: "var(--bg-dark)", borderTop: "1px solid var(--border-main)", display: "flex", alignItems: "center", gap: 16, padding: "0 12px", fontSize: 11, color: "var(--text-secondary)", flexShrink: 0, position: "relative" }}>
+      {project && (
+        <span title={project.root}>Project: <b style={{ color: "var(--text-primary)" }}>{fileNameOf(project.root)}</b></span>
+      )}
       <span>Robot: <b style={{ color: "var(--text-primary)" }}>{robot || "unnamed"}</b>{dirty && " (unsaved)"}</span>
+      {robotPath && (
+        <button onClick={() => setWhere(w => !w)} title="Where Ares keeps each thing"
+          style={{ border: "none", background: "transparent", color: "var(--text-secondary)", cursor: "pointer", fontSize: 11, display: "flex", alignItems: "center", gap: 4 }}>
+          <i className="ti ti-folder" /> Where things are
+        </button>
+      )}
       <span style={{ marginLeft: "auto", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{status}</span>
+      {where && robotPath && <WherePanel robotPath={robotPath} onClose={() => setWhere(false)} />}
     </div>
+  )
+}
+
+/** The robot project around an Ares project in its deploy folder. */
+function projectOf(robotPath: string | null): { root: string; ares: string } | null {
+  if (!robotPath) return null
+  const norm = robotPath.replace(/\\/g, "/")
+  const i = norm.indexOf("/src/main/deploy/ares/")
+  if (i < 0) return null
+  return { root: norm.slice(0, i), ares: norm.slice(0, i) + "/src/main/deploy/ares" }
+}
+
+function WherePanel({ robotPath, onClose }: { robotPath: string; onClose: () => void }) {
+  const dir = robotPath.replace(/\\/g, "/").replace(/\/[^/]*$/, "")
+  const project = projectOf(robotPath)
+  const rows: [string, string][] = [
+    [fileNameOf(robotPath), "the robot (Robot tab)"],
+    ["paths/", "every path you draw, one .path.json each (Paths tab)"],
+    ["trajectories/", "what Generate solved, one .traj.json each: AresLib follows these"],
+    ["autos/", "every auto, one .auto.json each (Autos tab)"],
+    ["ares-index.json", "what AresLib reads first: paths, branches, variants, autos"],
+    ["field.json", "keep-outs, slow zones and the navgrid (Paths and Field tabs)"],
+    ["navgrid.json", "the navgrid in PathPlanner's format, for AresLib's pathfinder"],
+    ["variables.json", "the project's variables (Variables tab)"],
+    ["gains.json", "the gains and recovery Tune applied: AresLib uses them"],
+    ["characterization.json", "what Measure found on the robot"],
+    ["tuning/", "every Tune run"],
+  ]
+  return (
+    <>
+      <div style={{ position: "fixed", inset: 0, zIndex: 40 }} onClick={onClose} />
+      <div style={{ position: "absolute", left: 12, bottom: 30, zIndex: 41, width: 560, background: "var(--bg-page)", border: "1px solid var(--border-dark)", boxShadow: "0 8px 22px rgba(0,0,0,0.18)", padding: "10px 14px", fontSize: 11.5, color: "var(--text-primary)" }}>
+        <div style={{ fontWeight: 600, marginBottom: 4 }}>Where Ares keeps things</div>
+        <div style={{ color: "var(--text-muted)", marginBottom: 8, wordBreak: "break-all" }}>
+          {dir}{project ? " — inside the robot project's deploy folder, so a deploy carries all of it to the roboRIO." : " — not inside a robot project: File → Open project… sets Ares up in one."}
+        </div>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <tbody>
+            {rows.map(([f, what]) => (
+              <tr key={f} style={{ borderTop: "1px solid var(--border-light)" }}>
+                <td style={{ padding: "3px 10px 3px 0", fontFamily: "Consolas, monospace", whiteSpace: "nowrap" }}>{f}</td>
+                <td style={{ color: "var(--text-secondary)" }}>{what}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   )
 }

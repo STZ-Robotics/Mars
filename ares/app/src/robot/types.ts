@@ -63,6 +63,8 @@ export interface Derived {
   moiEstimateKgM2: number
   sprint5mS: number | null
   sprint5mTopSpeedMps: number | null
+  driveKvTheory: number
+  driveKaTheory: number
 }
 
 export interface Check { problems: string[]; derived: Derived | null }

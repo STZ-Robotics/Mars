@@ -8,7 +8,7 @@ import { propertyInputStyle } from "@desktop/styles/pageForm"
 import { fileNameOf, loadModel, pickModelFile } from "@desktop/utils/field/robotModel"
 import RobotTurntable, { autoPlaceOffset } from "./RobotTurntable"
 import {
-  Check, GEAR_PRESETS, MOTOR_LABELS, MotorId, MotorInfo, ModelRef, RobotConfig, SwerveConfig,
+  Check, Derived, GEAR_PRESETS, MOTOR_LABELS, MotorId, MotorInfo, ModelRef, RobotConfig, SwerveConfig,
   rectangleOf, squareModules,
 } from "./types"
 import { Card, Collapsible, MiniButton, Q, QInput, Toggle } from "../ui/controls"
@@ -31,6 +31,12 @@ const MODEL_UNITS: { label: string; scale: number }[] = [
 ]
 
 export default function RobotSettingsPage({ robot, onChange, robotPath }: Props) {
+  // What Measure found on the robot, next to what the physics predicts.
+  const [measured, setMeasured] = useState<Measured | null>(null)
+  useEffect(() => {
+    if (!robotPath) { setMeasured(null); return }
+    invoke<Measured | null>("characterization_open", { robotPath }).then(setMeasured).catch(() => setMeasured(null))
+  }, [robotPath])
   const check = useRobotCheck(robot)
   const motors = useMotors()
   const [spinning, setSpinning] = useState(true)
@@ -157,6 +163,7 @@ export default function RobotSettingsPage({ robot, onChange, robotPath }: Props)
               <Stat label="Angular speed" value={`${derived.maxOmegaRadps.toFixed(2)} rad/s`} note={`${derived.maxOmegaDps.toFixed(0)} °/s`} />
               <Stat label="Angular accel" value={`${derived.maxAlphaRadps2.toFixed(1)} rad/s²`} />
               {derived.tipAccelMps2 !== null && <Stat label="Tips over at" value={`${derived.tipAccelMps2.toFixed(2)} m/s²`} bind={derived.tipAccelMps2 < derived.maxAccelMps2} />}
+              <Feedforward derived={derived} measured={measured} wheelRadiusM={dt.wheelRadiusM} />
             </Panel>
           )}
 
@@ -280,6 +287,34 @@ function useMotors(): MotorInfo[] {
 }
 
 /** A read-only value in the property tree; `bind` marks the limit that wins. */
+interface Measured { drive?: { kS: number; kV: number; r2: number; wheelRadiusM?: number }; steer?: { kS: number; kV: number }; wheelRadiusM?: { value: number } }
+
+/**
+ * The drive's feedforward in Tuner X's units (rotor rps), as the motor model
+ * predicts it, and as Measure found it on the robot: a measured kV well off
+ * the theory is friction or a wrong gear ratio; kS has no theory (it is the
+ * friction), so it only shows measured.
+ */
+function Feedforward({ derived, measured, wheelRadiusM }: { derived: Derived; measured: Measured | null; wheelRadiusM: number }) {
+  const d = measured?.drive
+  const off = (m: number, t: number) => `${m >= t ? "+" : "−"}${Math.abs((m / t - 1) * 100).toFixed(0)}% vs theory`
+  const radius = measured?.wheelRadiusM?.value ?? d?.wheelRadiusM
+  return (
+    <>
+      <div style={{ padding: "8px 12px 2px", fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: "var(--text-header-eyebrow)" }}>
+        Drive feedforward (Tuner X, rotor rps)
+      </div>
+      <Stat label="kV, theory" value={`${derived.driveKvTheory.toFixed(4)} V/rps`} />
+      {d && <Stat label="kV, measured" value={`${d.kV.toFixed(4)} V/rps`} note={off(d.kV, derived.driveKvTheory)} />}
+      {d && <Stat label="kS, measured" value={`${d.kS.toFixed(4)} V`} note={`R² ${d.r2.toFixed(4)}`} />}
+      <Stat label="kA, theory" value={`${derived.driveKaTheory.toFixed(4)} V/(rps/s)`} note="the robot's mass, no wheel inertia" />
+      {radius !== undefined && <Stat label="Wheel radius, measured" value={`${(radius * 1000).toFixed(2)} mm`} note={`${((radius / wheelRadiusM - 1) * 100).toFixed(1)}% vs ${(wheelRadiusM * 1000).toFixed(1)} mm here`} />}
+      {measured?.steer && <Stat label="Steer kS / kV, measured" value={`${measured.steer.kS.toFixed(3)} V · ${measured.steer.kV.toFixed(3)}`} />}
+      {!measured && <div style={{ padding: "2px 12px 8px", fontSize: 10.5, color: "var(--text-muted)" }}>The Measure tab puts what the robot really does here.</div>}
+    </>
+  )
+}
+
 function Stat({ label, value, note, bind }: { label: string; value: string; note?: string; bind?: boolean }) {
   return (
     <PropertyRow label={label}>

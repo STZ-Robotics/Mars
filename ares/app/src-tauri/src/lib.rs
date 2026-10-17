@@ -5,6 +5,7 @@
 mod project;
 mod robot_code;
 mod tuning;
+mod open_project;
 mod nt;
 
 use std::fs;
@@ -72,6 +73,11 @@ struct Derived {
     max_accel_mps2: f64,
     /// Which of the two sets the launch.
     launch_limited_by: &'static str,
+    /// The drive's feedforward the motor model predicts, in Tuner X's units:
+    /// volts per ROTOR rotation per second (kV) and per rotor rps per second
+    /// for the robot's mass (kA). Measure checks them against the robot.
+    drive_kv_theory: f64,
+    drive_ka_theory: f64,
     /// The acceleration that would lift the lightest-loaded wheels, if the
     /// center of mass height is known.
     tip_accel_mps2: Option<f64>,
@@ -153,6 +159,12 @@ fn robot_check(config: serde_json::Value) -> Check {
             grip_force_n: grip_force,
             max_accel_mps2: launch,
             launch_limited_by: if drive_force < grip_force { "motor" } else { "grip" },
+            // kV: the back-EMF per rotor rps. kA: to accelerate the robot at
+            // a, each wheel pushes m·a/n, the motor makes m·a·r/(n·G) and
+            // draws that over kt, at R ohms; per rotor rps/s, times 2πr/G.
+            drive_kv_theory: 2.0 * std::f64::consts::PI / motor.kv(),
+            drive_ka_theory: robot.mass_kg * s.wheel_radius_m.powi(2) * 2.0 * std::f64::consts::PI * motor.resistance()
+                / (n * s.drive_motors_per_module as f64 * s.drive_gear_ratio.powi(2) * motor.kt()),
             tip_accel_mps2: tip,
             moi_estimate_kg_m2: robot.mass_kg
                 * (robot.bumper.length_m.powi(2) + robot.bumper.width_m.powi(2))
@@ -280,6 +292,7 @@ pub fn run() {
             robot_save,
             resolve_model_path,
             startup_robot,
+            open_project::project_open,
             read_binary_file,
             project::paths_list,
             project::path_save,
@@ -320,6 +333,15 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_drive_feedforward_theory_for_a_kraken_swerve() {
+        let d = super::robot_check(serde_json::to_value(super::tests_robot()).unwrap()).derived.unwrap();
+        // Back-EMF of a Kraken X60 per rotor rps; the team measured 0.1156.
+        assert!((d.drive_kv_theory - 0.1194).abs() < 0.001, "{}", d.drive_kv_theory);
+        // About 0.014 V per rotor rps/s for 58 kg on 2" wheels at 5.27:1.
+        assert!(d.drive_ka_theory > 0.012 && d.drive_ka_theory < 0.016, "{}", d.drive_ka_theory);
+    }
+
     use super::*;
 
     fn example() -> serde_json::Value {

@@ -203,6 +203,8 @@ public final class Ares {
     this.drive = drive;
     this.config = config;
     readGains(config);
+    // The robot's pose every loop, for the Live tab, path or not.
+    edu.wpi.first.wpilibj2.command.CommandScheduler.getInstance().getDefaultButtonLoop().bind(() -> AresTelemetry.robot(drive.pose()));
     this.pathfinder = config.pathfinder != null ? config.pathfinder : defaultPathfinder(drive, config);
     AresIndex loaded;
     try {
