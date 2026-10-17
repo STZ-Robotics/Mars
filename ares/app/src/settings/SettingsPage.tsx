@@ -1,7 +1,9 @@
 import { ReactNode, useEffect, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { propertyInputStyle } from "@desktop/styles/pageForm"
-import { useRobotNames } from "../autos/robotNames"
+import { CODE_KEY, useRobotNames } from "../autos/robotNames"
+import { useVariables } from "../vars/context"
+import { ProjectSettings, writeVarsJava } from "../vars/writeJava"
 import { useToast } from "../ui/toasts"
 import { useSettings } from "./settings"
 
@@ -63,9 +65,27 @@ export default function SettingsPage({ robotPath }: { robotPath: string | null }
   )
 }
 
-/** What is kept about the project: where its robot code is. */
+/** What is kept about the project: where its robot code is, and its variables as Java. */
 function ProjectSection({ robotPath }: { robotPath: string }) {
   const { names, pickFolder } = useRobotNames(robotPath)
+  const { variables } = useVariables()
+  const toast = useToast()
+  const [ps, setPs] = useState<ProjectSettings | null>(null)
+  const [written, setWritten] = useState<string | null>(null)
+  useEffect(() => { invoke<ProjectSettings>("project_settings_open", { robotPath }).then(setPs).catch(() => {}) }, [robotPath])
+  const save = async (next: ProjectSettings, write: boolean) => {
+    setPs(next)
+    await invoke("project_settings_save", { robotPath, settings: next }).catch(e => toast({ kind: "error", title: "Could not save project.json", body: String(e) }))
+    if (write) {
+      try { setWritten(await writeVarsJava(robotPath, variables, true)) } catch (e) { toast({ kind: "error", title: "Could not write the Java constants", body: String(e) }) }
+    }
+  }
+  const defaultFile = async () => {
+    let folder: string | null = null
+    try { folder = localStorage.getItem(CODE_KEY(robotPath)) } catch { /* none */ }
+    return (await invoke<string | null>("vars_java_default", { robotPath, folder }).catch(() => null)) ?? "src/main/java/frc/robot/generated/AresVars.java"
+  }
+  const vj = ps?.varsJava ?? { enabled: false, file: "" }
   return (
     <Section title="Project">
       <Row label="Robot code" hint="Where Ares reads the robot's command and condition names (and its gains). Found above the project, or picked by hand.">
@@ -74,6 +94,18 @@ function ProjectSection({ robotPath }: { robotPath: string }) {
           <button style={btn} onClick={pickFolder}><i className="ti ti-folder" /> Pick…</button>
         </span>
       </Row>
+      <Switch label="Variables in the robot code" hint={`Choreo's ChoreoVars: the Variables tab as a Java class of constants (WPILib units, Pose2d), written again every time a variable changes. ${variables.length} variable${variables.length === 1 ? "" : "s"} now. Saved in project.json, for the whole team.`}
+        on={vj.enabled} onChange={async on => save({ varsJava: { enabled: on, file: vj.file || (await defaultFile()) } }, on)} />
+      {vj.enabled && (
+        <Row label="The class" hint="Inside the robot project, under src/main/java: the package comes from the folder.">
+          <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <input style={{ ...propertyInputStyle, width: 330, fontFamily: "Consolas, monospace", fontSize: 11 }} defaultValue={vj.file} key={vj.file}
+              onBlur={e => { const f = e.target.value.trim(); if (f && f !== vj.file) save({ varsJava: { ...vj, file: f } }, true) }} />
+            <button style={btn} onClick={() => save({ varsJava: vj }, true)}><i className="ti ti-file-code" /> Write now</button>
+          </span>
+        </Row>
+      )}
+      {vj.enabled && written && <div style={{ padding: "4px 14px 10px", fontSize: 11, color: "#16a34a" }}><i className="ti ti-circle-check" /> Written: <span style={{ fontFamily: "Consolas, monospace" }}>{written}</span></div>}
     </Section>
   )
 }

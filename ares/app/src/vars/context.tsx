@@ -1,5 +1,6 @@
 import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
+import { writeVarsJava } from "./writeJava"
 import type { Scope, Value } from "./expr"
 import { evaluateAll, Variable, VariablesDoc } from "./variables"
 
@@ -48,7 +49,10 @@ export function VariablesProvider({ robotPath, children }: { robotPath: string |
     if (!robotPath) return
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => {
-      invoke("variables_save", { robotPath, doc: { variables: next } }).catch(() => {})
+      invoke("variables_save", { robotPath, doc: { variables: next } })
+        // And as Java constants in the robot code, when the project says so.
+        .then(() => writeVarsJava(robotPath, next))
+        .catch(() => {})
     }, 300)
   }, [robotPath])
 

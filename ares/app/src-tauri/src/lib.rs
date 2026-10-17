@@ -7,6 +7,7 @@ mod robot_code;
 mod tuning;
 mod open_project;
 mod logs;
+mod codegen;
 mod nt;
 
 use std::fs;
@@ -319,6 +320,10 @@ pub fn run() {
             tuning::calibration_open,
             tuning::calibration_delete,
             app_info,
+            codegen::project_settings_open,
+            codegen::project_settings_save,
+            codegen::vars_java_default,
+            codegen::vars_java_write,
             logs::log_open,
             logs::log_run,
             logs::log_calibrate,
