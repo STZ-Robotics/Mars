@@ -6,6 +6,7 @@ import com.stzteam.features.ares.trajectory.AresSample;
 import com.stzteam.features.ares.trajectory.AresTrajectory;
 import com.stzteam.features.ares.trajectory.FieldSymmetry;
 import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.networktables.NetworkTableEvent;
 import edu.wpi.first.networktables.NetworkTableInstance;
@@ -509,6 +510,44 @@ public final class Ares {
   public Command pathfindThenFollow(String path) {
     var start = trajectory(path).initial().pose();
     return Commands.sequence(pathfindTo(start), path(path)).withName("Ares: to " + path + ", then " + path);
+  }
+
+  /**
+   * A path made on the robot through poses decided in code (PathPlanner's
+   * paths from poses): a smooth curve through {@code waypoints}, the first
+   * being where it starts, each pose's rotation the direction of travel
+   * there, ending still and facing {@code endHeading}. Blue's coordinates,
+   * flipped on red. It knows no wheel forces and no obstacles: for short
+   * moves decided in the moment; what can be drawn in advance is better
+   * drawn in Ares.
+   */
+  public Command pathThrough(Rotation2d endHeading, Pose2d... waypoints) {
+    var list = List.of(waypoints);
+    return curve(() -> onAlliance(list), endHeading, config.pathfindConstraints, "through " + list.size() + " poses");
+  }
+
+  /** The same from wherever the robot is: it sets off toward the first pose, then goes through the rest. */
+  public Command pathFromHere(Rotation2d endHeading, Pose2d... waypoints) {
+    return pathFromHere(config.pathfindConstraints, endHeading, () -> List.of(waypoints));
+  }
+
+  /** The same, with poses decided when it starts and limits of its own. */
+  public Command pathFromHere(AresPathfinder.Constraints constraints, Rotation2d endHeading, Supplier<List<Pose2d>> waypoints) {
+    return curve(() -> CurveThrough.fromHere(drive.pose(), onAlliance(waypoints.get())), endHeading, constraints, "from here");
+  }
+
+  private Command curve(Supplier<List<Pose2d>> points, Rotation2d endHeading, AresPathfinder.Constraints limits, String what) {
+    Supplier<Rotation2d> heading = () -> config.flip.getAsBoolean()
+        ? config.symmetry.flip(new Pose2d(config.fieldLengthM / 2, config.fieldWidthM / 2, endHeading), config.fieldLengthM, config.fieldWidthM).getRotation()
+        : endHeading;
+    return new CurveThrough(drive, points, heading, limits, config.translation, config.rotation, config.arriveToleranceM, config.arriveToleranceRad)
+        .withName("Ares: " + what);
+  }
+
+  /** Poses drawn for blue, on the alliance the robot is on now. */
+  private List<Pose2d> onAlliance(List<Pose2d> poses) {
+    if (!config.flip.getAsBoolean()) return poses;
+    return poses.stream().map(p -> config.symmetry.flip(p, config.fieldLengthM, config.fieldWidthM)).toList();
   }
 
   /**

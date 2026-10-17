@@ -120,4 +120,38 @@ class AresRoutineTest {
     assertEquals(main.last().x(), drive.pose.getX(), 0.05);
     assertEquals(main.last().y(), drive.pose.getY(), 0.05);
   }
+
+  @Test
+  void aPathMadeOnTheRobotGoesThroughItsPoses() {
+    // Off to the east, up through (4, 3), down to (6, 2), ending facing up.
+    var start = new Pose2d(2, 2, Rotation2d.kZero);
+    var via = new Pose2d(4, 3, Rotation2d.kZero);
+    var end = new Pose2d(6, 2, Rotation2d.fromDegrees(-30));
+    drive.pose = new Pose2d(2, 2, Rotation2d.kZero);
+    double closest = Double.MAX_VALUE;
+    var c = ares.pathThrough(Rotation2d.fromDegrees(90), start, via, end);
+    CommandScheduler.getInstance().schedule(c);
+    for (; clock < 10 && CommandScheduler.getInstance().isScheduled(c); clock += 0.02) {
+      CommandScheduler.getInstance().run();
+      SimHooks.stepTiming(0.02);
+      drive.step(0.02);
+      closest = Math.min(closest, drive.pose.getTranslation().getDistance(via.getTranslation()));
+    }
+    assertTrue(closest < 0.05, "passed " + closest + " m from (4, 3)");
+    assertEquals(6, drive.pose.getX(), 0.06);
+    assertEquals(2, drive.pose.getY(), 0.06);
+    assertEquals(90, drive.pose.getRotation().getDegrees(), 3);
+  }
+
+  @Test
+  void fromHereItSetsOffTowardTheFirstPoseAndFlipsOnRed() {
+    red = true;
+    var flip = (java.util.function.UnaryOperator<Pose2d>) p -> FieldSymmetry.ROTATIONAL.flip(p, 16.541, 8.0692);
+    drive.pose = flip.apply(new Pose2d(1, 1, Rotation2d.kZero));
+    run(ares.pathFromHere(Rotation2d.kZero, new Pose2d(3, 2, Rotation2d.kZero), new Pose2d(5, 1, Rotation2d.fromDegrees(-45))), 10);
+    var goal = flip.apply(new Pose2d(5, 1, Rotation2d.kZero));
+    assertEquals(goal.getX(), drive.pose.getX(), 0.06);
+    assertEquals(goal.getY(), drive.pose.getY(), 0.06);
+    assertEquals(goal.getRotation().getDegrees(), drive.pose.getRotation().getDegrees(), 3);
+  }
 }

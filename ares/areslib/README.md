@@ -147,6 +147,27 @@ the robot for it: `/Ares/Auto/Selected`, `/Ares/Auto/StartPose`, and the
 "Ares Auto" field (start pose and first path) on the dashboard; the Live tab
 draws it too.
 
+## Paths made on the robot
+
+PathPlanner's paths from poses: a smooth curve through poses decided in code
+(each pose's rotation is the direction of travel there), its speed planned
+within the pathfinding limits, ending still and facing the end heading.
+Blue's coordinates, flipped on red. No wheel forces and no obstacles: for
+short moves decided in the moment.
+
+```java
+ares.pathThrough(Rotation2d.kCW_90deg, start, via, end);      // the first pose is where it starts
+ares.pathFromHere(Rotation2d.kZero, via, end);                 // sets off from wherever the robot is
+ares.pathFromHere(limits, heading, () -> posesFromVision());   // poses decided when it starts
+```
+
+## The project's variables in the robot code
+
+With Settings → Project → "Variables in the robot code" on, the Ares app
+writes the Variables tab as a Java class (Choreo's ChoreoVars) every time a
+variable changes: `AresVars.reach` is a `Distance`, `AresVars.Poses.speaker`
+a `Pose2d`.
+
 ## Autos with triggers, in code
 
 Choreo's AutoRoutine: instead of the Autos tab's list of steps, the paths say
