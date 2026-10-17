@@ -5,6 +5,7 @@
 mod project;
 mod robot_code;
 mod tuning;
+mod nt;
 
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -271,6 +272,7 @@ pub(crate) fn tests_robot() -> RobotConfig {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .manage(nt::state())
         .invoke_handler(tauri::generate_handler![
             motors,
             robot_check,
@@ -293,6 +295,13 @@ pub fn run() {
             tuning::tune_runs,
             tuning::gains_save,
             tuning::gains_open,
+            tuning::characterization_save,
+            tuning::characterization_open,
+            nt::nt_connect,
+            nt::nt_disconnect,
+            nt::nt_status,
+            nt::nt_read,
+            nt::nt_set_boolean,
             project::path_time,
             project::path_plan,
             project::trajectory_open,
@@ -354,4 +363,15 @@ mod tests {
         );
         assert_eq!(relative_to(Path::new("/elsewhere/bot.stl"), Path::new("/team/robots")), None);
     }
+}
+
+/// What MARS Desktop's NT4 client (included by path in nt.rs) asks of the
+/// crate it lives in: how much history to keep. Ares only needs the latest
+/// values, so a couple of minutes.
+pub(crate) struct NtSettings {
+    pub nt_retention_minutes: u32,
+}
+
+pub(crate) fn load_mars_settings() -> NtSettings {
+    NtSettings { nt_retention_minutes: 2 }
 }

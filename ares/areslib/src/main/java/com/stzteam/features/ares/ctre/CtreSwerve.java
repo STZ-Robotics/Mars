@@ -89,4 +89,14 @@ public final class CtreSwerve implements AresDrive {
   public Subsystem subsystem() {
     return subsystem;
   }
+
+  /**
+   * The same drivetrain for the characterization routines, with one module's
+   * constants from TunerConstants (the gear ratio, wheel radius and speed at
+   * 12 V are the same for all):
+   * {@code AresCharacterization.publish(CtreSwerve.of(drivetrain).characterizable(TunerConstants.FrontLeft))}.
+   */
+  public com.stzteam.features.ares.characterize.AresCharacterizable characterizable(com.ctre.phoenix6.swerve.SwerveModuleConstants<?, ?, ?> module) {
+    return new CtreCharacterizable(drivetrain, subsystem, module);
+  }
 }

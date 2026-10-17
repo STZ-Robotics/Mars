@@ -191,6 +191,11 @@ pub struct RobotTuning {
     pub speed_at_12v_mps: Option<f64>,
     pub slip_current_a: Option<f64>,
     pub drive_friction_v: Option<f64>,
+    pub steer_kp: Option<f64>,
+    pub steer_ks: Option<f64>,
+    pub steer_kv: Option<f64>,
+    /// kWheelRadius, in meters (Tuner X writes it in inches).
+    pub wheel_radius_m: Option<f64>,
     /// [kP, kI, kD] of the translation and rotation PIDs the auto actually runs.
     pub translation: Option<[f64; 3]>,
     pub rotation: Option<[f64; 3]>,
@@ -244,6 +249,15 @@ pub fn read_tuning(root: &Path) -> RobotTuning {
                 out.drive_ks = number_after(gains, "withKS(");
                 out.drive_kv = number_after(gains, "withKV(");
             }
+            if let Some(gains) = statement(&text, "steerGains =") {
+                out.steer_kp = number_after(gains, "withKP(");
+                out.steer_ks = number_after(gains, "withKS(");
+                out.steer_kv = number_after(gains, "withKV(");
+            }
+            if let Some(s) = statement(&text, "kWheelRadius =") {
+                let v = number_after(s, ".of(");
+                out.wheel_radius_m = if s.contains("Inches") { v.map(|x| x * 0.0254) } else if s.contains("Centimeters") { v.map(|x| x / 100.0) } else { v };
+            }
             if let Some(s) = statement(&text, "kSpeedAt12Volts =") {
                 out.speed_at_12v_mps = number_after(s, ".of(");
             }
@@ -292,6 +306,8 @@ mod tuning_tests {
             public static final LinearVelocity kSpeedAt12Volts = MetersPerSecond.of(5.85);
             private static final Current kSlipCurrent = Amps.of(120);
             private static final Voltage kDriveFrictionVoltage = Volts.of(0.2);
+            private static final Slot0Configs steerGains = new Slot0Configs().withKP(55).withKI(0).withKD(0.35).withKS(0.29).withKV(2.483);
+            private static final Distance kWheelRadius = Inches.of(2);
         "#).unwrap();
         fs::write(java.join("Drive.java"), r#"
             new PPHolonomicDriveController(
@@ -304,6 +320,8 @@ mod tuning_tests {
         assert_eq!(t.speed_at_12v_mps, Some(5.85));
         assert_eq!(t.slip_current_a, Some(120.0));
         assert_eq!(t.drive_friction_v, Some(0.2));
+        assert_eq!((t.steer_kp, t.steer_ks, t.steer_kv), (Some(55.0), Some(0.29), Some(2.483)));
+        assert!((t.wheel_radius_m.unwrap() - 0.0508).abs() < 1e-12);
         assert_eq!(t.translation, Some([5.0, 0.0, 0.0]));
         assert_eq!(t.rotation, Some([4.0, 0.0, 0.1]));
     }

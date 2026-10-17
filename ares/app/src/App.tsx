@@ -10,11 +10,12 @@ import VariablesPage from "./vars/VariablesPage"
 import AutosPage from "./autos/AutosPage"
 import FieldPage from "./field/FieldPage"
 import TunePage from "./tune/TunePage"
+import CharacterizePage from "./characterize/CharacterizePage"
 import { VariablesProvider } from "./vars/context"
 import { useProjectSync } from "./vars/sync"
 import { ToastProvider } from "./ui/toasts"
 
-type Page = "robot" | "paths" | "autos" | "tune" | "field" | "variables"
+type Page = "robot" | "paths" | "autos" | "tune" | "characterize" | "field" | "variables"
 
 const LAST_ROBOT_KEY = "ares.lastRobot"
 const LAST_PAGE_KEY = "ares.lastPage"
@@ -24,7 +25,7 @@ const LAST_PAGE_KEY = "ares.lastPage"
 // document the File menu opens and saves.
 export default function App() {
   const [page, setPage] = useState<Page>(() => {
-    try { const p = localStorage.getItem(LAST_PAGE_KEY); if (p === "robot" || p === "paths" || p === "autos" || p === "tune" || p === "field" || p === "variables") return p } catch { /* first run */ }
+    try { const p = localStorage.getItem(LAST_PAGE_KEY); if (p === "robot" || p === "paths" || p === "autos" || p === "tune" || p === "characterize" || p === "field" || p === "variables") return p } catch { /* first run */ }
     return "robot"
   })
   useEffect(() => { try { localStorage.setItem(LAST_PAGE_KEY, page) } catch { /* nothing to remember */ } }, [page])
@@ -126,6 +127,7 @@ export default function App() {
         {page === "paths" && <PathsPage robot={robot} robotPath={robotPath} onSaveRobot={fileSave} />}
         {page === "autos" && <AutosPage robot={robot} robotPath={robotPath} />}
         {page === "tune" && <TunePage robot={robot} robotPath={robotPath} />}
+        {page === "characterize" && <CharacterizePage robot={robot} robotPath={robotPath} onRobot={setRobot} />}
         {page === "field" && <FieldPage robot={robot} robotPath={robotPath} />}
         {page === "variables" && <VariablesPage robot={robot} robotPath={robotPath} onRobot={setRobot} />}
       </div>
@@ -205,6 +207,7 @@ const PAGES: { id: Page; label: string; icon: string; ready: boolean }[] = [
   { id: "paths", label: "Paths", icon: "ti-route", ready: true },
   { id: "autos", label: "Autos", icon: "ti-list-details", ready: true },
   { id: "tune", label: "Tune", icon: "ti-adjustments-alt", ready: true },
+  { id: "characterize", label: "Measure", icon: "ti-chart-dots", ready: true },
   { id: "field", label: "Field", icon: "ti-map-2", ready: true },
   { id: "variables", label: "Variables", icon: "ti-variable", ready: true },
 ]

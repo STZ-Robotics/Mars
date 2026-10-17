@@ -37,6 +37,7 @@ function Tuner({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) 
   const [chosen, setChosen] = useState<string[]>([])
   const [trajs, setTrajs] = useState<Record<string, Trajectory>>({})
   const [tuning, setTuning] = useState<RobotTuning | null>(null)
+  const [measuredDrive, setMeasuredDrive] = useState<{ kS: number; kV: number } | null>(null)
   const [code, setCode] = useState<RobotCode>(() => robotCode(null))
   const [params, setParams] = useState<Param[]>(() => defaultParams(robotCode(null)))
   const [world, setWorld] = useState<World>(() => nominalWorld(robot))
@@ -81,13 +82,22 @@ function Tuner({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) 
     })
     let folder: string | null = null
     try { folder = localStorage.getItem(`ares.robotCode:${robotPath}`) } catch { /* none */ }
-    invoke<RobotTuning>("robot_tuning", { robotPath, folder }).then(t => {
+    Promise.all([
+      invoke<RobotTuning>("robot_tuning", { robotPath, folder }).catch(() => null),
+      invoke<{ drive?: { kS: number; kV: number } } | null>("characterization_open", { robotPath }).catch(() => null),
+    ]).then(([t, measured]) => {
       setTuning(t)
       const c = robotCode(t)
+      // What the Measure tab found on the robot beats what the code says.
+      if (measured?.drive) {
+        c.driveKs = measured.drive.kS
+        c.driveKv = measured.drive.kV
+        setMeasuredDrive(measured.drive)
+      }
       setCode(c)
       setParams(defaultParams(c))
-      if (t.driveFrictionV !== null) setWorld(w => ({ ...w, driveFrictionV: t.driveFrictionV! }))
-    }).catch(() => {})
+      if (t?.driveFrictionV != null) setWorld(w => ({ ...w, driveFrictionV: t.driveFrictionV! }))
+    })
   }, [robotPath])
   useEffect(() => setWorld(w => ({ ...nominalWorld(robot), latencyS: w.latencyS, driveFrictionV: w.driveFrictionV })), [robot])
 
@@ -203,6 +213,7 @@ function Tuner({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) 
         </div>
         <div style={{ padding: "4px 12px 2px", fontSize: 10, color: "var(--text-muted)" }}>
           {tuning?.file ? <>From the robot code: <span title={tuning.file}>{tuning.file.split(/[\\/]/).pop()}</span>. </> : "Robot code not found: Tuner X's defaults. "}
+          {measuredDrive && <>Drive kS {measuredDrive.kS.toFixed(4)} and kV {measuredDrive.kV.toFixed(4)} as measured (Measure tab). </>}
           Checked gains are searched between min and max; the rest stay at their value.
         </div>
         {PARAM_GROUPS.map(group => (

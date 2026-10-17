@@ -103,3 +103,17 @@ pub fn gains_open(robot_path: String) -> Option<serde_json::Value> {
     let path = Path::new(&robot_path).parent().unwrap_or(Path::new(".")).join("gains.json");
     std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str(&t).ok())
 }
+
+/// characterization.json next to the robot: the last results of the
+/// Characterize tab, which Tune starts from.
+#[tauri::command]
+pub fn characterization_save(robot_path: String, doc: serde_json::Value) -> Result<(), String> {
+    let path = Path::new(&robot_path).parent().unwrap_or(Path::new(".")).join("characterization.json");
+    std::fs::write(path, serde_json::to_string_pretty(&doc).map_err(|e| e.to_string())? + "\n").map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn characterization_open(robot_path: String) -> Option<serde_json::Value> {
+    let path = Path::new(&robot_path).parent().unwrap_or(Path::new(".")).join("characterization.json");
+    std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str(&t).ok())
+}

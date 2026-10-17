@@ -114,6 +114,28 @@ modules take it.
 Also: `ares.path("Hub run")`, `ares.path("Hub run", "wide")` (a variant),
 `ares.section("Hub run", "intake")`, `ares.split("Hub run", 1)`.
 
+## Characterization, with no logs and no SysId
+
+```java
+AresCharacterization.publish(CtreSwerve.of(drivetrain).characterizable(TunerConstants.FrontLeft));
+```
+
+Three routines, as dashboard buttons under `Ares Characterize/`, that measure
+on the robot and publish as they run under `/Ares/Characterize/<routine>`
+(the team's DriveCharacterizationCommand, generalized):
+
+- **Drive**: spins in place stepping the drives from 1 to 6 V both ways and
+  fits |V| = kS + kV·rps (rotor rps, Tuner X's units); the gyro gives the
+  wheel radius too. About 1.5 m of room.
+- **Steer**: the robot stays put, the modules turn stepping the steers from
+  0.3 to 2 V: kS and kV of the steer (module rps).
+- **WheelRadius**: spins slowly; the gyro's angle against how far the wheels
+  rolled is their true radius.
+
+Ares's Measure tab connects over NetworkTables, presses them, draws the points
+and the line as they come, compares with TunerConstants, and saves the results
+(Tune starts from them). Results also land in Preferences.
+
 ## Building and testing
 
 ```bash

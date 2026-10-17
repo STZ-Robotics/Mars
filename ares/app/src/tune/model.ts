@@ -184,6 +184,10 @@ export interface RobotTuning {
   driveFrictionV: number | null
   translation: [number, number, number] | null
   rotation: [number, number, number] | null
+  steerKp?: number | null
+  steerKs?: number | null
+  steerKv?: number | null
+  wheelRadiusM?: number | null
 }
 
 export type ParamGroup = "Path controller (AresLib)" | "Recovery from shoves (AresLib)" | "Drive motor (TunerConstants)"
