@@ -104,7 +104,10 @@ function parseField(path: string, raw: any): FieldConfig | null {
 export const FIELDS: FieldConfig[] = Object.entries(FIELD_JSON_MODULES)
   .map(([path, mod]) => parseField(path, mod.default))
   .filter((f): f is FieldConfig => f !== null)
-  .sort((a, b) => a.game.localeCompare(b.game))
+  // Newest game first (its year leads the file name), and of one year the
+  // plain field before its variants ("2026-rebuilt" before "...-no-fuel"):
+  // the first is the default, so it stays the current game's.
+  .sort((a, b) => b.key.slice(0, 4).localeCompare(a.key.slice(0, 4)) || a.key.length - b.key.length || a.key.localeCompare(b.key))
 
 /** A key reserved for the schematic drawing (without an image) that already existed. */
 export const SCHEMATIC_FIELD_KEY = "schematic"
