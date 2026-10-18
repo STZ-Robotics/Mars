@@ -15,6 +15,7 @@ import CommandTree, { STEP_MIME } from "./CommandTree"
 import { markerLink, useRobotNames } from "./robotNames"
 import { hotReload } from "../ui/hotReload"
 import { FolderRow, ITEM_MIME, LooseDrop, groupByFolder, newFolderName, useFolders } from "../ui/Folders"
+import { useField } from "../ui/field"
 
 interface Props {
   robot: RobotConfig
@@ -47,7 +48,7 @@ export default function AutosPage({ robot, robotPath }: Props) {
 }
 
 function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) {
-  const field = FIELDS[0]
+  const { field, size: chosenSize } = useField()
   const [autos, setAutos] = useState<Auto[]>([])
   const [current, setCurrent] = useState<{ auto: Auto; savedName: string | null } | null>(null)
   const [paths, setPaths] = useState<PathSpec[]>([])
@@ -301,7 +302,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
   // none: AresLib flips everything on red.
   const mirror = async () => {
     if (!auto) return
-    const [L, W] = FIELDS[0].sizeMeters
+    const [L, W] = field.sizeMeters
     const SUFFIX = " (mirrored)"
     const other = (n: string) => (n.endsWith(SUFFIX) ? n.slice(0, -SUFFIX.length) : n + SUFFIX)
     const byPath = new Map(paths.map(p => [p.name, p]))
@@ -363,7 +364,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
     }
     keys.forEach(k => add(k.split("@")[0]))
     const field = await invoke<FieldDoc>("field_open", { robotPath })
-    const fieldSize = { lengthM: FIELDS[0].sizeMeters[0], widthM: FIELDS[0].sizeMeters[1] }
+    const fieldSize = chosenSize
     let done = 0
     const failed: string[] = []
     const sent: string[] = []

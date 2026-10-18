@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core"
 import { propertyInputStyle } from "@desktop/styles/pageForm"
 import { CODE_KEY, useRobotNames } from "../autos/robotNames"
 import { useVariables } from "../vars/context"
+import { useField } from "../ui/field"
+import { FIELDS } from "@desktop/utils/field/fieldImages"
 import { ProjectSettings, writeVarsJava } from "../vars/writeJava"
 import { useToast } from "../ui/toasts"
 import { useSettings } from "./settings"
@@ -69,11 +71,15 @@ export default function SettingsPage({ robotPath }: { robotPath: string | null }
 function ProjectSection({ robotPath }: { robotPath: string }) {
   const { names, pickFolder } = useRobotNames(robotPath)
   const { variables } = useVariables()
+  const field = useField()
   const toast = useToast()
   const [ps, setPs] = useState<ProjectSettings | null>(null)
   const [written, setWritten] = useState<string | null>(null)
   useEffect(() => { invoke<ProjectSettings>("project_settings_open", { robotPath }).then(setPs).catch(() => {}) }, [robotPath])
-  const save = async (next: ProjectSettings, write: boolean) => {
+  const save = async (patch: Partial<ProjectSettings>, write: boolean) => {
+    // The rest of project.json (the field) stays as it is on disk.
+    const onDisk = await invoke<ProjectSettings>("project_settings_open", { robotPath }).catch(() => null)
+    const next = { ...(onDisk ?? { varsJava: { enabled: false, file: "" } }), ...patch } as ProjectSettings
     setPs(next)
     await invoke("project_settings_save", { robotPath, settings: next }).catch(e => toast({ kind: "error", title: "Could not save project.json", body: String(e) }))
     if (write) {
@@ -93,6 +99,11 @@ function ProjectSection({ robotPath }: { robotPath: string }) {
           <Mono>{names?.root ?? "not found"}</Mono>
           <button style={btn} onClick={pickFolder}><i className="ti ti-folder" /> Pick…</button>
         </span>
+      </Row>
+      <Row label="Field" hint={`The game the project plays: the picture and size everywhere in Ares, and the size and the red side's ${field.symmetry} symmetry on the robot (in ares-index.json). Paths generated for another field show as out of date.`}>
+        <select style={{ ...propertyInputStyle, width: 240 }} value={field.field.key} onChange={e => field.choose(e.target.value)}>
+          {FIELDS.map(f => <option key={f.key} value={f.key}>{f.game} · {f.sizeMeters[0].toFixed(2)} × {f.sizeMeters[1].toFixed(2)} m</option>)}
+        </select>
       </Row>
       <Switch label="Variables in the robot code" hint={`Choreo's ChoreoVars: the Variables tab as a Java class of constants (WPILib units, Pose2d), written again every time a variable changes. ${variables.length} variable${variables.length === 1 ? "" : "s"} now. Saved in project.json, for the whole team.`}
         on={vj.enabled} onChange={async on => save({ varsJava: { enabled: on, file: vj.file || (await defaultFile()) } }, on)} />

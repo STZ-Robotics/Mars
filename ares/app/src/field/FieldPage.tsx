@@ -13,9 +13,10 @@ import { Toggle } from "../ui/controls"
 import { useToast } from "../ui/toasts"
 import { drawCells, drawNavGrid, NAVGRID_COLOR } from "./drawNavGrid"
 import {
-  DEFAULT_NODE_M, FIELD_SIZE, NavGrid, blockKeepOuts, blockedAt, blockedCount, box, cols, emptyGrid, grow, paint,
+  DEFAULT_NODE_M, NavGrid, blockKeepOuts, blockedAt, blockedCount, box, cols, emptyGrid, grow, paint,
   resample, route, routeLength, rows, stroke, symmetrize,
 } from "./navgrid"
+import { useField } from "../ui/field"
 
 // The Field tab: what is true of the field for every path. For now, the
 // navigation grid (PathPlanner's navgrid): the cells the pathfinder keeps the
@@ -34,7 +35,7 @@ interface View { k: number; ox: number; oy: number }
 
 export default function FieldPage({ robot, robotPath }: { robot: RobotConfig; robotPath: string | null }) {
   const toast = useToast()
-  const field = FIELDS[0]
+  const { field, size: FIELD_SIZE } = useField()
   const [L, W] = field.sizeMeters
   const [doc, setDoc] = useState<FieldDoc | null>(null)
   const grid = doc?.navgrid

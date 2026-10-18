@@ -2,7 +2,6 @@ import { ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
 import { propertyInputStyle } from "@desktop/styles/pageForm"
-import { FIELDS } from "@desktop/utils/field/fieldImages"
 import type { RobotConfig } from "../robot/types"
 import type { PathEntry, Trajectory } from "../paths/types"
 import { drawFieldBackground } from "../paths/FieldView"
@@ -17,6 +16,7 @@ import {
   AppliedGains, Criterion, DISTURBANCE_PRESETS, Disturbance, Method, PARAM_GROUPS, PARAM_INFO, Param, Progress, RobotCode, RobotTuning, SavedRun, TuneConfig, WORLD_VARS, World,
   appliedGains, defaultParams, findings, fmt3, gripUsed, javaSnippet, nominalWorld, robotCode,
 } from "./model"
+import { useField } from "../ui/field"
 
 // The Tune tab: the gains that follow your paths best, found by simulating
 // the robot against many worlds (heavier, slicker, a tired battery, worn
@@ -564,7 +564,7 @@ function SmallButton({ icon, label, onClick }: { icon: string; label: string; on
 function TuneField({ robot, trajs, tracks, baseTracks, hoverWorld }: {
   robot: RobotConfig; trajs: Trajectory[]; tracks: Progress["tracks"]; baseTracks: Progress["tracks"]; hoverWorld: number | null
 }) {
-  const field = FIELDS[0]
+  const { field } = useField()
   const host = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const [size, setSize] = useState({ w: 0, h: 0 })

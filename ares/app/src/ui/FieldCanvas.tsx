@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { FIELDS } from "@desktop/utils/field/fieldImages"
 import { drawFieldBackground } from "../paths/FieldView"
 import { fieldSketch } from "../paths/fieldSketch"
 import { loadView } from "../paths/PathsPage"
+import { useField } from "./field"
 
 export interface XYH { x: number; y: number; heading: number }
 
@@ -20,7 +20,7 @@ export interface Pen {
 
 /** The whole field, drawn as the Paths tab draws it, with `draw` on top. */
 export default function FieldCanvas({ draw, deps }: { draw: (pen: Pen) => void; deps: unknown[] }) {
-  const field = FIELDS[0]
+  const { field } = useField()
   const host = useRef<HTMLDivElement>(null)
   const canvas = useRef<HTMLCanvasElement>(null)
   const [size, setSize] = useState({ w: 0, h: 0 })

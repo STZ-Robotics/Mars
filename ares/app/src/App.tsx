@@ -20,6 +20,7 @@ import SwerveIcon from "./ui/SwerveIcon"
 import PageBoundary from "./ui/PageBoundary"
 import SettingsPage from "./settings/SettingsPage"
 import { getSettings } from "./settings/settings"
+import { FieldProvider } from "./ui/field"
 
 type Page = "robot" | "paths" | "autos" | "live" | "logs" | "tune" | "characterize" | "field" | "variables" | "settings"
 
@@ -133,6 +134,7 @@ export default function App() {
 
   return (
     <ToastProvider>
+    <FieldProvider robotPath={robotPath}>
     <VariablesProvider robotPath={robotPath}>
     <ProjectSync robotPath={robotPath} setRobot={setRobot} />
     <div className="app-root">
@@ -167,6 +169,7 @@ export default function App() {
       <StatusBar robot={robot.name} dirty={dirty} status={status} robotPath={robotPath} />
     </div>
     </VariablesProvider>
+    </FieldProvider>
     </ToastProvider>
   )
 }

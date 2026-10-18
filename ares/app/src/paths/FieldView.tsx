@@ -11,6 +11,7 @@ import { GLYPH, drawChip, drawHeadingTriangle, drawStop, positionColor } from ".
 import type { TopView } from "../robot/topView"
 import { fieldSketch } from "./fieldSketch"
 import { linkedPose } from "../vars/variables"
+import { symmetryOf } from "../ui/field"
 
 interface Props {
   field: FieldConfig
@@ -247,7 +248,8 @@ export default function FieldView(props: Props) {
       drawTrajectory(ctx, toScreen, generated, opts.gradient, topSpeed, 4, spans)
       if (opts.flipped) {
         ctx.globalAlpha = stale ? 0.2 : 0.45
-        const flip = (x: number, y: number) => toScreen(L - x, W - y)
+        const mirrored = symmetryOf(field) === "mirrored"
+        const flip = (x: number, y: number) => toScreen(L - x, mirrored ? y : W - y)
         drawTrajectory(ctx, flip, generated, opts.gradient, topSpeed, 3, spans)
       }
       ctx.globalAlpha = 1

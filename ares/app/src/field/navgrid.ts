@@ -8,14 +8,12 @@
 // Only the "?" segments obey it, in Ares's estimate and in AresLib's
 // pathfinder on the robot; a path the user drew goes where it was drawn.
 
-import { FIELDS } from "@desktop/utils/field/fieldImages"
 import type { KeepOut } from "../paths/types"
 
 export interface NavGrid { nodeSizeMeters: number; grid: boolean[][] }
 
 export type Cell = [number, number] // [col, row]
 
-export const FIELD_SIZE = { lengthM: FIELDS[0].sizeMeters[0], widthM: FIELDS[0].sizeMeters[1] }
 
 /** PathPlanner's default cell. */
 export const DEFAULT_NODE_M = 0.3

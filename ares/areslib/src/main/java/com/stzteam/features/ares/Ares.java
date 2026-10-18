@@ -110,15 +110,32 @@ public final class Ares {
     }
 
     /** How the red alliance's field relates to blue's: rotational in 2026. */
+    /** The field's symmetry; by default the one the Ares project's field has (Settings → Field), else rotational. */
     public Config withSymmetry(FieldSymmetry symmetry) {
       this.symmetry = symmetry;
+      this.symmetrySet = true;
       return this;
     }
 
+    /** The field's size; by default the Ares project's field, else Rebuilt's (2026). */
     public Config withFieldSize(double lengthM, double widthM) {
       this.fieldLengthM = lengthM;
       this.fieldWidthM = widthM;
+      this.fieldSizeSet = true;
       return this;
+    }
+
+    private boolean symmetrySet;
+    private boolean fieldSizeSet;
+
+    /** The project's field, where the code did not say otherwise. */
+    void useField(AresIndex.Field f) {
+      if (f == null) return;
+      if (!fieldSizeSet) {
+        fieldLengthM = f.lengthM();
+        fieldWidthM = f.widthM();
+      }
+      if (!symmetrySet) symmetry = f.mirrored() ? FieldSymmetry.MIRRORED : FieldSymmetry.ROTATIONAL;
     }
 
     /** When to drive the paths flipped; by default, on the red alliance. */
@@ -243,7 +260,6 @@ public final class Ares {
     // reloads that came in, and the selected auto's start.
     edu.wpi.first.wpilibj2.command.CommandScheduler.getInstance().getDefaultButtonLoop().bind(this::periodic);
     if (config.hotReload) listenForHotReload();
-    this.pathfinder = config.pathfinder != null ? config.pathfinder : defaultPathfinder(drive, config);
     AresIndex loaded;
     try {
       loaded = AresIndex.load(config.folder);
@@ -253,6 +269,9 @@ public final class Ares {
       fail("Ares could not read its project: " + e.getMessage());
     }
     index = loaded;
+    // The field the project plays on, before anything flips or pathfinds.
+    config.useField(index.field());
+    this.pathfinder = config.pathfinder != null ? config.pathfinder : defaultPathfinder(drive, config);
     var bad = new ArrayList<String>();
     for (var p : index.paths().values()) {
       load(p.name(), p.trajectory(), p.generated(), bad);

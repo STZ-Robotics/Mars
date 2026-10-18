@@ -93,10 +93,15 @@ public final class AresIndex {
   private final String robot;
   private final List<Module> modules;
   private final double[] bumper;
+  private final Field field;
   private final Map<String, PathEntry> paths;
   private final Map<String, Auto> autos;
 
-  private AresIndex(File folder, String robot, List<Module> modules, double[] bumper, Map<String, PathEntry> paths, Map<String, Auto> autos) {
+  /** The field the Ares project plays on (Settings → Field). */
+  public record Field(String key, double lengthM, double widthM, boolean mirrored) {}
+
+  private AresIndex(File folder, String robot, List<Module> modules, double[] bumper, Field field, Map<String, PathEntry> paths, Map<String, Auto> autos) {
+    this.field = field;
     this.folder = folder;
     this.robot = robot;
     this.modules = modules;
@@ -156,7 +161,11 @@ public final class AresIndex {
     }
     var b = n.path("robot").path("bumper");
     double[] bumper = b.has("lengthM") && b.has("widthM") ? new double[] {b.path("lengthM").asDouble(), b.path("widthM").asDouble()} : null;
-    return new AresIndex(folder, n.path("robot").path("name").asText(""), List.copyOf(modules), bumper, paths, autos);
+    var f = n.path("field");
+    var field = f.has("lengthM") && f.has("widthM")
+        ? new Field(f.path("key").asText(""), f.path("lengthM").asDouble(), f.path("widthM").asDouble(), "mirrored".equals(f.path("symmetry").asText()))
+        : null;
+    return new AresIndex(folder, n.path("robot").path("name").asText(""), List.copyOf(modules), bumper, field, paths, autos);
   }
 
   /** One step (an event marker's command); null for a kind this version does not know. */
@@ -213,6 +222,11 @@ public final class AresIndex {
 
   public String robot() {
     return robot;
+  }
+
+  /** The project's field, or null when it did not choose one. */
+  public Field field() {
+    return field;
   }
 
   /** The bumper's length and width (m), or null in an index from before Ares wrote it. */

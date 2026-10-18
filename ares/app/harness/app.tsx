@@ -20,6 +20,7 @@ const answers: Record<string, unknown> = {
   nt_status: { connected: false, address: "" },
   tune_runs: [],
   app_info: { version: "0.1.0", areslib: "0.1.0" },
+  project_settings_open: { varsJava: { enabled: false, file: "" }, field: { key: new URLSearchParams(location.search).get("field") ?? "2026-rebuilt", lengthM: 16.5, widthM: 8.2, symmetry: "mirrored" } },
   "plugin:event|listen": 1,
 }
 ;(window as unknown as { __TAURI_EVENT_PLUGIN_INTERNALS__: unknown }).__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} }

@@ -147,6 +147,14 @@ the robot for it: `/Ares/Auto/Selected`, `/Ares/Auto/StartPose`, and the
 "Ares Auto" field (start pose and first path) on the dashboard; the Live tab
 draws it too.
 
+## The field
+
+The field the Ares project plays on (the app's Settings → Project → Field:
+Rebuilt 2026, Reefscape 2025, Crescendo 2024, Charged Up 2023) comes in the
+index: AresLib takes its size and its red side's symmetry (rotational, or
+mirrored for 2023 and 2024) unless the code sets them with `withFieldSize` /
+`withSymmetry`.
+
 ## Obstacles that come and go
 
 PathPlanner's `setDynamicObstacles`: boxes by two opposite corners, in field

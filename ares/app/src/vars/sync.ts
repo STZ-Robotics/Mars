@@ -4,7 +4,7 @@ import type { RobotConfig } from "../robot/types"
 import type { FieldDoc, PathEntry } from "../paths/types"
 import { useVariables } from "./context"
 import { applyScope } from "./variables"
-import { FIELD_SIZE } from "../field/navgrid"
+import { useField } from "../ui/field"
 
 /**
  * When a variable changes, every formula in the project gives a new number:
@@ -13,6 +13,7 @@ import { FIELD_SIZE } from "../field/navgrid"
  */
 export function useProjectSync(robotPath: string | null, setRobot: (f: (r: RobotConfig) => RobotConfig) => void) {
   const { scope, version, loaded } = useVariables()
+  const { size: FIELD_SIZE } = useField()
   const first = useRef(true)
   useEffect(() => {
     if (!loaded) return

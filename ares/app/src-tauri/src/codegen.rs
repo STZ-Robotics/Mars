@@ -12,6 +12,19 @@ use serde::{Deserialize, Serialize};
 pub struct ProjectSettings {
     #[serde(default)]
     pub vars_java: VarsJava,
+    /// The field the project plays on; absent, Rebuilt (2026).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub field: Option<FieldChoice>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldChoice {
+    pub key: String,
+    pub length_m: f64,
+    pub width_m: f64,
+    /// "rotational" or "mirrored": how the field is laid out for red.
+    pub symmetry: String,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -124,7 +137,7 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&written).unwrap(), "class A {}");
         assert!(vars_java_write(rp.clone(), None, "../evil.java".into(), "x".into()).is_err());
         assert!(vars_java_write(rp.clone(), None, "src/main/java/A.txt".into(), "x".into()).is_err());
-        let s = ProjectSettings { vars_java: VarsJava { enabled: true, file } };
+        let s = ProjectSettings { vars_java: VarsJava { enabled: true, file }, field: None };
         project_settings_save(rp.clone(), s.clone()).unwrap();
         assert_eq!(project_settings_open(rp), s);
     }

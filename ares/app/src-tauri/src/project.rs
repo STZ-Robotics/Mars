@@ -571,7 +571,9 @@ pub fn index_json(robot_path: &str) -> serde_json::Value {
             "bumper": { "lengthM": r.bumper.length_m, "widthM": r.bumper.width_m },
         })
     });
-    serde_json::json!({ "format": 1, "robot": robot, "paths": paths, "autos": autos_list(robot_path.clone()) })
+    // The field, for the robot's alliance flip and pathfinding grid.
+    let field = crate::codegen::project_settings_open(robot_path.clone()).field;
+    serde_json::json!({ "format": 1, "robot": robot, "field": field, "paths": paths, "autos": autos_list(robot_path.clone()) })
 }
 
 #[cfg(test)]
@@ -677,6 +679,17 @@ mod tests {
         let before = hashed(&a);
         a.folder = Some("Amp side".into());
         assert_eq!(hashed(&a), before);
+    }
+
+    #[test]
+    fn the_index_carries_the_projects_field() {
+        let rp = temp_project("field");
+        assert!(index_json(&rp)["field"].is_null());
+        let field = crate::codegen::FieldChoice { key: "2024-crescendo".into(), length_m: 16.542, width_m: 8.211, symmetry: "mirrored".into() };
+        crate::codegen::project_settings_save(rp.clone(), crate::codegen::ProjectSettings { field: Some(field), ..Default::default() }).unwrap();
+        let index = index_json(&rp);
+        assert_eq!(index["field"]["symmetry"], "mirrored");
+        assert_eq!(index["field"]["widthM"], 8.211);
     }
 
     #[test]

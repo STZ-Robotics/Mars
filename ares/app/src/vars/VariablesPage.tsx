@@ -7,7 +7,7 @@ import { Card, MiniButton } from "../ui/controls"
 import { useVariables } from "./context"
 import { DIM_LABEL, DIM_UNIT, Dim, evaluate, isExpr } from "./expr"
 import { NAME_RE, Variable, renameInFormulas, renameVariable, usesOf } from "./variables"
-import { FIELD_SIZE } from "../field/navgrid"
+import { useField } from "../ui/field"
 
 interface Props {
   robot: RobotConfig
@@ -19,6 +19,7 @@ interface Props {
 // any field can use as =name. A pose has .x, .y and .heading, and waypoints
 // can be linked to one so moving it moves every path through it.
 export default function VariablesPage({ robot, robotPath, onRobot }: Props) {
+  const { size: FIELD_SIZE } = useField()
   const { variables, scope, errors, setVariables } = useVariables()
   const [docs, setDocs] = useState<unknown[]>([])
   const [note, setNote] = useState("")

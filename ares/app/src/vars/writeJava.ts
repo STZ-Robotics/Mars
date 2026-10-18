@@ -4,7 +4,11 @@ import { varsJava } from "./javaVars"
 import { evaluateAll, Variable } from "./variables"
 
 /** project.json: what the team shares about the project. */
-export interface ProjectSettings { varsJava: { enabled: boolean; file: string } }
+export interface ProjectSettings {
+  varsJava: { enabled: boolean; file: string }
+  /** The field the project plays on (see ui/field.tsx). */
+  field?: { key: string; lengthM: number; widthM: number; symmetry: "rotational" | "mirrored" }
+}
 
 /** The Java package of a file under src/main/java. */
 export function packageOf(file: string): string | null {

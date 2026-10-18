@@ -2,7 +2,6 @@ import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "re
 import { invoke } from "@tauri-apps/api/core"
 import PropertyRow from "@desktop/components/common/PropertyRow"
 import { propertyInputStyle } from "@desktop/styles/pageForm"
-import { FIELDS } from "@desktop/utils/field/fieldImages"
 import type { RobotConfig } from "../robot/types"
 import { useRobotNames } from "../autos/robotNames"
 import { hotReload } from "../ui/hotReload"
@@ -26,6 +25,7 @@ import {
   ScopedConstraint, Selection, Target, Tool, Trajectory, ViewOptions, Waypoint, WaypointKind, afterInsert, afterMove,
   afterRemove, constraintMeta, kindOf, moveControl, newConstraint, newPathSpec, NEXT_MODE, segmentMode, setSegmentMode, setWait, shiftControls, stopAt, toggleStop, waitAt,
 } from "./types"
+import { useField } from "../ui/field"
 
 interface Props {
   robot: RobotConfig
@@ -63,7 +63,7 @@ export default function PathsPage({ robot, robotPath, onSaveRobot }: Props) {
 
 function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) {
   const { names: robotNames } = useRobotNames(robotPath)
-  const field = FIELDS[0]
+  const { field } = useField()
   const fieldSize = { lengthM: field.sizeMeters[0], widthM: field.sizeMeters[1] }
 
   const [entries, setEntries] = useState<PathEntry[]>([])
