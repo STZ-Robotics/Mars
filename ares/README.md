@@ -15,6 +15,22 @@ It is our team's tool, not a product for all of FRC. That decides a lot: it
 can assume MARS, our robots and our simulation, and it does not have to be
 compatible with anyone's files.
 
+## Installing
+
+Each `ares-vX.Y.Z` tag publishes the installers in the repository's
+Releases (built by `.github/workflows/ares-release.yml`):
+
+| System | File |
+|---|---|
+| Windows | `Ares_*_x64-setup.exe` (or the `.msi`) |
+| Linux (Debian, Ubuntu) | `Ares_*_amd64.deb`: `sudo apt install ./Ares_*_amd64.deb` |
+| Linux (any) | `Ares_*_amd64.AppImage`: `chmod +x` it and run it |
+| macOS (Apple Silicon) | `Ares_*_aarch64.dmg` |
+
+To make one by hand on your own system: `cd ares/app && npm ci && npx tauri
+build` (the planner needs CMake and a C++23 compiler: GCC 13, or MSVC 2022).
+The robot side is AresLib, a MARS feature: see `areslib/README.md`.
+
 ## Status
 
 `core/` and `planner/` exist, with tests. There is a terminal entry point
