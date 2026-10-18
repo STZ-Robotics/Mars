@@ -1,0 +1,134 @@
+# Ares's installers, one per platform, each built on its own system: Tauri
+# links against the system webview (WebView2, WebKitGTK, WKWebView), so a
+# Windows installer cannot come out of Linux, nor the other way round.
+#
+#   Windows: Ares_x.y.z_x64-setup.exe (NSIS) and Ares_x.y.z_x64_en-US.msi
+#   Linux:   Ares_x.y.z_amd64.deb and Ares_x.y.z_amd64.AppImage
+#   macOS:   Ares_x.y.z_aarch64.dmg
+#
+# An `ares-vX.Y.Z` tag publishes them as a release. A run by hand, or the
+# push that changes this file, only leaves them as the run's artifacts
+# (Actions → the run → Artifacts), which is all a trial needs.
+
+name: ares-release
+
+on:
+  push:
+    tags: ["ares-v*.*.*"]
+    # A change to this file tries it on its branch.
+    paths: [".github/workflows/ares-release.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      # One platform failing has no business taking the others down.
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows x86_64
+            runner: windows-latest
+            bundles: nsis,msi
+          # 22.04 rather than the latest, as MARS's own release: an older
+          # glibc runs on more machines.
+          - name: Linux x86_64
+            runner: ubuntu-22.04
+            bundles: deb,appimage
+          - name: macOS arm64
+            runner: macos-latest
+            bundles: app,dmg
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            desktop/package-lock.json
+            ares/app/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ares
+
+      # Tauri v2's Linux prerequisites (as in release.yml), and GCC 13: the
+      # planner's solver (Sleipnir, C++23) does not build with 22.04's GCC 11.
+      - name: System dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev gcc-13 g++-13
+          echo "CC=gcc-13" >> "$GITHUB_ENV"
+          echo "CXX=g++-13" >> "$GITHUB_ENV"
+
+      # Ares reuses MARS Desktop's code (the @desktop alias), so both have
+      # their dependencies installed.
+      - run: npm ci
+        working-directory: desktop
+      - run: npm ci
+        working-directory: ares/app
+
+      - name: Tests (the app's)
+        run: npm test
+        working-directory: ares/app
+
+      - name: Build the installers
+        working-directory: ares/app
+        run: npx tauri build --bundles ${{ matrix.bundles }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ares-${{ runner.os }}
+          if-no-files-found: error
+          path: |
+            ares/target/release/bundle/nsis/*.exe
+            ares/target/release/bundle/msi/*.msi
+            ares/target/release/bundle/deb/*.deb
+            ares/target/release/bundle/appimage/*.AppImage
+            ares/target/release/bundle/dmg/*.dmg
+
+  publish:
+    name: Publish the release
+    needs: build
+    # Only a tag publishes; trials stop at the artifacts.
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: downloads
+      - name: Collect the installers
+        run: |
+          mkdir -p release
+          find downloads -type f -exec cp -n {} release/ \;
+          ls -la release
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Ares ${{ github.ref_name }}
+          draft: false
+          generate_release_notes: true
+          files: release/*
+          body: |
+            ## Installing Ares
+
+            | System | File |
+            |---|---|
+            | **Windows** | `Ares_*_x64-setup.exe` (or the `.msi`) |
+            | Linux (Debian, Ubuntu) | `Ares_*_amd64.deb`: `sudo apt install ./Ares_*_amd64.deb` |
+            | Linux (any) | `Ares_*_amd64.AppImage`: `chmod +x` it and run it |
+            | macOS (Apple Silicon) | `Ares_*_aarch64.dmg` |
+
+            The robot side, AresLib, is a MARS feature: see ares/areslib/README.md.
