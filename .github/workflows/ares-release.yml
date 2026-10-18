@@ -15,7 +15,9 @@ name: ares-release
 on:
   push:
     tags: ["ares-v*.*.*"]
-    # A change to this file tries it on its branch.
+    # A change to this file tries it on its branch. (With tags alone, branch
+    # pushes would never trigger; paths are not checked for tags.)
+    branches: ["**"]
     paths: [".github/workflows/ares-release.yml"]
   workflow_dispatch:
 
