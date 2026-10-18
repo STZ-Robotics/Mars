@@ -1,0 +1,70 @@
+{
+  "name": "Main",
+  "waypoints": [
+    {
+      "x": 2.0,
+      "y": 2.0,
+      "headingDeg": 0.0,
+      "kind": "pose"
+    },
+    {
+      "x": 4.5,
+      "y": 3.0,
+      "kind": "translation"
+    },
+    {
+      "x": 7.0,
+      "y": 2.0,
+      "headingDeg": 90.0,
+      "kind": "pose"
+    }
+  ],
+  "constraints": {},
+  "scoped": [
+    {
+      "from": "first",
+      "type": "stopPoint"
+    },
+    {
+      "from": "last",
+      "type": "stopPoint"
+    }
+  ],
+  "events": [
+    {
+      "name": "intake",
+      "target": {
+        "index": 1
+      },
+      "offsetS": -0.2
+    },
+    {
+      "name": "spin",
+      "target": "first",
+      "offsetS": 0.1,
+      "durationS": 0.5
+    },
+    {
+      "name": "load",
+      "target": "last",
+      "offsetS": -0.97,
+      "command": {
+        "type": "sequential",
+        "steps": [
+          {
+            "type": "command",
+            "name": "feed"
+          },
+          {
+            "type": "wait",
+            "seconds": 0.2
+          },
+          {
+            "type": "command",
+            "name": "kick"
+          }
+        ]
+      }
+    }
+  ]
+}

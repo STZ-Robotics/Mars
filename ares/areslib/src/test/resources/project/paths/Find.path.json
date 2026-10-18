@@ -1,0 +1,41 @@
+{
+  "name": "Find",
+  "waypoints": [
+    {
+      "x": 2.0,
+      "y": 6.0,
+      "headingDeg": 0.0,
+      "kind": "pose"
+    },
+    {
+      "x": 4.0,
+      "y": 6.0,
+      "headingDeg": 0.0,
+      "kind": "pose",
+      "pathfindNext": {}
+    },
+    {
+      "x": 7.0,
+      "y": 5.0,
+      "headingDeg": 0.0,
+      "kind": "pose"
+    },
+    {
+      "x": 8.0,
+      "y": 4.0,
+      "headingDeg": 0.0,
+      "kind": "pose"
+    }
+  ],
+  "constraints": {},
+  "scoped": [
+    {
+      "from": "first",
+      "type": "stopPoint"
+    },
+    {
+      "from": "last",
+      "type": "stopPoint"
+    }
+  ]
+}

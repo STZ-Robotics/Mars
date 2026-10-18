@@ -1,0 +1,366 @@
+{
+  "format": 1,
+  "robot": {
+    "name": "Offseason2026",
+    "modules": [
+      {
+        "name": "fl",
+        "xM": 0.276225,
+        "yM": 0.276225
+      },
+      {
+        "name": "fr",
+        "xM": 0.276225,
+        "yM": -0.276225
+      },
+      {
+        "name": "bl",
+        "xM": -0.276225,
+        "yM": 0.276225
+      },
+      {
+        "name": "br",
+        "xM": -0.276225,
+        "yM": -0.276225
+      }
+    ]
+  },
+  "paths": [
+    {
+      "name": "Alt",
+      "trajectory": "trajectories/Alt.traj.json",
+      "generated": true,
+      "sections": null,
+      "variants": [],
+      "continuesFrom": "Main",
+      "continuesAt": 1,
+      "condition": "goAlt",
+      "branches": []
+    },
+    {
+      "name": "Main",
+      "trajectory": "trajectories/Main.traj.json",
+      "generated": true,
+      "sections": null,
+      "variants": [],
+      "continuesFrom": null,
+      "continuesAt": null,
+      "condition": null,
+      "branches": [
+        {
+          "atWaypoint": 1,
+          "atTime": 0.9874337060735158,
+          "condition": "goAlt",
+          "path": "Alt"
+        }
+      ]
+    },
+    {
+      "name": "Never",
+      "trajectory": "trajectories/Never.traj.json",
+      "generated": false,
+      "variants": [],
+      "branches": []
+    },
+    {
+      "name": "Find",
+      "trajectory": "trajectories/Find.traj.json",
+      "generated": true,
+      "variants": [],
+      "branches": []
+    }
+  ],
+  "autos": [
+    {
+      "name": "Branchy",
+      "steps": [
+        {
+          "type": "path",
+          "path": "Main"
+        },
+        {
+          "type": "path",
+          "path": "Alt"
+        }
+      ],
+      "folder": "Qualifiers"
+    },
+    {
+      "name": "Full",
+      "budgetS": 15,
+      "steps": [
+        {
+          "type": "command",
+          "name": "spinUp",
+          "alongside": true
+        },
+        {
+          "type": "path",
+          "path": "Main"
+        },
+        {
+          "type": "wait",
+          "seconds": 0.2
+        },
+        {
+          "type": "command",
+          "name": "shoot",
+          "estimateS": 0.5
+        },
+        {
+          "type": "if",
+          "condition": "hasPiece",
+          "then": [
+            {
+              "type": "auto",
+              "auto": "Nested"
+            }
+          ],
+          "else": [
+            {
+              "type": "wait",
+              "seconds": 0.1
+            }
+          ]
+        },
+        {
+          "type": "futureStep"
+        }
+      ],
+      "folder": "Qualifiers"
+    },
+    {
+      "name": "Nested",
+      "steps": [
+        {
+          "type": "command",
+          "name": "shoot"
+        }
+      ]
+    },
+    {
+      "name": "Loop",
+      "steps": [
+        {
+          "type": "auto",
+          "auto": "Loop"
+        }
+      ]
+    },
+    {
+      "name": "Together",
+      "steps": [
+        {
+          "type": "parallel",
+          "mode": "deadline",
+          "branches": [
+            [
+              {
+                "type": "path",
+                "path": "Main"
+              }
+            ],
+            [
+              {
+                "type": "command",
+                "name": "hold"
+              }
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Race",
+      "steps": [
+        {
+          "type": "parallel",
+          "mode": "race",
+          "branches": [
+            [
+              {
+                "type": "wait",
+                "seconds": 0.5
+              }
+            ],
+            [
+              {
+                "type": "command",
+                "name": "hold"
+              }
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "WhenTime",
+      "steps": [
+        {
+          "type": "when",
+          "trigger": {
+            "kind": "time",
+            "atS": 0.3
+          },
+          "steps": [
+            {
+              "type": "command",
+              "name": "mark"
+            }
+          ]
+        },
+        {
+          "type": "path",
+          "path": "Main"
+        }
+      ]
+    },
+    {
+      "name": "WhenZone",
+      "steps": [
+        {
+          "type": "when",
+          "trigger": {
+            "kind": "zone",
+            "x": 6.5,
+            "y": 1.5,
+            "widthM": 1.0,
+            "heightM": 1.0
+          },
+          "steps": [
+            {
+              "type": "command",
+              "name": "mark"
+            }
+          ]
+        },
+        {
+          "type": "path",
+          "path": "Main"
+        }
+      ]
+    },
+    {
+      "name": "WhenCondition",
+      "steps": [
+        {
+          "type": "when",
+          "trigger": {
+            "kind": "condition",
+            "name": "go"
+          },
+          "steps": [
+            {
+              "type": "command",
+              "name": "mark"
+            }
+          ]
+        },
+        {
+          "type": "wait",
+          "seconds": 1.0
+        }
+      ]
+    },
+    {
+      "name": "Clash",
+      "steps": [
+        {
+          "type": "parallel",
+          "mode": "all",
+          "branches": [
+            [
+              {
+                "type": "path",
+                "path": "Main"
+              }
+            ],
+            [
+              {
+                "type": "path",
+                "path": "Alt"
+              }
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "name": "GroupDeadline",
+      "steps": [
+        {
+          "type": "deadline",
+          "steps": [
+            {
+              "type": "path",
+              "path": "Main"
+            },
+            {
+              "type": "command",
+              "name": "hold"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "GroupRace",
+      "steps": [
+        {
+          "type": "race",
+          "steps": [
+            {
+              "type": "wait",
+              "seconds": 0.5
+            },
+            {
+              "type": "command",
+              "name": "hold"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Nested groups",
+      "steps": [
+        {
+          "type": "parallel",
+          "steps": [
+            {
+              "type": "sequential",
+              "steps": [
+                {
+                  "type": "wait",
+                  "seconds": 0.3
+                },
+                {
+                  "type": "command",
+                  "name": "mark"
+                }
+              ]
+            },
+            {
+              "type": "wait",
+              "seconds": 0.8
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Branchy kept",
+      "steps": [
+        {
+          "type": "path",
+          "path": "Main"
+        },
+        {
+          "type": "path",
+          "path": "Alt"
+        }
+      ],
+      "resetOdometry": false
+    }
+  ]
+}

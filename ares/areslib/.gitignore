@@ -1,0 +1,5 @@
+.gradle/
+build/
+bin/
+src/main/java/com/stzteam/features/ares/generated/
+ares-test-nt.json*
