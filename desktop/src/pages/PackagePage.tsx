@@ -7,7 +7,7 @@ import AlertBanner from "../components/common/AlertBanner"
 import Panel from "../components/common/Panel"
 import PropertyRow from "../components/common/PropertyRow"
 import { propertyInputStyle } from "../styles/pageForm"
-import { SUPPORTED_FEATURE_URLS } from "../utils/mars/supportedPackages"
+import { loadRegistry } from "../utils/mars/supportedPackages"
 
 interface Props {
   projectName: string | null
@@ -29,6 +29,7 @@ export default function PackagePage({ projectName, projectPath }: Props) {
   const [installedData, setInstalledData] = useState<MarsFeature[]>([])
   const [loading, setLoading] = useState(true)
   const [registryError, setRegistryError] = useState<string | null>(null)
+  const [registryNotice, setRegistryNotice] = useState<string | null>(null)
   const [lastSynced, setLastSynced] = useState<Date | null>(null)
 
   const [isInstalling, setIsInstalling] = useState(false)
@@ -49,28 +50,35 @@ export default function PackagePage({ projectName, projectPath }: Props) {
       console.error("Error reading local packages:", e)
     }
 
-    // The list of verified features travels with the app
-    // (`supported-packages.json`); only the descriptors are downloaded from the
-    // network, so the versions are always upstream's.
-    const fetchedFeatures: MarsFeature[] = []
-    const failedUrls: string[] = []
-    for (const url of SUPPORTED_FEATURE_URLS) {
+    // The list of verified features is downloaded from Pages (or comes from the
+    // last one saved, or the bundled one); the descriptors download all at
+    // once, so the versions are always upstream's.
+    const registry = await loadRegistry()
+    setRegistryNotice(
+      registry.source === "live"
+        ? null
+        : `Offline catalog: ${registry.source === "cache" ? "the last one downloaded" : "the one bundled with this version"}`
+          + (registry.lastUpdated ? `, updated ${registry.lastUpdated}.` : "."),
+    )
+
+    const results = await Promise.all(registry.urls.map(async url => {
       try {
         const featRes = await fetch(url)
-        if (featRes.ok) fetchedFeatures.push(await featRes.json())
-        else failedUrls.push(url)
+        if (featRes.ok) return (await featRes.json()) as MarsFeature
       } catch (e) {
         console.error(`Error fetching feature descriptor ${url}:`, e)
-        failedUrls.push(url)
       }
-    }
+      return null
+    }))
+    const fetchedFeatures = results.filter((f): f is MarsFeature => f !== null)
+    const failedCount = results.length - fetchedFeatures.length
 
     setCatalogData(fetchedFeatures)
-    if (failedUrls.length > 0) {
+    if (failedCount > 0) {
       setRegistryError(
-        failedUrls.length === SUPPORTED_FEATURE_URLS.length
+        failedCount === registry.urls.length
           ? "Could not reach any of the supported packages. Showing locally installed packages only."
-          : `${failedUrls.length} of ${SUPPORTED_FEATURE_URLS.length} supported packages failed to load.`,
+          : `${failedCount} of ${registry.urls.length} supported packages failed to load.`,
       )
     }
     setLastSynced(new Date())
@@ -247,6 +255,12 @@ export default function PackagePage({ projectName, projectPath }: Props) {
                 <AlertBanner icon="" variant={installStatus.includes("ERROR") ? "error" : "neutral"}>
                   {installStatus}
                 </AlertBanner>
+              </div>
+            )}
+
+            {registryNotice && (
+              <div style={{ marginBottom: 20 }}>
+                <AlertBanner variant="neutral" icon="ti-cloud-off">{registryNotice}</AlertBanner>
               </div>
             )}
 
