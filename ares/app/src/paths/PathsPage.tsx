@@ -6,6 +6,7 @@ import { FIELDS } from "@desktop/utils/field/fieldImages"
 import type { RobotConfig } from "../robot/types"
 import { useRobotNames } from "../autos/robotNames"
 import { hotReload } from "../ui/hotReload"
+import { askText } from "../ui/askText"
 import { newFolderName, useFolders } from "../ui/Folders"
 import { renderTopView, TopView } from "../robot/topView"
 import { bindField } from "../vars/bind"
@@ -427,7 +428,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
   /** A new path forking from waypoint `i`, under a condition from the robot code. */
   const createBranch = async (i: number) => {
     if (!base || !current?.savedName) { setNote("Save the path first"); return }
-    const condition = window.prompt("Condition that takes this branch (a NamedCondition in the robot code, e.g. hasNote)", "hasNote")?.trim()
+    const condition = (await askText("Condition that takes this branch", "hasNote", "A NamedCondition in the robot code: at this waypoint, the robot takes the branch when it is true."))?.trim()
     if (!condition) return
     const name = uniqueName(`${base.name} if ${condition}`)
     const w = base.waypoints[i]
@@ -879,8 +880,8 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
                     </div>
                   ))}
                   <PropertyRow label="">
-                    <MiniButton onClick={() => {
-                      const name = window.prompt("Variant name", `variant ${(base.variants?.length ?? 0) + 1}`)?.trim()
+                    <MiniButton onClick={async () => {
+                      const name = (await askText("Variant name", `variant ${(base.variants?.length ?? 0) + 1}`, "The same path with some variables set otherwise; it generates its own trajectory."))?.trim()
                       if (!name || base.variants?.some(v => v.name === name)) return
                       editSpec(q => ({ ...q, variants: [...(q.variants ?? []), { name, overrides: {} }] }), true)
                       setVariant(name)
@@ -1094,11 +1095,11 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
                 if (!pose || typeof pose === "number") { setNote(`"${name}" has no value yet`); return }
                 editWaypoint(i, w => linkToPose(w, name, pose, kindOf(w) === "pose"), true)
               }}
-              onSaveAsPose={i => {
+              onSaveAsPose={async i => {
                 const w = spec.waypoints[i]
                 let name = "pose"
                 for (let k = 2; variables.some(v => v.name === name); k++) name = `pose${k}`
-                const typed = window.prompt("Name for the new pose variable", name)?.trim()
+                const typed = (await askText("Name for the new pose variable", name, "The waypoint becomes linked to it: move the variable and every path that uses it moves."))?.trim()
                 if (!typed) return
                 if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(typed) || variables.some(v => v.name === typed)) { setNote(`"${typed}" is not a free variable name`); return }
                 const heading = w.headingDeg ?? Math.round(headingAt(shown, w) * 10) / 10

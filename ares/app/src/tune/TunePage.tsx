@@ -10,6 +10,7 @@ import { fieldSketch } from "../paths/fieldSketch"
 import { loadView } from "../paths/PathsPage"
 import { useToast } from "../ui/toasts"
 import SwerveIcon from "../ui/SwerveIcon"
+import { copyText } from "../ui/copyText"
 import type { CalibrationDoc } from "../logs/LogsPage"
 import { BEST, PopulationChart, TrainingChart, WorldsChart } from "./charts"
 import {
@@ -417,9 +418,10 @@ function Tuner({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) 
               notes={findings(shownParams, best, baseline, shown.sensitivity, shownPaths.filter(n => trajs[n] && gripUsed(trajs[n].samples) > 0.95), savedRun?.config.code.forceFf ?? ranWith?.forceFf ?? code.forceFf, !!(savedRun?.config.disturbance ?? ranWith?.disturbance))}
               applied={applied}
               onApply={apply}
-              onCopy={() => {
-                navigator.clipboard?.writeText(javaSnippet(shownParams, best.values))
-                toast({ kind: "info", title: "Copied the gains as Java", body: "Paste them into the Ares.Config (withGains), or use Apply to robot and change no code." })
+              onCopy={async () => {
+                const java = javaSnippet(shownParams, best.values)
+                if (await copyText(java)) toast({ kind: "info", title: "Copied the gains as Java", body: "Paste them into the Ares.Config (withGains), or use Apply to robot and change no code." })
+                else toast({ kind: "error", title: "Could not copy the gains", body: java })
               }}
               onUseAsStart={() => {
                 setParams(ps => ps.map(p => ({ ...p, start: best.values[shownParams.findIndex(q => q.key === p.key)] ?? p.start })))

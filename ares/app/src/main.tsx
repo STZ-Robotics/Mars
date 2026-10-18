@@ -13,3 +13,6 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <App />
   </React.StrictMode>
 )
+
+// The app driving itself (harness/selftest.sh): development only, never in a build.
+if (import.meta.env.DEV && import.meta.env.VITE_ARES_SELFTEST === "1") import("../harness/selftest")

@@ -1,4 +1,5 @@
 import { ReactNode, useEffect, useRef, useState } from "react"
+import { copyText } from "../ui/copyText"
 import { invoke } from "@tauri-apps/api/core"
 import type { RobotConfig } from "../robot/types"
 import type { RobotTuning } from "../tune/model"
@@ -85,9 +86,9 @@ export default function CharacterizePage({ robot, robotPath, onRobot }: { robot:
       toast({ kind: "error", title: "Could not save it", body: String(e) })
     }
   }
-  const copy = (text: string, what: string) => {
-    navigator.clipboard?.writeText(text)
-    toast({ kind: "info", title: `Copied ${what}`, body: "Paste it into TunerConstants." })
+  const copy = async (text: string, what: string) => {
+    if (await copyText(text)) toast({ kind: "info", title: `Copied ${what}`, body: "Paste it into TunerConstants." })
+    else toast({ kind: "error", title: `Could not copy ${what}`, body: text })
   }
 
   const anyRoutine = ROUTINES.some(r => routines[r])
