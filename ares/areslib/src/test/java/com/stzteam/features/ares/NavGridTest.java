@@ -12,6 +12,7 @@ import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
+import edu.wpi.first.wpilibj.simulation.DriverStationSim;
 import edu.wpi.first.wpilibj.simulation.SimHooks;
 import edu.wpi.first.wpilibj2.command.CommandScheduler;
 import java.io.File;
@@ -39,6 +40,9 @@ class NavGridTest {
   void setUp() {
     HAL.initialize(500, 0);
     SimHooks.pauseTiming();
+    // Enabled here, not left so by whichever test ran before.
+    DriverStationSim.setEnabled(true);
+    DriverStationSim.notifyNewData();
     CommandScheduler.getInstance().cancelAll();
   }
 
@@ -166,9 +170,20 @@ class NavGridTest {
       Files.copy(new File(TrajectoryTest.PROJECT, f).toPath(), to.toPath());
     }
     var drive = new FollowPathTest.PerfectDrive();
-    assertInstanceOf(StraightPathfinder.class, new Ares(drive, new Ares.Config().withFolder(dir)).pathfinder());
+    // Without a navgrid: an open grid the field's size, so obstacles set in code have somewhere to go.
+    var open = assertInstanceOf(GridPathfinder.class, new Ares(drive, new Ares.Config().withFolder(dir)).pathfinder());
+    assertEquals(0, open.grid().rows() == 0 ? -1 : blockedCells(open.grid()));
     Files.writeString(new File(dir, "navgrid.json").toPath(),
         "{\"field_size\":{\"x\":16.54,\"y\":8.07},\"nodeSizeMeters\":0.3,\"grid\":[[false,true]],\"generatedBy\":\"Ares\"}");
-    assertInstanceOf(GridPathfinder.class, new Ares(drive, new Ares.Config().withFolder(dir)).pathfinder());
+    var drawn = assertInstanceOf(GridPathfinder.class, new Ares(drive, new Ares.Config().withFolder(dir)).pathfinder());
+    assertEquals(1, blockedCells(drawn.grid()));
+  }
+
+  static int blockedCells(NavGrid g) {
+    int n = 0;
+    for (int r = 0; r < g.rows(); r++) {
+      for (int c = 0; c < g.cols(); c++) if (g.blocked((c + 0.5) * g.nodeSizeMeters(), (r + 0.5) * g.nodeSizeMeters())) n++;
+    }
+    return n;
   }
 }

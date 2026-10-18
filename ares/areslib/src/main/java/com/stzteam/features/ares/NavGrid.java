@@ -29,11 +29,46 @@ public final class NavGrid {
 
   private final double node;
   private final boolean[][] grid;
+  /** Cells blocked by what moves (other robots seen by vision): set in code, over the drawn grid. */
+  private volatile boolean[][] dynamic;
+  private long version;
 
   public NavGrid(double nodeSizeMeters, boolean[][] grid) {
     if (nodeSizeMeters <= 0) throw new IllegalArgumentException("nodeSizeMeters must be positive");
     this.node = nodeSizeMeters;
     this.grid = grid;
+  }
+
+  /** A grid with nothing blocked, the field's size: for obstacles that come and go when no navgrid was drawn. */
+  public static NavGrid open(double nodeSizeMeters, double lengthM, double widthM) {
+    return new NavGrid(nodeSizeMeters, new boolean[(int) Math.ceil(widthM / nodeSizeMeters)][(int) Math.ceil(lengthM / nodeSizeMeters)]);
+  }
+
+  /**
+   * Blocks the cells under these boxes (each by two opposite corners, this
+   * grid's frame), grown by {@code marginM} all around (the robot's reach
+   * from its center), replacing the last ones; an empty list clears them.
+   */
+  public void setObstacles(List<Translation2d[]> boxes, double marginM) {
+    if (boxes.isEmpty()) {
+      dynamic = null;
+    } else {
+      var d = new boolean[rows()][cols()];
+      for (var b : boxes) {
+        double x0 = Math.min(b[0].getX(), b[1].getX()) - marginM, x1 = Math.max(b[0].getX(), b[1].getX()) + marginM;
+        double y0 = Math.min(b[0].getY(), b[1].getY()) - marginM, y1 = Math.max(b[0].getY(), b[1].getY()) + marginM;
+        for (int r = Math.max(0, (int) Math.floor(y0 / node)); r <= Math.min(rows() - 1, (int) Math.floor(y1 / node)); r++) {
+          for (int c = Math.max(0, (int) Math.floor(x0 / node)); c <= Math.min(cols() - 1, (int) Math.floor(x1 / node)); c++) d[r][c] = true;
+        }
+      }
+      dynamic = d;
+    }
+    version++;
+  }
+
+  /** Changes every time the obstacles do. */
+  public long obstaclesVersion() {
+    return version;
   }
 
   public static NavGrid load(File file) throws IOException {
@@ -71,7 +106,9 @@ public final class NavGrid {
   }
 
   private boolean cell(int c, int r) {
-    return r >= 0 && r < grid.length && c >= 0 && c < grid[r].length && grid[r][c];
+    if (r < 0 || r >= grid.length || c < 0 || c >= grid[r].length) return false;
+    var d = dynamic;
+    return grid[r][c] || d != null && d[r][c];
   }
 
   /** Whether the robot's center may not be at (x, y). Off the grid is open. */
@@ -160,6 +197,6 @@ public final class NavGrid {
   private boolean passable(int c, int r, int start, int goal) {
     if (c < 0 || r < 0 || c >= cols() || r >= rows()) return false;
     int k = r * cols() + c;
-    return !grid[r][c] || k == start || k == goal;
+    return !cell(c, r) || k == start || k == goal;
   }
 }

@@ -567,6 +567,8 @@ pub fn index_json(robot_path: &str) -> serde_json::Value {
         serde_json::json!({
             "name": r.name,
             "modules": r.swerve().modules.iter().map(|m| serde_json::json!({ "name": m.name, "xM": m.x_m, "yM": m.y_m })).collect::<Vec<_>>(),
+            // For the pathfinder's obstacles: how far the robot reaches from its center.
+            "bumper": { "lengthM": r.bumper.length_m, "widthM": r.bumper.width_m },
         })
     });
     serde_json::json!({ "format": 1, "robot": robot, "paths": paths, "autos": autos_list(robot_path.clone()) })

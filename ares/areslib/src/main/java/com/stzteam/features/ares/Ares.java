@@ -5,8 +5,10 @@ import com.stzteam.features.ares.index.AresIndex;
 import com.stzteam.features.ares.trajectory.AresSample;
 import com.stzteam.features.ares.trajectory.AresTrajectory;
 import com.stzteam.features.ares.trajectory.FieldSymmetry;
+import edu.wpi.first.math.Pair;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.networktables.NetworkTableEvent;
 import edu.wpi.first.networktables.NetworkTableInstance;
@@ -344,15 +346,43 @@ public final class Ares {
   // tab), straight otherwise.
   private AresPathfinder defaultPathfinder(AresDrive drive, Config c) {
     var file = new File(c.folder, "navgrid.json");
+    NavGrid grid = null;
     if (file.isFile()) {
       try {
-        return new GridPathfinder(drive, NavGrid.load(file), c.translation, c.rotation, c.arriveToleranceM,
-            c.arriveToleranceRad, c.flip, c.symmetry, c.fieldLengthM, c.fieldWidthM);
+        grid = NavGrid.load(file);
       } catch (Exception e) {
-        fail("Ares could not read navgrid.json (" + e.getMessage() + "): pathfinding drives straight");
+        fail("Ares could not read navgrid.json (" + e.getMessage() + "): pathfinding avoids nothing drawn");
       }
     }
-    return new StraightPathfinder(drive, c.translation, c.rotation, c.arriveToleranceM, c.arriveToleranceRad);
+    // No navgrid: an open one, the field's size, so obstacles set in code
+    // still have somewhere to go (with none, it drives straight, as before).
+    if (grid == null) grid = NavGrid.open(0.2, c.fieldLengthM, c.fieldWidthM);
+    return new GridPathfinder(drive, grid, c.translation, c.rotation, c.arriveToleranceM,
+        c.arriveToleranceRad, c.flip, c.symmetry, c.fieldLengthM, c.fieldWidthM);
+  }
+
+  /**
+   * Obstacles that come and go, for pathfinding (PathPlanner's
+   * setDynamicObstacles): boxes by two opposite corners, field coordinates
+   * as the robot sees them, for instance other robots from vision. They
+   * replace the last ones (an empty list clears them), are kept clear by
+   * half the robot's diagonal, and a pathfind under way whose way ahead they
+   * now cross finds another. Only with Ares's own pathfinder.
+   */
+  public void setDynamicObstacles(List<Pair<Translation2d, Translation2d>> obstacles) {
+    if (!(pathfinder instanceof GridPathfinder g)) {
+      warnMissing("dynamic obstacles need Ares's own pathfinder (not one set with withPathfinder)");
+      return;
+    }
+    g.setObstacles(obstacles.stream().map(p -> new Translation2d[] {p.getFirst(), p.getSecond()}).toList(), robotReachM());
+  }
+
+  /** From the robot's center to its farthest corner: the bumper's half diagonal, or the modules' plus a margin. */
+  private double robotReachM() {
+    var b = index.bumper();
+    if (b != null) return Math.hypot(b[0], b[1]) / 2;
+    double r = index.modules().stream().mapToDouble(m -> Math.hypot(m.xM(), m.yM())).max().orElse(0.3);
+    return r + 0.15;
   }
 
   public Ares(AresDrive drive) {

@@ -85,6 +85,16 @@ public final class ProfiledPolyline {
     return new State(points.get(i).plus(dir.times(along)), dir.times(s.velocity));
   }
 
+  /** Where it is at {@code t}, then the corners still ahead and the goal. */
+  public List<Translation2d> remaining(double t) {
+    int i = 0;
+    while (i + 1 < legs.size() && t >= startT[i + 1]) i++;
+    var out = new ArrayList<Translation2d>();
+    out.add(sample(t).position());
+    out.addAll(points.subList(Math.min(i + 1, points.size() - 1), points.size()));
+    return out;
+  }
+
   private Translation2d direction(int leg) {
     var d = points.get(leg + 1).minus(points.get(leg));
     return d.getNorm() < 1e-9 ? new Translation2d() : d.div(d.getNorm());

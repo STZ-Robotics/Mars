@@ -53,7 +53,29 @@ public final class GridPathfinder implements AresPathfinder {
   @Override
   public Command toPose(Pose2d goal, ChassisSpeeds endFieldSpeeds, Constraints c) {
     return new DriveAlong(drive, goal, endFieldSpeeds, c, start -> route(start, goal.getTranslation()),
-        translation, rotation, toleranceM, toleranceRad);
+        translation, rotation, toleranceM, toleranceRad, this);
+  }
+
+  /**
+   * Obstacles that come and go (PathPlanner's dynamic obstacles): boxes by
+   * two opposite corners, field frame as the robot sees it (this alliance),
+   * grown by {@code marginM}. A path being driven whose way ahead they cross
+   * is searched again.
+   */
+  public void setObstacles(List<Translation2d[]> boxes, double marginM) {
+    boolean red = flip.getAsBoolean();
+    grid.setObstacles(red ? boxes.stream().map(b -> new Translation2d[] {symmetry.flip(b[0], lengthM, widthM), symmetry.flip(b[1], lengthM, widthM)}).toList() : boxes, marginM);
+  }
+
+  /** Whether a way (field frame, this alliance) stays out of every blocked cell. */
+  boolean clear(List<Translation2d> way) {
+    boolean red = flip.getAsBoolean();
+    for (int i = 0; i + 1 < way.size(); i++) {
+      var a = red ? symmetry.flip(way.get(i), lengthM, widthM) : way.get(i);
+      var b = red ? symmetry.flip(way.get(i + 1), lengthM, widthM) : way.get(i + 1);
+      if (!grid.sees(a, b)) return false;
+    }
+    return true;
   }
 
   /** The corners from {@code start} to {@code goal} (field frame, this alliance), both included. */

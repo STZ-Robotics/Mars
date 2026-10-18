@@ -32,11 +32,23 @@ final class DriveAlong extends Command {
   private double turnBy;
   private TrapezoidProfile.State turnStart;
   private double turnTime;
+  private final GridPathfinder replan;
+  private long seen;
+  private int replans;
 
   DriveAlong(
       AresDrive drive, Pose2d goal, ChassisSpeeds endFieldSpeeds, AresPathfinder.Constraints limits,
       Function<Translation2d, List<Translation2d>> route, AresController.Gains translation,
       AresController.Gains rotation, double toleranceM, double toleranceRad) {
+    this(drive, goal, endFieldSpeeds, limits, route, translation, rotation, toleranceM, toleranceRad, null);
+  }
+
+  /** With {@code replan}: when its obstacles change across the way ahead, the route is searched again from where the robot is. */
+  DriveAlong(
+      AresDrive drive, Pose2d goal, ChassisSpeeds endFieldSpeeds, AresPathfinder.Constraints limits,
+      Function<Translation2d, List<Translation2d>> route, AresController.Gains translation,
+      AresController.Gains rotation, double toleranceM, double toleranceRad, GridPathfinder replan) {
+    this.replan = replan;
     this.drive = drive;
     this.goal = goal;
     this.endSpeed = Math.hypot(endFieldSpeeds.vxMetersPerSecond, endFieldSpeeds.vyMetersPerSecond);
@@ -65,11 +77,20 @@ final class DriveAlong extends Command {
     turnTime = turn.totalTime();
     controller.reset();
     timer.restart();
+    if (replan != null) seen = replan.grid().obstaclesVersion();
     AresTelemetry.path("pathfinding", points.stream().map(p -> new Pose2d(p, new Rotation2d())).toArray(Pose2d[]::new));
   }
 
   @Override
   public void execute() {
+    if (replan != null && replan.grid().obstaclesVersion() != seen) {
+      seen = replan.grid().obstaclesVersion();
+      // Something moved into the way ahead: a new way from here.
+      if (!replan.clear(line.remaining(timer.get()))) {
+        AresTelemetry.replanned(++replans, 0);
+        initialize();
+      }
+    }
     double t = timer.get();
     var s = line.sample(t);
     var r = t >= turnTime ? new TrapezoidProfile.State(turnBy, 0) : turn.calculate(t, turnStart, new TrapezoidProfile.State(turnBy, 0));

@@ -147,6 +147,19 @@ the robot for it: `/Ares/Auto/Selected`, `/Ares/Auto/StartPose`, and the
 "Ares Auto" field (start pose and first path) on the dashboard; the Live tab
 draws it too.
 
+## Obstacles that come and go
+
+PathPlanner's `setDynamicObstacles`: boxes by two opposite corners, in field
+coordinates as the robot sees them (other robots from vision, say). The
+pathfinder keeps the robot's center half its diagonal clear of them, and a
+pathfind under way whose way ahead they now cross finds another from where
+the robot is. With no navgrid drawn, an open one the field's size takes them.
+
+```java
+ares.setDynamicObstacles(List.of(Pair.of(new Translation2d(4.5, 3.5), new Translation2d(5.4, 4.4))));
+ares.setDynamicObstacles(List.of());   // clear them
+```
+
 ## Paths made on the robot
 
 PathPlanner's paths from poses: a smooth curve through poses decided in code
