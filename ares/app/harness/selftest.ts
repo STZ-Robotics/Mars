@@ -207,8 +207,11 @@ async function main() {
   await run("autos: new auto", async () => { await click(btn("New auto")); await sleep(700) })
   await run("autos: add path, command, wait, deadline", async () => {
     for (const what of ["Follow Path", "Named Command", "Wait", "Deadline Group"]) {
-      await click(btn(/^\+?\s*Add$/))
+      // The menu may take a moment in the real app (a save just re-rendered it): open it until it shows.
+      for (let k = 0; k < 4 && !document.querySelector(".ares-pop"); k++) { await click(btn(/^\+?\s*Add$/)); await sleep(300) }
+      await waitFor(() => { try { return !!byText(what) } catch { return false } }, 3000, `"${what}" in the menu`)
       await click(byText(what))
+      note(`  [added ${what}]`)
     }
   })
   await run("autos: add a path by clicking its chip", async () => { await click(byText(/^Test A\d/, "span")) })
@@ -265,8 +268,11 @@ async function main() {
   })
   await run("tune: pick a path, start, stop", async () => {
     await tab("Tune")
-    const box = ([...document.querySelectorAll("input[type=checkbox]")].filter(visible) as HTMLInputElement[])[0]
-    if (box) await click(box)
+    // The path's own box: the one beside "Test A".
+    const box = ([...document.querySelectorAll("input[type=checkbox]")].filter(visible) as HTMLInputElement[])
+      .find(b => /Test A/.test(b.closest("div,label")?.textContent ?? ""))
+    if (!box) throw new Error("no box for Test A")
+    if (!box.checked) await click(box)
     // The run button, not the rail's Tune.
     const run = buttons().find(b => (b.textContent ?? "").trim() === "Tune" && b.title !== "Tune")
     if (!run) throw new Error("no Tune button")
