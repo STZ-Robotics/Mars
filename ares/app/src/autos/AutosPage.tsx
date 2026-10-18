@@ -14,6 +14,7 @@ import { Auto, DEFAULT_BUDGET_S, Leg, ListKey, Step, StepPath, Trigger, children
 import CommandTree, { STEP_MIME } from "./CommandTree"
 import { markerLink, useRobotNames } from "./robotNames"
 import { hotReload } from "../ui/hotReload"
+import Thumb, { ThumbLine } from "../ui/Thumb"
 import { FolderRow, ITEM_MIME, LooseDrop, groupByFolder, newFolderName, useFolders } from "../ui/Folders"
 import { useField } from "../ui/field"
 
@@ -426,6 +427,24 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
     return () => cancelAnimationFrame(frame)
   }, [playing, timeline.end])
 
+  /** An auto's paths in the order it drives them, colored as on the field, for its row. */
+  const thumbOf = (a: Auto): ThumbLine[] => {
+    const byName = new Map(paths.map(p => [p.name, p]))
+    const out: ThumbLine[] = []
+    const walk = (steps: Step[], seen: Set<string>) => {
+      for (const s of steps) {
+        if (s.type === "path") {
+          const p = byName.get(s.path)
+          if (p) out.push({ points: p.waypoints, color: LEG_COLORS[out.length % LEG_COLORS.length] })
+        }
+        for (const [, l] of children(s)) walk(l, seen)
+        if (s.type === "auto" && !seen.has(s.auto)) walk(autoMap.get(s.auto)?.steps ?? [], new Set([...seen, s.auto]))
+      }
+    }
+    walk(a.steps, new Set([a.name]))
+    return out
+  }
+
   // --- Folders ----------------------------------------------------------------
   const autoFolders = useFolders(robotPath, "autos")
   const setAutoFolder = async (names: string[], folder: string | undefined) => {
@@ -444,7 +463,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
     return (
       <Row key={a.name} active={active} indent={depth} dragName={a.name} onClick={() => { if (!active) { setCurrent({ auto: a, savedName: a.name }); setPlayhead(null); setRenaming(false) } }}
         onDoubleClick={() => { setCurrent({ auto: a, savedName: a.name }); setRenaming(true) }} title="Double-click to rename">
-        <i className="ti ti-list-details" style={{ fontSize: 14 }} />
+        <Thumb lines={thumbOf(a)} active={active} />
         {active && renaming && auto
           ? <span style={{ flex: 1 }} onClick={e => e.stopPropagation()}><TextField value={auto.name} autoFocus onCommit={name => edit(x => ({ ...x, name: unique(name) }))} onDone={() => setRenaming(false)} /></span>
           : <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</span>}

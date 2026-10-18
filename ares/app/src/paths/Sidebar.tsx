@@ -1,6 +1,7 @@
 import { ReactNode, useState } from "react"
 import type { RobotNames } from "../autos/CommandTree"
 import { markerLink } from "../autos/robotNames"
+import Thumb from "../ui/Thumb"
 import { FolderRow, ITEM_MIME, LooseDrop, groupByFolder } from "../ui/Folders"
 import { GLYPH, StopIcon, WaypointIcon, positionColor } from "./glyphs"
 import { linkedPose } from "../vars/variables"
@@ -72,7 +73,8 @@ export default function Sidebar(p: Props) {
         {e.error ? <i className="ti ti-alert-triangle" style={{ fontSize: 14, color: "var(--status-error)" }} />
           : isBranch ? <span style={{ color: active ? "#ffffff" : "#db2777", fontSize: 12, width: 14, textAlign: "center" }}>◆</span>
           : isChain ? <span style={{ color: active ? "#ffffff" : "#0e7490", fontSize: 13, width: 14, textAlign: "center" }}>↪</span>
-          : <i className="ti ti-route" style={{ fontSize: 14, color: active ? "#ffffff" : "var(--icon-tree)" }} />}
+          : !sp ? <i className="ti ti-route" style={{ fontSize: 14, color: active ? "#ffffff" : "var(--icon-tree)" }} /> : null}
+        {sp && <Thumb lines={[{ points: sp.waypoints }]} active={active} />}
         <Label>
           {e.name}
           {isBranch && sp!.condition && <Dim sel={active}> · if {sp!.condition}</Dim>}
