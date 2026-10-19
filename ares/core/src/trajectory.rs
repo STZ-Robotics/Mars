@@ -86,6 +86,10 @@ pub struct Trajectory {
     /// different one means it is out of date.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_hash: Option<String>,
+    /// What the planner has to say about it: how well a see-AprilTags span kept tags in view,
+    /// or that it had to plan without one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

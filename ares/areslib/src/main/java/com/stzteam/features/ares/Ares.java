@@ -93,6 +93,8 @@ public final class Ares {
     double periodS = 0.02;
 
     /** The Ares project folder; {@code deploy/ares} by default. */
+    double obstacleClearanceM = Double.NaN;
+
     public Config withFolder(File folder) {
       this.folder = folder;
       return this;
@@ -176,6 +178,16 @@ public final class Ares {
     /** The NetworkTables instance for hot reload (the default one, but in tests). */
     public Config withNetworkTables(NetworkTableInstance nt) {
       this.nt = nt;
+      return this;
+    }
+
+    /**
+     * How far the robot's center keeps from the obstacles set with {@link
+     * Ares#setDynamicObstacles}. Default: half the bumper's diagonal (from the index), or the
+     * modules' farthest reach plus 0.15 m, so the boxes can be the obstacles' own size.
+     */
+    public Config withObstacleClearance(double meters) {
+      obstacleClearanceM = meters;
       return this;
     }
 
@@ -282,6 +294,50 @@ public final class Ares {
     var my = index.modules().stream().mapToDouble(AresIndex.Module::yM).toArray();
     partners = config.symmetry.modulePartners(mx, my);
     driveOrder = matchModules(drive.moduleLocations(), index.modules());
+    checkMechanics(drive.mechanics(), index.drive());
+    checkSpeeds(drive.mechanics());
+  }
+
+  // A path planned faster than the drivetrain goes at 12 V cannot be followed: the robot falls
+  // behind it on every straight and the feedback has nothing left to catch up with. Planning at
+  // the motor's whole free speed does that; the .robot.json's maxSpeedFraction leaves headroom.
+  private void checkSpeeds(AresDrive.Mechanics robot) {
+    if (robot == null || Double.isNaN(robot.maxSpeedMps()) || robot.maxSpeedMps() <= 0) return;
+    double top = 0;
+    var fast = new java.util.TreeSet<String>();
+    for (var e : blue.entrySet()) {
+      double v = e.getValue().samples().stream().mapToDouble(s -> Math.hypot(s.vx(), s.vy())).max().orElse(0);
+      if (v > robot.maxSpeedMps()) {
+        fast.add(e.getKey());
+        top = Math.max(top, v);
+      }
+    }
+    if (!fast.isEmpty()) {
+      warnMissing(String.format(
+          "%s asks for up to %.2f m/s and the drivetrain reaches %.2f m/s at 12 V: it falls behind; lower maxSpeedFraction in the .robot.json (about 0.8) and generate again",
+          String.join(", ", fast), top, robot.maxSpeedMps()));
+    }
+  }
+
+  // The trajectories were planned with the .robot.json's drive; a stale one (another gear ratio,
+  // another wheel) plans speeds and forces for a robot that is not this one, and nothing else
+  // would say so. Wheels wear and the measured radius drifts, so it gets more room.
+  private void checkMechanics(AresDrive.Mechanics robot, AresIndex.Drive planned) {
+    if (robot == null || planned == null) return;
+    var off = new ArrayList<String>();
+    differs(off, "gear ratio", planned.driveGearRatio(), robot.driveGearRatio(), 0.005, "%.4f");
+    differs(off, "wheel radius", planned.wheelRadiusM(), robot.wheelRadiusM(), 0.03, "%.4f m");
+    differs(off, "current limit", planned.driveCurrentLimitA(), robot.driveCurrentLimitA(), 0.10, "%.0f A");
+    if (!off.isEmpty()) {
+      warnMissing("the .robot.json's drive is not the drivetrain's (" + String.join(", ", off) + "): fix the .robot.json and generate the paths again");
+    }
+  }
+
+  private static void differs(List<String> off, String what, double planned, double robot, double tolerance, String format) {
+    if (Double.isNaN(planned) || Double.isNaN(robot) || robot <= 0) return;
+    if (Math.abs(planned - robot) / robot > tolerance) {
+      off.add(what + " " + String.format(format, planned) + " in the .robot.json, " + String.format(format, robot) + " on the robot");
+    }
   }
 
   // For each of the drivetrain's modules, the .robot.json module at the same
@@ -387,13 +443,18 @@ public final class Ares {
    * replace the last ones (an empty list clears them), are kept clear by
    * half the robot's diagonal, and a pathfind under way whose way ahead they
    * now cross finds another. Only with Ares's own pathfinder.
+   *
+   * <p>The robot's center keeps {@link Config#withObstacleClearance} from each box (half the
+   * bumper's diagonal by default), so pass the obstacles' own size: growing them by the robot
+   * here as well would keep it twice as far.
    */
   public void setDynamicObstacles(List<Pair<Translation2d, Translation2d>> obstacles) {
     if (!(pathfinder instanceof GridPathfinder g)) {
       warnMissing("dynamic obstacles need Ares's own pathfinder (not one set with withPathfinder)");
       return;
     }
-    g.setObstacles(obstacles.stream().map(p -> new Translation2d[] {p.getFirst(), p.getSecond()}).toList(), robotReachM());
+    double clearance = Double.isNaN(config.obstacleClearanceM) ? robotReachM() : config.obstacleClearanceM;
+    g.setObstacles(obstacles.stream().map(p -> new Translation2d[] {p.getFirst(), p.getSecond()}).toList(), clearance);
   }
 
   /** From the robot's center to its farthest corner: the bumper's half diagonal, or the modules' plus a margin. */
@@ -431,6 +492,11 @@ public final class Ares {
     DriverStation.reportError(message, false);
     loadAlert.setText(message);
     loadAlert.set(true);
+  }
+
+  /** What Ares warned about so far (the "missing" alert's lines), for tests. */
+  Set<String> warnings() {
+    return java.util.Collections.unmodifiableSet(missing);
   }
 
   void warnMissing(String what) {
@@ -549,6 +615,23 @@ public final class Ares {
       if (config.flip.getAsBoolean()) g = config.symmetry.flip(g, config.fieldLengthM, config.fieldWidthM);
       return pathfinder.toPose(g, new ChassisSpeeds(), constraints);
     }, Set.of(drive.subsystem())).withName("Ares: to a pose");
+  }
+
+  /**
+   * Drives by itself to {@code goal} given in the field's own coordinates, the ones the pose
+   * estimator and the AprilTag layout use: never flipped. For a goal the code already worked out
+   * for the alliance it is on (a spot in front of this alliance's hub, from its tags);
+   * {@link #pathfindTo} is for a pose drawn in blue's coordinates, as the paths are.
+   */
+  public Command pathfindToField(Pose2d goal) {
+    return pathfindToField(() -> goal, config.pathfindConstraints);
+  }
+
+  /** The same, to a pose decided when it starts, with its own limits. */
+  public Command pathfindToField(Supplier<Pose2d> goal, AresPathfinder.Constraints constraints) {
+    return Commands.defer(
+        () -> pathfinder.toPose(goal.get(), new ChassisSpeeds(), constraints),
+        Set.of(drive.subsystem())).withName("Ares: to a field pose");
   }
 
   /**

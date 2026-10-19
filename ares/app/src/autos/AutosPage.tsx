@@ -6,6 +6,7 @@ import type { RobotConfig } from "../robot/types"
 import { Card, Toggle } from "../ui/controls"
 import { drawFieldBackground } from "../paths/FieldView"
 import { fieldSketch } from "../paths/fieldSketch"
+import { tagsForField } from "../vision/vision"
 import { DEFAULT_VIEW, FieldDoc, PathEntry, PathStatus, PlanResult, PathSpec, Trajectory, ViewOptions, mirrorPath, sampleAt } from "../paths/types"
 import { useVariables } from "../vars/context"
 import { useToast } from "../ui/toasts"
@@ -50,6 +51,7 @@ export default function AutosPage({ robot, robotPath }: Props) {
 
 function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) {
   const { field, size: chosenSize } = useField()
+  const fieldTags = useMemo(() => tagsForField(field.key), [field.key])
   const [autos, setAutos] = useState<Auto[]>([])
   const [current, setCurrent] = useState<{ auto: Auto; savedName: string | null } | null>(null)
   const [paths, setPaths] = useState<PathSpec[]>([])
@@ -386,7 +388,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
         if (stopRequested.current) { stopped = true; break }
         setNote(`Generating ${name}${v ? "@" + v : ""}…`)
         try {
-          await invoke<PlanResult>("path_plan", { robot, spec, field, fieldSize, robotPath, variant: v })
+          await invoke<PlanResult>("path_plan", { robot, spec, field, fieldSize, robotPath, variant: v, tags: fieldTags })
           done++
           sent.push(v ? `${name}@${v}` : name)
         } catch (e) {
@@ -584,7 +586,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
                 <NumberField value={budget} onCommit={v => edit(a => ({ ...a, budgetS: v }))} /> s
               </div>
               <div style={{ padding: "6px 12px", display: "flex", alignItems: "center", gap: 8, fontSize: 11.5 }}
-                title="PathPlanner's Reset Odometry: at the start, the robot's pose is set to where the first path begins (flipped on red). Off when the pose estimate already knows where the robot is (vision), or when the auto continues another.">
+                title="Reset odometry: at the start, the robot's pose is set to where the first path begins (flipped on red). Off when the pose estimate already knows where the robot is (vision), or when the auto continues another.">
                 <span style={{ flex: 1 }}>Reset odometry at the start</span>
                 <select style={{ ...propertyInputStyle, width: 150 }} value={auto.resetOdometry === undefined ? "" : auto.resetOdometry ? "yes" : "no"}
                   onChange={e => edit(a => {

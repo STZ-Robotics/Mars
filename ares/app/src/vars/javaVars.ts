@@ -1,7 +1,7 @@
 import type { Dim, Value } from "./expr"
 import type { Variable } from "./variables"
 
-// The project's variables as Java constants (Choreo's ChoreoVars): numbers
+// The project's variables as Java constants: numbers
 // with a dimension as WPILib units, plain numbers as doubles, poses as
 // Pose2d, each at the value its formula gives now.
 

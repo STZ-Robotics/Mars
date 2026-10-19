@@ -35,6 +35,7 @@ public final class CtreSwerve implements AresDrive {
       // operator's perspective, which is the default and flips on red.
       .withForwardPerspective(SwerveRequest.ForwardPerspectiveValue.BlueAlliance);
   private final SwerveRequest.ApplyRobotSpeeds stop = new SwerveRequest.ApplyRobotSpeeds();
+  private Mechanics mechanics;
 
   public CtreSwerve(SwerveDrivetrain<?, ?, ?> drivetrain, Subsystem subsystem) {
     this.drivetrain = drivetrain;
@@ -44,6 +45,21 @@ public final class CtreSwerve implements AresDrive {
   /** For the usual case, a drivetrain that is its own subsystem. */
   public static <T extends SwerveDrivetrain<?, ?, ?> & Subsystem> CtreSwerve of(T drivetrain) {
     return new CtreSwerve(drivetrain, drivetrain);
+  }
+
+  /**
+   * One module's constants from TunerConstants (the drive is the same on all of them), so Ares
+   * can check the {@code .robot.json} against the robot (wheel radius, gear ratio, slip current)
+   * and the paths against its speed at 12 V. Without it they are not checked.
+   */
+  public CtreSwerve withModuleConstants(com.ctre.phoenix6.swerve.SwerveModuleConstants<?, ?, ?> module) {
+    mechanics = new Mechanics(module.WheelRadius, module.DriveMotorGearRatio, module.SlipCurrent, module.SpeedAt12Volts);
+    return this;
+  }
+
+  @Override
+  public Mechanics mechanics() {
+    return mechanics;
   }
 
   /** Open-loop voltage instead of closed-loop velocity, for a drive without velocity gains. */

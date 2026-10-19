@@ -2,6 +2,8 @@
 //! computed here, with the same code the solver uses, so what the robot
 //! settings page shows is what the planner will assume.
 
+mod field3d;
+mod sim;
 mod project;
 mod robot_code;
 mod tuning;
@@ -56,9 +58,9 @@ struct Derived {
     /// Wheel surface speed at the motor's free speed.
     free_speed_mps: f64,
     /// What trajectories may use: the free speed times the usable fraction
-    /// (Choreo's "floor speed").
+    /// (the "floor speed").
     floor_speed_mps: f64,
-    /// Choreo's theoretical panel: the launch as grip allows and as the
+    /// The theoretical panel: the launch as grip allows and as the
     /// motors allow; the lesser is `max_accel_mps2`.
     traction_accel_mps2: f64,
     motor_accel_mps2: f64,
@@ -296,6 +298,8 @@ pub fn run() {
             startup_robot,
             open_project::project_open,
             read_binary_file,
+            field3d::field3d_find,
+            sim::sim_export,
             project::paths_list,
             project::path_save,
             project::path_delete,

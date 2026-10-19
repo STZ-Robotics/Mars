@@ -7,7 +7,7 @@
 // - Empty: a dashed ring (only shapes the guess).
 // - Stop: a red octagon.
 //
-// Colors are positional, Choreo's: green is the start, red the end, purple
+// Colors are positional: green is the start, red the end, purple
 // the rest, yellow the selection.
 
 import type { WaypointKind } from "./types"
@@ -68,6 +68,45 @@ export function StopIcon({ size = 14, on = true }: { size?: number; on?: boolean
   )
 }
 
+/**
+ * An AprilTag: a black square on a white border with a few data bits, as a 36h11 tag reads at a
+ * glance. Marks the See AprilTags constraint in the lists and on its stretch of path.
+ */
+const TAG_BITS = [
+  [1, 0, 1, 1],
+  [0, 1, 0, 0],
+  [1, 1, 0, 1],
+  [0, 0, 1, 1],
+]
+
+export function AprilTagIcon({ size = 14, inverted = false }: { size?: number; inverted?: boolean }) {
+  const cell = size / 8
+  const ink = inverted ? "#ffffff" : "#111114"
+  const paper = inverted ? "#111114" : "#ffffff"
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} style={{ display: "block", flexShrink: 0 }} aria-hidden>
+      <rect x={0} y={0} width={size} height={size} fill={paper} stroke={ink} strokeWidth={0.8} />
+      <rect x={cell} y={cell} width={size - 2 * cell} height={size - 2 * cell} fill={ink} />
+      {TAG_BITS.flatMap((row, r) => row.map((b, c) => (b ? <rect key={`${r}-${c}`} x={(c + 2) * cell} y={(r + 2) * cell} width={cell} height={cell} fill={paper} /> : null)))}
+    </svg>
+  )
+}
+
+/** The same AprilTag, on the canvas, centered at (x, y). */
+export function drawAprilTag(ctx: CanvasRenderingContext2D, x: number, y: number, size: number) {
+  const cell = size / 8
+  const x0 = x - size / 2, y0 = y - size / 2
+  ctx.fillStyle = "#ffffff"
+  ctx.fillRect(x0, y0, size, size)
+  ctx.strokeStyle = "#111114"
+  ctx.lineWidth = 1
+  ctx.strokeRect(x0, y0, size, size)
+  ctx.fillStyle = "#111114"
+  ctx.fillRect(x0 + cell, y0 + cell, size - 2 * cell, size - 2 * cell)
+  ctx.fillStyle = "#ffffff"
+  TAG_BITS.forEach((row, r) => row.forEach((b, c) => { if (b) ctx.fillRect(x0 + (c + 2) * cell, y0 + (r + 2) * cell, cell, cell) }))
+}
+
 function octagon(cx: number, cy: number, r: number): [number, number][] {
   return Array.from({ length: 8 }, (_, i) => {
     const a = Math.PI / 8 + (i * Math.PI) / 4
@@ -90,8 +129,17 @@ export function drawStop(ctx: CanvasRenderingContext2D, x: number, y: number, r:
   ctx.fillRect(x - r * 0.42, y - r * 0.12, r * 0.84, r * 0.24)
 }
 
+type ChipSink = (x: number, y: number, text: string, color: string, filled: boolean) => void
+let chipSink: ChipSink | null = null
+
+/** While set, chips go here instead of onto the canvas: the 3D view floats them over the field. */
+export function sinkChips(sink: ChipSink | null) {
+  chipSink = sink
+}
+
 /** A small rounded label chip, for constraint summaries on the field. */
 export function drawChip(ctx: CanvasRenderingContext2D, x: number, y: number, text: string, color: string, filled = false) {
+  if (chipSink) { chipSink(x, y, text, color, filled); return }
   ctx.font = "600 9.5px 'Segoe UI', Arial, sans-serif"
   const w = ctx.measureText(text).width + 10
   const h = 15

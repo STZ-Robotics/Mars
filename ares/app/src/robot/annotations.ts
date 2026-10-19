@@ -14,6 +14,7 @@ import {
 } from "three"
 import { CSS2DObject } from "three/examples/jsm/renderers/CSS2DRenderer.js"
 import type { Derived, RobotConfig } from "./types"
+import { CAMERA_COLORS, cameraPose } from "../vision/vision"
 import "./annotations.css"
 
 const INK = 0x3a3b40
@@ -118,6 +119,7 @@ export interface AnnotationOptions {
 /** Everything drawn over the robot. Dispose it with `disposeAnnotations`. */
 export function buildAnnotations(robot: RobotConfig, derived: Derived | null, { topZ }: AnnotationOptions): Group {
   const g = new Group()
+  g.add(cameraFrustums(robot))
   const { lengthM: L, widthM: W } = robot.bumper
   const dt = robot.drivetrain
   const r = dt.wheelRadiusM
@@ -217,4 +219,36 @@ export function disposeAnnotations(root: Object3D) {
     if (Array.isArray(mat)) mat.forEach(x => x.dispose())
     else mat?.dispose?.()
   })
+}
+
+/** How far out each camera's frustum is drawn: enough to read its direction, not its range. */
+const FRUSTUM_M = 0.45
+
+/**
+ * Each camera as a frustum from its lens, turned as the robot.json says (WPILib's frame, so a
+ * pitch with the wrong sign shows at once), with its name.
+ */
+function cameraFrustums(robot: RobotConfig): Group {
+  const g = new Group()
+  ;(robot.cameras ?? []).forEach((c, i) => {
+    const color = new LineBasicMaterial({ color: CAMERA_COLORS[i % CAMERA_COLORS.length] })
+    const pose = cameraPose(c, 0, 0, 0)
+    const col = (j: number) => new Vector3(pose.rotation[0][j], pose.rotation[1][j], pose.rotation[2][j])
+    const [f, l, u] = [col(0), col(1), col(2)]
+    const apex = new Vector3(...pose.position)
+    const th = Math.tan((c.horizontalFovDeg * Math.PI) / 360), tv = Math.tan((c.verticalFovDeg * Math.PI) / 360)
+    const corner = (sl: number, su: number) =>
+      apex.clone().add(f.clone().add(l.clone().multiplyScalar(sl * th)).add(u.clone().multiplyScalar(su * tv)).multiplyScalar(FRUSTUM_M))
+    const corners = [corner(1, 1), corner(-1, 1), corner(-1, -1), corner(1, -1)]
+    corners.forEach((p, k) => {
+      g.add(seg(apex, p, color))
+      g.add(seg(p, corners[(k + 1) % 4], color))
+    })
+    // The optical axis, dashed out to the frustum's face.
+    g.add(seg(apex, apex.clone().add(f.clone().multiplyScalar(FRUSTUM_M)), color))
+    const tag = label(`<span class="label">${escapeHtml(c.name)}</span>`, "ares-dim", [0.5, 1.2])
+    tag.position.copy(apex)
+    g.add(tag)
+  })
+  return g
 }

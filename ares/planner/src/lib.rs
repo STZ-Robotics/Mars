@@ -66,6 +66,23 @@ pub struct Environment {
     /// it was drawn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub navgrid: Option<NavGrid>,
+    /// The field's AprilTags, for the see-AprilTags constraint.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<ares_core::vision::Tag>,
+    /// What blocks the cameras' view (the field's 2.5D map). None: estimated from the tags.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub occluders: Option<Vec<ares_core::vision::Occluder>>,
+}
+
+impl Environment {
+    /// What the cameras look at: the tags, and the drawn structures (or ones estimated from the
+    /// tags when none were drawn).
+    pub fn world(&self) -> ares_core::vision::World {
+        ares_core::vision::World {
+            tags: self.tags.clone(),
+            occluders: self.occluders.clone().unwrap_or_else(|| ares_core::vision::estimate_occluders(&self.tags)),
+        }
+    }
 }
 
 /// PathPlanner's navigation grid: square cells over the field, each one open
@@ -414,6 +431,7 @@ fn plan_path(
             sections: vec![],
             variant: None,
             source_hash: None,
+            notes: parts.iter().flatten().flat_map(|p| p.trajectory.notes.clone()).collect(),
         },
         spline_duration_s: spline,
         iterations,
@@ -541,11 +559,261 @@ fn pathfind_estimate(
     Ok(ares_core::solve_between(robot, &s, &SolverOptions::default(), v0, v1)?)
 }
 
+/// One fixed part (no pathfinding inside). With a see-AprilTags constraint it is planned free
+/// first: if that already keeps enough tags in view, nothing is gained by aiming and it stays (it
+/// is the fastest). Otherwise the cameras aim, and the plan that keeps more tags in view wins
+/// (the faster on a tie). If the optimizer cannot aim them, the free plan stays and the note says so.
 fn plan_fixed(
     robot: &RobotConfig,
     spec: &PathSpec,
     env: &Environment,
     options: &PlannerOptions,
+) -> Result<Planned, PlanError> {
+    let wants = spec.scoped.iter().any(|c| c.enabled && matches!(c.kind, ConstraintKind::SeeTags { .. }));
+    if !wants || robot.cameras.is_empty() || env.tags.is_empty() {
+        let mut planned = plan_fixed_with(robot, spec, env, options, 0)?;
+        if wants {
+            planned.trajectory.notes.extend(vision_notes(robot, spec, env, &planned.trajectory));
+        }
+        return Ok(planned);
+    }
+    let free = plan_fixed_with(robot, spec, env, options, 0)?;
+    let free_seen = worst_span(robot, spec, env, &free.trajectory);
+    let mut chosen = free;
+    let mut notes = Vec::new();
+    if free_seen < 0.999 {
+        match plan_aimed(robot, spec, env, options) {
+            Ok(aimed) => {
+                let aimed_seen = worst_span(robot, spec, env, &aimed.trajectory);
+                if aimed_seen > free_seen + 1e-9 || (aimed_seen >= free_seen - 1e-9 && aimed.trajectory.duration_s < chosen.trajectory.duration_s) {
+                    chosen = aimed;
+                }
+            }
+            Err(PlanError::Solver { .. }) => {
+                notes.push("could not keep the cameras on the AprilTags along this path: planned without the see-AprilTags constraint".to_string());
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    // Turning was not enough: look beside the blind stretch for a place the tags are seen from.
+    let best_seen = worst_span(robot, spec, env, &chosen.trajectory);
+    if best_seen < 0.999 {
+        if let Some((spec2, inserted, moved)) = detour_spec(robot, spec, env, &chosen.trajectory) {
+            match plan_aimed(robot, &spec2, env, options) {
+                Ok(mut detoured) => {
+                    // Back to the user's waypoints: the hidden one is not theirs.
+                    detoured.trajectory.waypoint_times.remove(inserted);
+                    let seen = worst_span(robot, spec, env, &detoured.trajectory);
+                    // Worth it only if it sees clearly more, and not at any price in time: at
+                    // least 5 points of coverage, and 15 points for every second it adds.
+                    let gain = seen - best_seen;
+                    let extra = detoured.trajectory.duration_s - chosen.trajectory.duration_s;
+                    if gain >= DETOUR_MIN_GAIN && (extra <= 0.0 || gain / extra >= DETOUR_GAIN_PER_S) {
+                        notes.push(format!(
+                            "detoured {:.2} m toward the AprilTags ({:.1} s, was {:.1} s)",
+                            moved, detoured.trajectory.duration_s, chosen.trajectory.duration_s
+                        ));
+                        chosen = detoured;
+                    }
+                }
+                Err(PlanError::Solver { .. }) => {}
+                Err(e) => return Err(e),
+            }
+        }
+    }
+    notes.extend(vision_notes(robot, spec, env, &chosen.trajectory));
+    chosen.trajectory.notes.extend(notes);
+    Ok(chosen)
+}
+
+/// A detour must add this much of the span with enough tags in view...
+const DETOUR_MIN_GAIN: f64 = 0.05;
+/// ...and this much per second it costs.
+const DETOUR_GAIN_PER_S: f64 = 0.15;
+
+/// How many ways the cameras are aimed before giving up: each asks less (see `plan_fixed_with`).
+const AIM_LEVELS: u8 = 3;
+
+/// The path with its cameras aimed, at the first level the optimizer can meet: a short stretch
+/// between two fixed headings may have no time to turn to the tags and back at full strength.
+fn plan_aimed(robot: &RobotConfig, spec: &PathSpec, env: &Environment, options: &PlannerOptions) -> Result<Planned, PlanError> {
+    let mut last = None;
+    for level in 1..=AIM_LEVELS {
+        match plan_fixed_with(robot, spec, env, options, level) {
+            Err(e @ PlanError::Solver { .. }) => last = Some(e),
+            other => return other,
+        }
+    }
+    Err(last.expect("at least one level"))
+}
+
+/// A copy of the path with one hidden waypoint where the cameras see enough tags, beside the
+/// longest blind stretch of a see-AprilTags span that allows a detour: `(spec, its index, how far
+/// from the stretch it is)`. None when no span allows one, nothing is blind, the segment is the
+/// user's own curve (manual, pathfind, a rotation target on it), or no place nearby sees more.
+fn detour_spec(robot: &RobotConfig, spec: &PathSpec, env: &Environment, t: &Trajectory) -> Option<(PathSpec, usize, f64)> {
+    use ares_core::path::Target;
+    let world = env.world();
+    let n = spec.waypoints.len();
+    let (c, radius, camera, min_tags) = spec.scoped.iter().filter(|c| c.enabled).find_map(|c| match &c.kind {
+        ConstraintKind::SeeTags { detour_m, camera, min_tags } if *detour_m > 0.0 => Some((c, *detour_m, camera.clone(), *min_tags as usize)),
+        _ => None,
+    })?;
+    let (a, b) = c.range(n);
+    let (ta, tb) = (*t.waypoint_times.get(a)?, *t.waypoint_times.get(b)?);
+    let span: Vec<&Sample> = t.samples.iter().filter(|q| q.t >= ta - 1e-9 && q.t <= tb + 1e-9).collect();
+    let blind: Vec<bool> = span
+        .iter()
+        .map(|q| ares_core::vision::coverage_of(robot, &world, &[(q.x, q.y, q.heading)], camera.as_deref(), min_tags) < 1.0)
+        .collect();
+    // The longest blind run, and its middle.
+    let (mut best, mut run_start) = ((0usize, 0usize), None);
+    for (k, &bl) in blind.iter().chain(std::iter::once(&false)).enumerate() {
+        match (bl, run_start) {
+            (true, None) => run_start = Some(k),
+            (false, Some(s)) => {
+                if k - s > best.1 - best.0 {
+                    best = (s, k);
+                }
+                run_start = None;
+            }
+            _ => {}
+        }
+    }
+    if best.1 == best.0 {
+        return None;
+    }
+    let mid = span[(best.0 + best.1) / 2];
+    // The segment it is on, inside the span.
+    let j = (a..b).rev().find(|&j| t.waypoint_times[j] <= mid.t + 1e-9).unwrap_or(a);
+    let w = &spec.waypoints[j];
+    if w.manual_next || w.pathfind_next.is_some() || spec.rotation_targets.iter().any(|r| r.segment == j) {
+        return None;
+    }
+    // Places around it: the one that sees the most, then the nearest.
+    let reach = 0.5 * robot.bumper.length_m.hypot(robot.bumper.width_m);
+    let inside = |x: f64, y: f64| {
+        env.field.is_none_or(|f| x > reach && y > reach && x < f.length_m - reach && y < f.width_m - reach)
+            && env.keep_out.iter().all(|o| (x - o.x).hypot(y - o.y) > o.radius_m + reach)
+            && world.occluders.iter().all(|o| {
+                let (cs, sn) = (o.yaw_deg.to_radians().cos(), o.yaw_deg.to_radians().sin());
+                let (dx, dy) = (x - o.x, y - o.y);
+                (cs * dx + sn * dy).abs() > o.length_m / 2.0 + reach || (-sn * dx + cs * dy).abs() > o.width_m / 2.0 + reach
+            })
+    };
+    let here = ares_core::vision::best_view(robot, &world, mid.x, mid.y, 24).0;
+    let mut pick: Option<(usize, f64, f64, f64)> = None;
+    for r in [0.35, 0.7, 1.0] {
+        for k in 0..12 {
+            let th = std::f64::consts::TAU * k as f64 / 12.0;
+            let (x, y) = (mid.x + r * radius * th.cos(), mid.y + r * radius * th.sin());
+            if !inside(x, y) {
+                continue;
+            }
+            let seen = ares_core::vision::best_view(robot, &world, x, y, 24).0;
+            if seen <= here {
+                continue;
+            }
+            let d = r * radius;
+            if pick.is_none_or(|p| seen > p.0 || (seen == p.0 && d < p.3)) {
+                pick = Some((seen, x, y, d));
+            }
+        }
+    }
+    let (_, x, y, d) = pick?;
+    let mut out = spec.clone();
+    let at = j + 1;
+    out.waypoints.insert(at, ares_core::path::Waypoint { x, y, ..Default::default() });
+    let shift = |t: Target| match t {
+        Target::Index(i) if i >= at => Target::Index(i + 1),
+        other => other,
+    };
+    for sc in &mut out.scoped {
+        sc.from = shift(sc.from);
+        sc.to = sc.to.map(shift);
+    }
+    for e in &mut out.events {
+        e.target = shift(e.target);
+    }
+    for r in &mut out.rotation_targets {
+        if r.segment >= at {
+            r.segment += 1;
+        }
+    }
+    Some((out, at, d))
+}
+
+/// The see-AprilTags span that keeps its tags in view least: the fraction of its samples with
+/// enough of them.
+fn worst_span(robot: &RobotConfig, spec: &PathSpec, env: &Environment, t: &Trajectory) -> f64 {
+    let n = spec.waypoints.len();
+    spec.scoped
+        .iter()
+        .filter(|c| c.enabled)
+        .filter_map(|c| match &c.kind {
+            ConstraintKind::SeeTags { camera, min_tags, .. } => {
+                let (a, b) = c.range(n);
+                let poses = span_poses(t, a, b)?;
+                Some(ares_core::vision::coverage_of(robot, &env.world(), &poses, camera.as_deref(), *min_tags as usize))
+            }
+            _ => None,
+        })
+        .fold(1.0, f64::min)
+}
+
+fn tb_of(t: &Trajectory, b: usize) -> f64 {
+    t.waypoint_times.get(b).copied().unwrap_or(t.duration_s)
+}
+
+fn span_poses(t: &Trajectory, a: usize, b: usize) -> Option<Vec<(f64, f64, f64)>> {
+    let (ta, tb) = (t.waypoint_times.get(a).copied()?, t.waypoint_times.get(b).copied()?);
+    Some(t.samples.iter().filter(|q| q.t >= ta - 1e-9 && q.t <= tb + 1e-9).map(|q| (q.x, q.y, q.heading)).collect())
+}
+
+/// How well each see-AprilTags span kept tags in view, or why it could not.
+fn vision_notes(robot: &RobotConfig, spec: &PathSpec, env: &Environment, t: &Trajectory) -> Vec<String> {
+    if robot.cameras.is_empty() {
+        return vec!["the see-AprilTags constraint needs cameras: add them in the Robot tab".into()];
+    }
+    if env.tags.is_empty() {
+        return vec!["the see-AprilTags constraint needs the field's AprilTags".into()];
+    }
+    let n = spec.waypoints.len();
+    spec.scoped
+        .iter()
+        .filter(|c| c.enabled)
+        .filter_map(|c| match &c.kind {
+            ConstraintKind::SeeTags { camera, min_tags, .. } => {
+                let (a, b) = c.range(n);
+                let poses = span_poses(t, a, b)?;
+                let world = env.world();
+                let seen = ares_core::vision::coverage_of(robot, &world, &poses, camera.as_deref(), *min_tags as usize);
+                // How well the robot knows where it is at the end of the span (two sigma), from a
+                // pose known to 5 cm at the start of the path.
+                let all: Vec<_> = t.samples.iter().map(|q| (q.t, q.x, q.y, q.heading, q.vx.hypot(q.vy))).collect();
+                let sigma = ares_core::vision::pose_sigma(robot, &world, &all, 0.05);
+                let end = t.samples.iter().rposition(|q| q.t <= tb_of(t, b) + 1e-9).unwrap_or(0);
+                let pose_note = sigma.get(end).map(|s| format!(", pose \u{b1}{:.0} cm at waypoint {}", 200.0 * s, b + 1)).unwrap_or_default();
+                let enough = if *min_tags > 1 { format!("{min_tags}+ AprilTags") } else { "AprilTags".to_string() };
+                Some(format!(
+                    "{enough} in view {:.0}% of waypoints {}-{}{}{pose_note}",
+                    100.0 * seen,
+                    a + 1,
+                    b + 1,
+                    camera.as_ref().map(|c| format!(" ({c})")).unwrap_or_default()
+                ))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn plan_fixed_with(
+    robot: &RobotConfig,
+    spec: &PathSpec,
+    env: &Environment,
+    options: &PlannerOptions,
+    vision: u8,
 ) -> Result<Planned, PlanError> {
     let started = Instant::now();
     validate(spec)?;
@@ -619,6 +887,40 @@ fn plan_fixed(
             q.heading += delta * w;
         }
     }
+    // See-AprilTags spans: which camera faces which tag along each, from the guess' positions.
+    // They become point-at constraints below, and the guess turns to them now so the solver
+    // starts aimed. Samples at a waypoint with a fixed heading (and their neighbors) stay free.
+    let mut vision_aims: Vec<ares_core::vision::Aim> = Vec::new();
+    if vision > 0 && !env.tags.is_empty() && !robot.cameras.is_empty() {
+        let world = env.world();
+        let n_wp = work.waypoints.len();
+        let fixed: Vec<usize> = (0..n_wp).filter(|&j| work.waypoints[j].fixed_heading_deg().is_some()).map(|j| start[j]).collect();
+        for c in work.scoped.iter().filter(|c| c.enabled) {
+            if let ConstraintKind::SeeTags { camera, min_tags, .. } = &c.kind {
+                let (a, b) = c.range(n_wp);
+                let (s0, s1) = (start[a], start[b]);
+                let poses: Vec<_> = (s0..=s1).map(|k| (guess[k].x, guess[k].y, guess[k].heading)).collect();
+                // Each level leaves more room to turn by the fixed headings, keeps only longer aims
+                // and widens their tolerance (up to just inside the half field of view).
+                let margin = 2 * vision as usize - 1;
+                let skip: Vec<bool> = (s0..=s1).map(|k| fixed.iter().any(|&f| k + margin >= f && k <= f + margin)).collect();
+                let longest = 2 + 2 * vision as usize;
+                for mut aim in ares_core::vision::aims(robot, &world, &poses, &skip, camera.as_deref(), *min_tags as usize) {
+                    if aim.to - aim.from + 1 < longest {
+                        continue;
+                    }
+                    let half = 0.5 * robot.cameras[aim.camera].horizontal_fov_deg.to_radians();
+                    aim.tolerance_rad = (aim.tolerance_rad * (1.0 + 0.15 * (vision - 1) as f64)).min(0.9 * half);
+                    aim.from += s0;
+                    aim.to += s0;
+                    for (k, h) in (aim.from..=aim.to).zip(&aim.headings) {
+                        guess[k].heading = *h;
+                    }
+                    vision_aims.push(aim);
+                }
+            }
+        }
+    }
     let col = |f: fn(&Sample) -> f64| guess.iter().map(f).collect::<Vec<f64>>();
     let (gx, gy, gth) = (col(|s| s.x), col(|s| s.y), col(|s| s.heading));
     let (gvx, gvy, gw) = (col(|s| s.vx), col(|s| s.vy), col(|s| s.omega));
@@ -677,7 +979,17 @@ fn plan_fixed(
             ConstraintKind::KeepOutCircle { x, y, radius_m } => {
                 constraints.push(rec(ffi::C_KEEP_OUT_CIRCLE, [x, y, radius_m, 0.0, 0.0]))
             }
+            // Built from the aims above.
+            ConstraintKind::SeeTags { .. } => {}
         }
+    }
+    for aim in &vision_aims {
+        constraints.push(ffi::Constraint {
+            kind: ffi::C_POINT_AT,
+            from: aim.from as i32,
+            to: aim.to as i32,
+            p: [aim.target[0], aim.target[1], aim.tolerance_rad, aim.offset_rad, 0.0, 0.0, 0.0, 0.0],
+        });
     }
 
     // Continuing another path: its end speed is this one's start, and a stop
@@ -952,6 +1264,7 @@ fn plan_fixed(
         sections: vec![],
         variant: None,
         source_hash: None,
+        notes: Vec::new(),
     };
     if let Err(problem) = check_physics(robot, work, env, &trajectory) {
         if std::env::var("ARES_TRACE").is_ok() {
@@ -991,6 +1304,7 @@ fn validate(spec: &PathSpec) -> Result<(), PlanError> {
         match c.kind {
             ConstraintKind::StopPoint { .. } if a != b => return bad("a stop point goes on one waypoint, not a segment".into()),
             ConstraintKind::KeepInLane { .. } if a == b => return bad("a lane needs a segment, not one waypoint".into()),
+            ConstraintKind::SeeTags { .. } if a == b => return bad("see AprilTags needs a segment, from one waypoint to another".into()),
             ConstraintKind::MaxVelocity { mps } if mps <= 0.0 => return bad("a max velocity has to be positive".into()),
             ConstraintKind::MaxAcceleration { mps2 } if mps2 <= 0.0 => {
                 return bad("a max acceleration has to be positive".into())
@@ -1158,5 +1472,6 @@ fn constraint_name(k: &ConstraintKind) -> &'static str {
         ConstraintKind::KeepInRectangle { .. } => "keep-in rectangle",
         ConstraintKind::KeepInLane { .. } => "keep-in lane",
         ConstraintKind::KeepOutCircle { .. } => "keep-out circle",
+        ConstraintKind::SeeTags { .. } => "see AprilTags",
     }
 }

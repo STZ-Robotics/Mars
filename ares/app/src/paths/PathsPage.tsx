@@ -1,4 +1,4 @@
-import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { ReactNode, createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import PropertyRow from "@desktop/components/common/PropertyRow"
 import { propertyInputStyle } from "@desktop/styles/pageForm"
@@ -14,14 +14,16 @@ import { useToast } from "../ui/toasts"
 import { isExpr } from "../vars/expr"
 import { applyScope, dropExprs, evaluateAll, linkToPose, linkedPose, numberText, withOverrides } from "../vars/variables"
 import { Card, MiniButton, Q, Toggle } from "../ui/controls"
-import FieldView, { RAMP_CSS } from "./FieldView"
+import { occludersFor, tagsForField, visionMap, type World } from "../vision/vision"
+import FieldView, { RAMP_CSS, type Decal } from "./FieldView"
+import Field3DView from "./Field3DView"
 import Charts from "./Charts"
 import Sidebar, { IconButton } from "./Sidebar"
 import ConfigPanel, { TextInput } from "./ConfigPanel"
-import { StopIcon, WaypointIcon, GLYPH } from "./glyphs"
+import { AprilTagIcon, StopIcon, WaypointIcon, GLYPH } from "./glyphs"
 import {
-  PathStatus, SlowZone, mirrorPath, moveWaypoints,
-  CONSTRAINTS, ConstraintType, DEFAULT_VIEW, EventMarker, FieldDoc, GRADIENTS, KeepOut, PathEntry, PathSpec, PlanResult,
+  PathStatus, RotationTarget, SlowZone, mirrorPath, moveWaypoints,
+  CONSTRAINTS, ConstraintType, DEFAULT_VIEW, sampleAt, ALLIANCE_COLOR, allianceHint, allianceOf, EventMarker, FieldDoc, GRADIENTS, KeepOut, PathEntry, PathSpec, PlanResult,
   ScopedConstraint, Selection, Target, Tool, Trajectory, ViewOptions, Waypoint, WaypointKind, afterInsert, afterMove,
   afterRemove, constraintMeta, kindOf, moveControl, newConstraint, newPathSpec, NEXT_MODE, segmentMode, setSegmentMode, setWait, shiftControls, stopAt, toggleStop, waitAt,
 } from "./types"
@@ -36,6 +38,8 @@ interface Props {
 const SIDEBAR_WIDTH = 320
 const SAVE_DELAY_MS = 400
 const VIEW_KEY = "ares.pathView"
+/** Bumped when a saved view must be brought up to date (see loadView). */
+const VIEW_VERSION = 2
 const HISTORY_LIMIT = 200
 
 interface Current {
@@ -64,6 +68,7 @@ export default function PathsPage({ robot, robotPath, onSaveRobot }: Props) {
 function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) {
   const { names: robotNames } = useRobotNames(robotPath)
   const { field } = useField()
+  const fieldTags = useMemo(() => tagsForField(field.key), [field.key])
   const fieldSize = { lengthM: field.sizeMeters[0], widthM: field.sizeMeters[1] }
 
   const [entries, setEntries] = useState<PathEntry[]>([])
@@ -86,7 +91,45 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
   const [fitSignal, setFitSignal] = useState(0)
   const [note, setNote] = useState<string>("")
   const [view, setView] = useState<ViewOptions>(() => loadView())
+  const [fieldMode, setFieldModeState] = useState<FieldMode>(() => loadFieldMode())
+  const setFieldMode = (m: FieldMode) => { setFieldModeState(m); try { localStorage.setItem(FIELD_MODE_KEY, m) } catch { /* not remembered */ } }
+  const show3d = fieldMode !== "2d"
+  const [lock2d, setLock2dState] = useState(() => { try { return localStorage.getItem("ares.view2dLocked") === "1" } catch { return false } })
+  const setLock2d = (on: boolean) => { setLock2dState(on); try { localStorage.setItem("ares.view2dLocked", on ? "1" : "0") } catch { /* not remembered */ } }
+  // The 2D drawing in the field's frame, laid on the 3D carpet: painted by the editor while the 3D view is up.
+  const decal = useMemo<Decal>(() => ({ canvas: document.createElement("canvas"), version: 0, labels: [] }), [])
+  // What the cameras look at: the tags and the field's structures (drawn, or estimated from the tags).
+  const world = useMemo<World>(() => ({ tags: fieldTags, occluders: occludersFor(fieldDoc.occluders, fieldTags) }), [fieldTags, fieldDoc.occluders])
+  // The vision map takes a moment: only while it is shown, and again only when what it depends on changes.
+  const cameraKey = JSON.stringify(robot?.cameras ?? [])
+  const visionMapData = useMemo(
+    () => (view.visionMap && robot?.cameras?.length ? visionMap(robot, world, field.sizeMeters[0], field.sizeMeters[1]) : null),
+    [view.visionMap, cameraKey, world, field.sizeMeters[0], field.sizeMeters[1]],
+  )
   const [viewOpen, setViewOpen] = useState(false)
+  // The toolbar drops its labels (icons and keys stay) when they do not fit:
+  // a maximized window on a scaled screen is narrower than the toolbar.
+  // Past that, the tools clip before the right side (Generate) does.
+  const toolbarRef = useRef<HTMLDivElement>(null)
+  const toolsRef = useRef<HTMLSpanElement>(null)
+  const actionsRef = useRef<HTMLSpanElement>(null)
+  const toolbarFull = useRef(0)
+  const [compact, setCompact] = useState(false)
+  useLayoutEffect(() => {
+    const el = toolbarRef.current
+    if (!el) return
+    const check = () => {
+      const tools = toolsRef.current, actions = actionsRef.current
+      if (!tools || !actions) return
+      // Both groups, the gap between them and the toolbar's padding.
+      if (!compact) toolbarFull.current = tools.scrollWidth + actions.scrollWidth + 36
+      setCompact(el.clientWidth < toolbarFull.current)
+    }
+    check()
+    const ro = new ResizeObserver(check)
+    ro.observe(el)
+    return () => ro.disconnect()
+  })
   // Bumped on every committed edit (a drag's end, a typed value): that is
   // what saves. Drags in progress only re-time the guess.
   const [commit, setCommit] = useState(0)
@@ -333,7 +376,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
     const key = genKey(spec)
     const label = variant ? `${spec.name} ◇ ${variant}` : spec.name
     setGenState({ kind: "running" })
-    invoke<PlanResult>("path_plan", { robot, spec, field: fieldDoc, fieldSize, robotPath, variant })
+    invoke<PlanResult>("path_plan", { robot, spec, field: fieldDoc, fieldSize, robotPath, variant, tags: fieldTags })
       .then(result => {
         if (id !== genReq.current) return
         setGenerated({ result, trajectory: result.trajectory, key })
@@ -345,7 +388,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
         toast({
           kind: "success",
           title: `Generated "${label}"`,
-          body: `${result.trajectory.durationS.toFixed(3)} s${faster > 0.5 ? ` (${faster.toFixed(0)}% faster than the guess)` : ""} · solved in ${(result.solveMs / 1000).toFixed(2)} s${changed ? " · the path changed while it ran: generate again" : ""}`,
+          body: `${result.trajectory.durationS.toFixed(3)} s${faster > 0.5 ? ` (${faster.toFixed(0)}% faster than the guess)` : ""} · solved in ${(result.solveMs / 1000).toFixed(2)} s${changed ? " · the path changed while it ran: generate again" : ""}${(result.trajectory.notes ?? []).map(n => ` · ${n}`).join("")}`,
         })
         hotReload(robotPath, [variant ? `${spec.name}@${variant}` : spec.name], true, toast)
       })
@@ -399,7 +442,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
       for (const [s2, v] of jobs) {
         if (stopRequested.current) { stopped = true; break }
         try {
-          await invoke<PlanResult>("path_plan", { robot, spec: s2, field: fieldDoc, fieldSize, robotPath, variant: v })
+          await invoke<PlanResult>("path_plan", { robot, spec: s2, field: fieldDoc, fieldSize, robotPath, variant: v, tags: fieldTags })
           done++
           sent.push(v ? `${q.name}@${v}` : q.name)
         } catch (e) {
@@ -661,7 +704,7 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
     setPlaying(p => !p)
   }
 
-  // Keys, Choreo's where it has one.
+  // Keys.
   // Arrow keys nudge the selected waypoints; copy and paste waypoints.
   const nudge = (dx: number, dy: number) => {
     const idx = multi.length ? multi : selected?.kind === "waypoint" ? [selected.index] : []
@@ -738,8 +781,55 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
     return () => window.removeEventListener("keydown", onKey)
   }, [])
 
+  /** The edits both views make, so the 3D view's handles obey the same rules as the 2D editor's. */
+  const fieldEdits = {
+    onMoveKeepOut: (i: number, x: number, y: number, final: boolean) => editKeepOut(i, { x, y }, final),
+    onResizeKeepOut: (i: number, r: number, final: boolean) => editKeepOut(i, { radiusM: r }, final),
+    onEditConstraint: editConstraint,
+    onAddZone: (z: SlowZone) => {
+      editField(d => ({ ...d, slowZones: [...(d.slowZones ?? []), z] }), true)
+      setSelected({ kind: "zone", index: (fieldDoc.slowZones ?? []).length })
+      setTool({ kind: "select" })
+    },
+    onEditZone: (i: number, patch: Partial<SlowZone>, final: boolean) =>
+      editField(d => ({ ...d, slowZones: (d.slowZones ?? []).map((z, j) => (j === i ? ({ ...z, ...patch } as SlowZone) : z)) }), final),
+    onAddRotation: (segment: number, fraction: number, headingDeg: number) => {
+      editSpec(s => ({ ...s, rotationTargets: [...(s.rotationTargets ?? []), { segment, fraction, headingDeg }] }), true)
+      setSelected({ kind: "rotation", index: (spec?.rotationTargets ?? []).length })
+      setTool({ kind: "select" })
+    },
+    onEditRotation: (i: number, patch: Partial<RotationTarget>, final: boolean) =>
+      editSpec(s => ({ ...s, rotationTargets: (s.rotationTargets ?? []).map((r, j) => (j === i ? { ...r, ...patch } : r)) }), final),
+  }
+
+  /** A click on empty field with a placing tool, in 2D or on the 3D carpet. */
+  const fieldClick = (x: number, y: number) => {
+    if (tool.kind === "waypoint") addWaypoint(x, y, tool.type)
+    else if (tool.kind === "keepout") {
+      editField(d => ({ ...d, keepOut: [...d.keepOut, { x, y, radiusM: 0.5 }] }), true)
+      setSelected({ kind: "keepout", index: fieldDoc.keepOut.length })
+      setTool({ kind: "select" })
+    }
+  }
+
   // --- Numbers for the result strip -------------------------------------------
   const traj = generated?.trajectory ?? null
+  // Where the 3D view puts the robot: the playhead, else the selected waypoint, else the path's start.
+  const pose3d = useMemo<[number, number, number] | null>(() => {
+    const t = traj ?? guess
+    if (t && playhead !== null) {
+      const q = sampleAt(t, playhead)
+      return [q.x, q.y, q.heading]
+    }
+    const w = spec && selected?.kind === "waypoint" ? spec.waypoints[selected.index] : undefined
+    if (w) {
+      const near = t?.samples.reduce((a, b) => (Math.hypot(b.x - w.x, b.y - w.y) < Math.hypot(a.x - w.x, a.y - w.y) ? b : a))
+      const heading = w.headingDeg !== undefined ? (w.headingDeg * Math.PI) / 180 : near?.heading ?? 0
+      return [w.x, w.y, heading]
+    }
+    const first = t?.samples[0]
+    return first ? [first.x, first.y, first.heading] : null
+  }, [traj, guess, playhead, spec, selected])
   const stats = useMemo(() => {
     if (!traj) return null
     let peakA = 0, peakGrip = 0, top = 0
@@ -953,28 +1043,59 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
       </div>
 
       <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
-        <div style={{ height: 44, flexShrink: 0, display: "flex", alignItems: "center", gap: 4, padding: "0 10px", background: "var(--bg-menubar)", borderBottom: "1px solid var(--border-main)" }}>
-          <span title={"Select (V, Esc)\nClick to select and edit, drag to move. Drag empty field, or right-drag anywhere, to pan; the wheel zooms."}><Toggle on={tool.kind === "select"} onClick={() => setTool({ kind: "select" })} icon="ti-pointer" label="Select" /></span>
+        <CompactToolbar.Provider value={compact}>
+        <div ref={toolbarRef} style={{ height: 44, flexShrink: 0, display: "flex", alignItems: "center", gap: 4, padding: "0 10px", background: "var(--bg-menubar)", borderBottom: "1px solid var(--border-main)" }}>
+          <span ref={toolsRef} style={{ flex: "0 1 auto", minWidth: 0, overflow: "hidden", display: "flex", gap: 4, alignItems: "center" }}>
+          <span title={"Select (V, Esc)\nClick to select and edit, drag to move. Drag empty field, or right-drag anywhere, to pan; the wheel zooms."}><Toggle on={tool.kind === "select"} onClick={() => setTool({ kind: "select" })} icon="ti-pointer" label={compact ? "" : "Select"} /></span>
           <Sep />
           <ToolButton on={tool.kind === "waypoint" && tool.type === "pose"} onClick={() => setTool({ kind: "waypoint", type: "pose" })} label="Pose" k="1" desc="Place a waypoint the robot passes facing a set heading. Click near the path to insert it, elsewhere to extend the path."><WaypointIcon kind="pose" color={GLYPH.mid} size={14} /></ToolButton>
           <ToolButton on={tool.kind === "waypoint" && tool.type === "translation"} onClick={() => setTool({ kind: "waypoint", type: "translation" })} label="Translation" k="2" desc="Place a waypoint the robot passes at any heading (the optimizer picks it)."><WaypointIcon kind="translation" color={GLYPH.mid} size={14} /></ToolButton>
           <ToolButton on={tool.kind === "waypoint" && tool.type === "empty"} onClick={() => setTool({ kind: "waypoint", type: "empty" })} label="Empty" k="3" desc="Place a guide point: not a place to reach, it only shapes the starting guess (to go around something)."><WaypointIcon kind="empty" color={GLYPH.mid} size={14} /></ToolButton>
           <Sep />
           <ConstraintMenu active={tool.kind === "constraint" ? tool.type : null} onPick={type => setTool({ kind: "constraint", type, from: null })} />
-          <ToolButton on={tool.kind === "event"} onClick={() => setTool({ kind: "event" })} label="Event" k="E" desc="Then click a waypoint: a named moment, timed from it, when the robot code runs a command."><i className="ti ti-map-pin-bolt" style={{ color: "#a1690a" }} /></ToolButton>
-          <ToolButton on={tool.kind === "keepout"} onClick={() => setTool({ kind: "keepout" })} label="Keep-out" k="K" desc="Place a circle that every path in the project keeps its bumper out of."><i className="ti ti-circle-off" style={{ color: "#c21c1c" }} /></ToolButton>
-          <ToolButton on={tool.kind === "zone"} onClick={() => setTool({ kind: "zone" })} label="Slow zone" k="Z" desc="Drag a rectangle (or click for a circle) where every path drives slower. Set its caps in its panel."><i className="ti ti-square-half" style={{ color: "#ca8a04" }} /></ToolButton>
-          <ToolButton on={tool.kind === "rotation"} onClick={() => setTool({ kind: "rotation" })} label="Rotation" k="T" desc="Click on the path: a heading to hit at that point of the segment (PathPlanner's rotation targets). Drag its arrow to turn it."><i className="ti ti-rotate-clockwise-2" style={{ color: "#e95420" }} /></ToolButton>
-          <ToolButton on={tool.kind === "ruler"} onClick={() => setTool({ kind: "ruler" })} label="Ruler" k="R" desc="Drag to measure a distance and an angle on the field. It snaps to waypoints and poses; Esc clears it."><i className="ti ti-ruler-2" /></ToolButton>
-          <span style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
-            <MirrorMenu onMirror={(how, copy) => {
-              if (!spec) return
-              const m = mirrorPath(spec, how, fieldSize.lengthM, fieldSize.widthM)
-              if (copy) { loadPath({ ...m, name: uniqueName(`${spec.name} ${how === "alliance" ? "mirrored" : "flipped"}`), continuesFrom: undefined }, null); setCommit(c => c + 1) }
-              else editSpec(() => m, true)
-            }} />
-            <span title="What the field shows: the path gradient and the layers."><Toggle on={viewOpen} onClick={() => setViewOpen(o => !o)} icon="ti-eye" label="View" /></span>
-            <span title="Fit the whole field in view (F)."><Toggle on={false} onClick={() => setFitSignal(s => s + 1)} icon="ti-maximize" label="Fit" /></span>
+          {(() => {
+            const items: MenuItem[] = [
+              { icon: <i className="ti ti-map-pin-bolt" style={{ color: "#a1690a" }} />, label: "Event", k: "E", on: tool.kind === "event", hint: "Then click a waypoint: a named moment, timed from it, when the robot code runs a command.", onClick: () => setTool({ kind: "event" }) },
+              { icon: <i className="ti ti-rotate-clockwise-2" style={{ color: "#e95420" }} />, label: "Rotation", k: "T", on: tool.kind === "rotation", hint: "Click on the path: a heading to hit at that point of the segment. Drag its arrow to turn it.", onClick: () => setTool({ kind: "rotation" }) },
+              { icon: <i className="ti ti-circle-off" style={{ color: "#c21c1c" }} />, label: "Keep-out", k: "K", on: tool.kind === "keepout", hint: "Place a circle that every path in the project keeps its bumper out of.", onClick: () => setTool({ kind: "keepout" }) },
+              { icon: <i className="ti ti-square-half" style={{ color: "#ca8a04" }} />, label: "Slow zone", k: "Z", on: tool.kind === "zone", hint: "Drag a rectangle (or click for a circle) where every path drives slower. Set its caps in its panel.", onClick: () => setTool({ kind: "zone" }) },
+            ]
+            const on = items.find(i => i.on)
+            return <ToolMenu title="Place on the path or the field: an event, a rotation target, a keep-out circle or a slow zone." on={!!on} icon={on?.icon ?? <i className="ti ti-map-pins" />} label={on?.label ?? "Markers"} items={items} />
+          })()}
+          <ToolMenu title="The ruler, and mirroring the path." on={tool.kind === "ruler"} icon={<i className="ti ti-tool" />} label={tool.kind === "ruler" ? "Ruler" : "Tools"} minWidth={260} items={[
+            { icon: <i className="ti ti-ruler-2" />, label: "Ruler", k: "R", on: tool.kind === "ruler", hint: "Drag to measure a distance and an angle on the field. It snaps to waypoints and poses; Esc clears it.", onClick: () => setTool({ kind: "ruler" }) },
+            "sep",
+            ...([["alliance", true, "Mirror: other alliance → new path", "A copy as the other alliance would run it: x mirrored, headings turned."],
+              ["vertical", true, "Mirror: top ↔ bottom → new path", "A copy on the other side of the field: y mirrored, headings turned."],
+              ["alliance", false, "Mirror: other alliance (this path)", "Mirror this path in place (Ctrl+Z undoes it)."],
+              ["vertical", false, "Mirror: top ↔ bottom (this path)", "Flip this path in place (Ctrl+Z undoes it)."],
+            ] as ["alliance" | "vertical", boolean, string, string][]).map(([how, copy, label, hint]): MenuItem => ({
+              icon: <i className="ti ti-flip-vertical" />, label, hint, onClick: () => {
+                if (!spec) return
+                const m = mirrorPath(spec, how, fieldSize.lengthM, fieldSize.widthM)
+                if (copy) { loadPath({ ...m, name: uniqueName(`${spec.name} ${how === "alliance" ? "mirrored" : "flipped"}`), continuesFrom: undefined }, null); setCommit(c => c + 1) }
+                else editSpec(() => m, true)
+              },
+            })),
+          ]} />
+          </span>
+          <span ref={actionsRef} style={{ marginLeft: "auto", flexShrink: 0, display: "flex", gap: 6, alignItems: "center" }}>
+            <span title="What the field shows: the path gradient and the layers."><Toggle on={viewOpen} onClick={() => setViewOpen(o => !o)} icon="ti-eye" label={compact ? "" : "View"} /></span>
+            <span title="Fit the whole field in view (F)."><Toggle on={false} onClick={() => setFitSignal(s => s + 1)} icon="ti-maximize" label={compact ? "" : "Fit"} /></span>
+            <span title={lock2d ? "The 2D view is locked: dragging the field does not pan and the wheel does not zoom, so a click only edits. Click to move it again. (The 3D view has its own lock.)" : "Lock the 2D view: the field holds still, so a click or a drag only edits. (The 3D view has its own lock.)"}>
+              <Toggle on={lock2d} onClick={() => setLock2d(!lock2d)} icon={lock2d ? "ti-lock" : "ti-lock-open"} label={compact ? "" : "Lock"} />
+            </span>
+            {(() => {
+              const modes: [FieldMode, string, string, string][] = [
+                ["2d", "ti-square", "2D", "The field from above: the editor."],
+                ["3d", "ti-box", "3D", "The field in 3D: the robot where the playhead (or the selected waypoint) puts it, what its cameras see, and an inset from the lens. The editor's drawing lies on the carpet."],
+                ["split", "ti-layout-columns", "Split", "Split the screen: the editor in 2D, the field in 3D beside it."],
+              ]
+              const cur = modes.find(m => m[0] === fieldMode)!
+              return <ToolMenu title="What the field area shows: 2D, 3D, or both side by side." on={false} align="right" minWidth={160} icon={<i className={`ti ${cur[1]}`} />} label={cur[2]}
+                items={modes.map(([m, icon, label, hint]) => ({ icon: <i className={`ti ${icon}`} />, label, hint, on: fieldMode === m, onClick: () => setFieldMode(m) }))} />
+            })()}
             {(base?.variants?.length ?? 0) > 0 && (
               <span title="The variant shown, edited and generated">
                 <select style={{ ...propertyInputStyle, width: 130, height: 26 }} value={variant ?? ""} onChange={e => setVariant(e.target.value || null)}>
@@ -983,10 +1104,21 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
                 </select>
               </span>
             )}
+            {(() => {
+              const side = allianceOf(spec, field.sizeMeters[0])
+              return side && (
+                <span title={allianceHint(side)} style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.5, color: "#ffffff", background: ALLIANCE_COLOR[side], padding: "3px 8px", borderRadius: 3, alignSelf: "center" }}>
+                  {side === "blue" ? "BLUE" : "RED ⚠"}
+                </span>
+              )
+            })()}
             <GenerateButton state={genState.kind} stale={stale || !generated} onClick={generate} />
           </span>
         </div>
+        </CompactToolbar.Provider>
         <div style={{ flex: 1, position: "relative", minHeight: 0 }}>
+          {/* In 3D alone the editor stays laid out, hidden: it is what paints the carpet's decal. */}
+          <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, right: fieldMode === "split" ? SPLIT_3D : 0, visibility: fieldMode === "3d" ? "hidden" : undefined }}>
           <FieldView
             field={field}
             robot={robot}
@@ -996,6 +1128,10 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
             stale={stale}
             keepOut={fieldDoc.keepOut}
             navgrid={fieldDoc.navgrid}
+            world={world}
+            visionMap={visionMapData}
+            decal={show3d ? decal : undefined}
+            locked={lock2d}
             selected={selected}
             hovered={hovered}
             tool={tool}
@@ -1008,18 +1144,9 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
             onMoveWaypoint={(i, x, y, final) => { moveLinked(i, x, y, final) }}
             onMoveControl={(i, side, x, y, final, free) => editSpec(s => moveControl(s, i, side, x, y, free), final)}
             onRotateWaypoint={rotateLinked}
-            onFieldClick={(x, y) => {
-              if (tool.kind === "waypoint") addWaypoint(x, y, tool.type)
-              else if (tool.kind === "keepout") {
-                editField(d => ({ ...d, keepOut: [...d.keepOut, { x, y, radiusM: 0.5 }] }), true)
-                setSelected({ kind: "keepout", index: fieldDoc.keepOut.length })
-                setTool({ kind: "select" })
-              }
-            }}
+            onFieldClick={fieldClick}
             onWaypointClick={onWaypointClick}
-            onMoveKeepOut={(i, x, y, final) => editKeepOut(i, { x, y }, final)}
-            onResizeKeepOut={(i, r, final) => editKeepOut(i, { radiusM: r }, final)}
-            onEditConstraint={editConstraint}
+            {...fieldEdits}
             multi={multi}
             onMulti={setMulti}
             onMoveGroup={(indices, dx, dy, final) => editSpec(s => moveWaypoints(s, indices, dx, dy), final)}
@@ -1028,12 +1155,6 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
               return v.kind === "pose" && val && typeof val !== "number" ? [{ name: v.name, x: val.x, y: val.y, heading: val.heading }] : []
             })}
             zones={fieldDoc.slowZones ?? []}
-            onAddZone={z => {
-              editField(d => ({ ...d, slowZones: [...(d.slowZones ?? []), z] }), true)
-              setSelected({ kind: "zone", index: (fieldDoc.slowZones ?? []).length })
-              setTool({ kind: "select" })
-            }}
-            onEditZone={(i, patch, final) => editField(d => ({ ...d, slowZones: (d.slowZones ?? []).map((z, j) => (j === i ? ({ ...z, ...patch } as SlowZone) : z)) }), final)}
             branches={branches.flatMap(b => {
               const at = b.continuesAt!
               const fork = base?.waypoints[at]
@@ -1043,25 +1164,42 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
               return [{ name: b.name, condition: b.condition, fork: [fork.x, fork.y] as [number, number], points }]
             })}
             onOpenPath={name => { const e = entries.find(q => q.name === name); if (e?.spec) loadPath(e.spec) }}
-            onAddRotation={(segment, fraction, headingDeg) => {
-              editSpec(s => ({ ...s, rotationTargets: [...(s.rotationTargets ?? []), { segment, fraction, headingDeg }] }), true)
-              setSelected({ kind: "rotation", index: (spec?.rotationTargets ?? []).length })
-              setTool({ kind: "select" })
-            }}
-            onEditRotation={(i, patch, final) => editSpec(s => ({ ...s, rotationTargets: (s.rotationTargets ?? []).map((r, j) => (j === i ? { ...r, ...patch } : r)) }), final)}
           />
+            {/* The legend and the gradient's scale belong to the 2D drawing: on its side. */}
+            {traj && view.trajectory && view.gradient !== "none" && view.gradient !== "splits" && (
+              <div style={{ position: "absolute", right: 12, bottom: 12, background: "rgba(255,255,255,0.94)", border: "1px solid var(--border-main)", padding: "5px 8px", fontSize: 10, color: "var(--text-secondary)" }}>
+                <div style={{ marginBottom: 3 }}>{GRADIENTS.find(g => g.id === view.gradient)?.label}</div>
+                <div style={{ width: 150, height: 6, background: RAMP_CSS }} />
+                <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2 }}>
+                  <span>{view.gradient === "interval" ? "long Δt" : view.gradient === "progress" ? "start" : "0"}</span>
+                  <span>{legendTop(view.gradient, topSpeed)}</span>
+                </div>
+              </div>
+            )}
+            <Legend />
+          </div>
+          {show3d && (
+            <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: fieldMode === "split" ? SPLIT_3D : "100%", borderLeft: fieldMode === "split" ? "2px solid var(--border-dark)" : undefined }}>
+              <Field3DView field={field} robot={robot} robotPath={robotPath} world={world} traj={traj ?? guess} pose={pose3d} view={view} spec={spec}
+                decal={decal} tool={tool} onSelect={setSelected} onMoveWaypoint={(i, x, y, final) => { moveLinked(i, x, y, final) }}
+                onFieldClick={fieldClick} onWaypointClick={onWaypointClick} selected={selected} onRotateWaypoint={rotateLinked}
+                keepOut={fieldDoc.keepOut} zones={fieldDoc.slowZones ?? []} {...fieldEdits}
+                onMoveControl={(i, side, x, y, final, free) => editSpec(s => moveControl(s, i, side, x, y, free), final)} />
+            </div>
+          )}
           {toolHint && (
-            <div style={{ position: "absolute", left: 12, top: 8, fontSize: 11, background: "rgba(255,255,255,0.94)", border: "1px solid var(--border-main)", padding: "4px 9px", color: "var(--text-primary)" }}>
+            <div style={{ position: "absolute", ...(fieldMode === "3d" ? { left: "50%", transform: "translateX(-50%)", bottom: 12 } : { left: 12, top: 8 }), zIndex: 5, fontSize: 11, background: "rgba(255,255,255,0.94)", border: "1px solid var(--border-main)", padding: "4px 9px", color: "var(--text-primary)" }}>
               {toolHint}
             </div>
           )}
           {genState.kind === "error" && (
-            <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", top: 8, maxWidth: 520, fontSize: 11, background: "var(--bg-page)", border: "1px solid var(--status-error-border)", color: "var(--status-error)", padding: "5px 10px" }}>
+            <div style={{ position: "absolute", left: fieldMode === "split" ? "27%" : "50%", transform: "translateX(-50%)", top: fieldMode === "3d" ? 96 : 8, zIndex: 5, maxWidth: 520, fontSize: 11, background: "var(--bg-page)", border: "1px solid var(--status-error-border)", color: "var(--status-error)", padding: "5px 10px" }}>
               <i className="ti ti-alert-triangle" /> {genState.message}
             </div>
           )}
           {spec && selected && (
             <ConfigPanel
+              cameras={(robot.cameras ?? []).map(c => c.name)}
               robotNames={robotNames}
               spec={spec}
               selected={selected}
@@ -1112,18 +1250,11 @@ function Editor({ robot, robotPath }: { robot: RobotConfig; robotPath: string })
               guessIntervals={i => guessIntervals(shown, i)}
             />
           )}
-          {viewOpen && <ViewPanel view={view} onChange={setView} onClose={() => setViewOpen(false)} />}
-          {traj && view.trajectory && view.gradient !== "none" && view.gradient !== "splits" && (
-            <div style={{ position: "absolute", right: 12, bottom: 12, background: "rgba(255,255,255,0.94)", border: "1px solid var(--border-main)", padding: "5px 8px", fontSize: 10, color: "var(--text-secondary)" }}>
-              <div style={{ marginBottom: 3 }}>{GRADIENTS.find(g => g.id === view.gradient)?.label}</div>
-              <div style={{ width: 150, height: 6, background: RAMP_CSS }} />
-              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 2 }}>
-                <span>{view.gradient === "interval" ? "long Δt" : view.gradient === "progress" ? "start" : "0"}</span>
-                <span>{legendTop(view.gradient, topSpeed)}</span>
-              </div>
+          {viewOpen && (
+            <div style={{ position: "absolute", left: 0, top: fieldMode === "3d" ? 56 : 0, bottom: 0, right: fieldMode === "split" ? SPLIT_3D : 0, pointerEvents: "none" }}>
+              <div style={{ pointerEvents: "auto" }}><ViewPanel view={view} onChange={setView} onClose={() => setViewOpen(false)} /></div>
             </div>
           )}
-          <Legend />
         </div>
         {view.charts && shown && (
           <Charts
@@ -1198,6 +1329,11 @@ const VIEW_HELP: Partial<Record<keyof ViewOptions, string>> = {
   flipped: "The same trajectory as the other alliance would run it.",
   corridor: "Around a pathfind estimate, the band the robot can use: a bumper's reach each side.",
   navgrid: "The cells the pathfinder keeps out of (drawn in the Field tab): only the \"?\" segments obey them.",
+  tags: "The field's AprilTags (WPILib's layout for the project's field), each with a tick toward where it faces.",
+  occluders: "The field's structures as a 2.5D map (drawn in the Field tab, or estimated from the AprilTags): footprints darker the taller, with their height. A tag behind one is not seen.",
+  visionMap: "How many AprilTags the cameras can see from every point of the field, turning to the best heading: red none, yellow one, greener more. Takes a moment to compute.",
+  poseSigma: "Around the trajectory, how well the robot knows where it is (two sigma): it widens as the odometry drifts and tightens where the cameras see tags. From a pose known to 5 cm at the start.",
+  cameras: "The robot's cameras (Robot tab): from the playback robot, or the selected waypoint, each camera's field of view and a line to every tag it detects. On the trajectory, a halo: green where a tag is in view, red where none is.",
   charts: "Speed, acceleration, turn rate, heading, current and grip over time, under the field.",
 }
 
@@ -1221,8 +1357,9 @@ function ViewPanel({ view, onChange, onClose }: { view: ViewOptions; onChange: (
       <div title="WPILib puts the blue alliance at x = 0. Mirror (or turn) the field picture so its blue side is there. Coordinates do not change.">
         <PropertyRow label="Blue alliance at x = 0">
           <select style={propertyInputStyle} value={view.fieldFlip} onChange={e => onChange({ ...view, fieldFlip: e.target.value as ViewOptions["fieldFlip"] })}>
-            <option value="mirror">Mirror the picture</option>
+            <option value="auto">Automatic (by the game's symmetry)</option>
             <option value="rotate">Turn the picture 180°</option>
+            <option value="mirror">Mirror the picture</option>
             <option value="none">Picture as is</option>
           </select>
         </PropertyRow>
@@ -1262,7 +1399,7 @@ function ViewPanel({ view, onChange, onClose }: { view: ViewOptions; onChange: (
       </PropertyRow>
       {([
         ["field", "Field"], ["grid", "Grid (1 m)"], ["guess", "Guess (spline)"], ["trajectory", "Trajectory"],
-        ["samples", "Samples"], ["waypoints", "Waypoints & constraints"], ["corridor", "Pathfind corridor"], ["navgrid", "Navgrid (pathfinder)"], ["charts", "Charts"], ["flipped", "Other alliance (mirror)"],
+        ["samples", "Samples"], ["waypoints", "Waypoints & constraints"], ["corridor", "Pathfind corridor"], ["navgrid", "Navgrid (pathfinder)"], ["tags", "AprilTags"], ["cameras", "Cameras & what they see"], ["occluders", "Structures (2.5D)"], ["visionMap", "Vision map"], ["poseSigma", "Pose uncertainty"], ["charts", "Charts"], ["flipped", "Other alliance (mirror)"],
       ] as [keyof ViewOptions, string][]).map(([key, label]) => (
         <div key={key} title={VIEW_HELP[key]}>
           <PropertyRow label={label}>
@@ -1275,26 +1412,58 @@ function ViewPanel({ view, onChange, onClose }: { view: ViewOptions; onChange: (
 }
 
 function ConstraintMenu({ active, onPick }: { active: ConstraintType | null; onPick: (t: ConstraintType) => void }) {
-  const [open, setOpen] = useState(false)
   const meta = active ? constraintMeta(active) : null
+  const iconOf = (type: ConstraintType, icon: string) =>
+    type === "stopPoint" ? <StopIcon size={13} /> : type === "seeTags" ? <AprilTagIcon size={13} /> : <i className={`ti ${icon}`} style={{ color: "#e95420" }} />
   return (
-    <span style={{ position: "relative" }}>
-      <Toggle on={!!active} onClick={() => setOpen(o => !o)} icon={meta?.icon ?? "ti-adjustments-alt"} label={meta ? meta.label : "Constraint ▾"} />
-      {open && (
+    <ToolMenu title="A constraint on a waypoint or a segment: pick it, then click where it goes." on={!!active} minWidth={250}
+      icon={meta ? iconOf(meta.type, meta.icon) : <i className="ti ti-adjustments-alt" />} label={meta ? meta.label : "Constraint"}
+      items={CONSTRAINTS.map(c => ({ icon: iconOf(c.type, c.icon), label: c.label, hint: c.hint, note: c.scope === "both" ? "point or segment" : c.scope, on: c.type === active, onClick: () => onPick(c.type) }))} />
+  )
+}
+
+interface MenuItem { icon: ReactNode; label: string; hint: string; k?: string; note?: string; on?: boolean; onClick: () => void }
+
+/** A toolbar button that opens a list. The list is fixed to the window, so the
+ * toolbar can clip its buttons without clipping the list. */
+function ToolMenu({ icon, label, title, on, items, align = "left", minWidth = 230 }: {
+  icon: ReactNode; label: string; title: string; on: boolean; items: (MenuItem | "sep")[]; align?: "left" | "right"; minWidth?: number
+}) {
+  const compact = useContext(CompactToolbar)
+  const [at, setAt] = useState<{ left: number; top: number } | null>(null)
+  return (
+    <span title={title} style={{ flexShrink: 0 }}>
+      <button
+        onClick={e => {
+          if (at) { setAt(null); return }
+          const r = e.currentTarget.getBoundingClientRect()
+          const left = align === "right" ? r.right - minWidth : r.left
+          setAt({ left: Math.max(4, Math.min(left, window.innerWidth - minWidth - 4)), top: r.bottom + 2 })
+        }}
+        style={{
+          display: "flex", alignItems: "center", gap: 4, fontSize: 11, padding: "3px 8px", height: 26, cursor: "pointer",
+          border: "1px solid var(--btn-classic-border)", borderRadius: 2,
+          background: on || at ? "var(--toolbar-active-bg)" : "var(--btn-classic-bg)", color: "var(--text-primary)",
+        }}>
+        {icon} {!compact && label} ▾
+      </button>
+      {at && (
         <>
-          <div style={{ position: "fixed", inset: 0, zIndex: 30 }} onClick={() => setOpen(false)} />
-          <div style={{ position: "absolute", top: 28, left: 0, zIndex: 31, minWidth: 250, background: "var(--bg-page)", border: "1px solid var(--border-dark)", boxShadow: "2px 2px 0 var(--shadow-soft)", padding: "3px 0" }}>
-            {CONSTRAINTS.map(c => (
-              <div key={c.type} title={c.hint}
-                onClick={() => { setOpen(false); onPick(c.type) }}
-                onMouseEnter={e => (e.currentTarget.style.background = "var(--tree-hover-bg)")}
-                onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-                style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 12px", fontSize: 12, cursor: "pointer" }}>
-                {c.type === "stopPoint" ? <StopIcon size={13} /> : <i className={`ti ${c.icon}`} style={{ color: "#e95420" }} />}
-                <span>{c.label}</span>
-                <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--text-muted)" }}>{c.scope === "both" ? "point or segment" : c.scope}</span>
-              </div>
-            ))}
+          <div style={{ position: "fixed", inset: 0, zIndex: 30 }} onClick={() => setAt(null)} />
+          <div style={{ position: "fixed", left: at.left, top: at.top, zIndex: 31, minWidth, background: "var(--bg-page)", border: "1px solid var(--border-dark)", boxShadow: "2px 2px 0 var(--shadow-soft)", padding: "3px 0" }}>
+            {items.map((it, i) => it === "sep"
+              ? <div key={i} style={{ height: 1, background: "var(--border-light)", margin: "3px 0" }} />
+              : (
+                <div key={i} title={it.hint}
+                  onClick={() => { setAt(null); it.onClick() }}
+                  onMouseEnter={e => (e.currentTarget.style.background = "var(--tree-hover-bg)")}
+                  onMouseLeave={e => (e.currentTarget.style.background = it.on ? "var(--toolbar-active-bg)" : "transparent")}
+                  style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 12px", fontSize: 12, cursor: "pointer", background: it.on ? "var(--toolbar-active-bg)" : "transparent" }}>
+                  <span style={{ width: 14, display: "flex", justifyContent: "center" }}>{it.icon}</span>
+                  <span>{it.label}</span>
+                  {(it.note || it.k) && <span style={{ marginLeft: "auto", paddingLeft: 12, fontSize: 10, color: "var(--text-muted)" }}>{it.note ?? it.k}</span>}
+                </div>
+              ))}
           </div>
         </>
       )}
@@ -1302,7 +1471,11 @@ function ConstraintMenu({ active, onPick }: { active: ConstraintType | null; onP
   )
 }
 
+/** True while the toolbar is too narrow for its labels. */
+const CompactToolbar = createContext(false)
+
 function ToolButton({ on, onClick, label, k, desc, children }: { on: boolean; onClick: () => void; label: string; k: string; desc: string; children: ReactNode }) {
+  const compact = useContext(CompactToolbar)
   return (
     <button onClick={onClick} title={`${label} (${k})\n${desc}`}
       style={{
@@ -1310,7 +1483,7 @@ function ToolButton({ on, onClick, label, k, desc, children }: { on: boolean; on
         border: "1px solid var(--btn-classic-border)", borderRadius: 2,
         background: on ? "var(--toolbar-active-bg)" : "var(--btn-classic-bg)", color: "var(--text-primary)",
       }}>
-      {children} {label} <span style={{ fontSize: 9.5, color: "var(--text-muted)" }}>{k}</span>
+      {children} {!compact && label} <span style={{ fontSize: 9.5, color: "var(--text-muted)" }}>{k}</span>
     </button>
   )
 }
@@ -1446,34 +1619,33 @@ function headingAt(traj: Trajectory | null, w: Waypoint): number {
 export function loadView(): ViewOptions {
   try {
     const raw = localStorage.getItem(VIEW_KEY)
-    if (raw) return { ...DEFAULT_VIEW, ...JSON.parse(raw) }
+    if (raw) {
+      const saved = JSON.parse(raw)
+      // Views saved before the automatic flip mirrored 2026's picture by default: wrong for a
+      // rotational field. Once, they move to automatic.
+      if (saved.viewVersion !== VIEW_VERSION) {
+        saved.fieldFlip = "auto"
+        saved.viewVersion = VIEW_VERSION
+      }
+      return { ...DEFAULT_VIEW, ...saved }
+    }
   } catch { /* defaults */ }
   return DEFAULT_VIEW
 }
 
-function MirrorMenu({ onMirror }: { onMirror: (how: "alliance" | "vertical", copy: boolean) => void }) {
-  const [open, setOpen] = useState(false)
-  const item = (label: string, hint: string, f: () => void) => (
-    <div title={hint} onClick={() => { setOpen(false); f() }}
-      onMouseEnter={e => (e.currentTarget.style.background = "var(--tree-hover-bg)")}
-      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-      style={{ padding: "5px 12px", fontSize: 12, cursor: "pointer" }}>{label}</div>
-  )
-  return (
-    <span style={{ position: "relative" }} title="Mirror the path: across the field to the other alliance, or top to bottom.">
-      <Toggle on={open} onClick={() => setOpen(o => !o)} icon="ti-flip-vertical" label="Mirror ▾" />
-      {open && (
-        <>
-          <div style={{ position: "fixed", inset: 0, zIndex: 30 }} onClick={() => setOpen(false)} />
-          <div style={{ position: "absolute", top: 28, right: 0, zIndex: 31, minWidth: 240, background: "var(--bg-page)", border: "1px solid var(--border-dark)", boxShadow: "2px 2px 0 var(--shadow-soft)", padding: "3px 0" }}>
-            {item("Other alliance → new path", "A copy as the other alliance would run it: x mirrored, headings turned.", () => onMirror("alliance", true))}
-            {item("Top ↔ bottom → new path", "A copy on the other side of the field: y mirrored, headings turned.", () => onMirror("vertical", true))}
-            <div style={{ height: 1, background: "var(--border-light)", margin: "3px 0" }} />
-            {item("Other alliance (this path)", "Mirror this path in place (Ctrl+Z undoes it).", () => onMirror("alliance", false))}
-            {item("Top ↔ bottom (this path)", "Flip this path in place (Ctrl+Z undoes it).", () => onMirror("vertical", false))}
-          </div>
-        </>
-      )}
-    </span>
-  )
+/** How much of the editor the 3D view takes when the screen is split. */
+const SPLIT_3D = "46%"
+
+/** What the field area shows: the 2D editor, the 3D view, or both side by side. */
+type FieldMode = "2d" | "3d" | "split"
+const FIELD_MODE_KEY = "ares.pathsMode"
+
+function loadFieldMode(): FieldMode {
+  try {
+    const m = localStorage.getItem(FIELD_MODE_KEY)
+    if (m === "2d" || m === "3d" || m === "split") return m
+    // Before the modes, the 3D button split the screen.
+    if (localStorage.getItem("ares.paths3d") === "1") return "split"
+  } catch { /* defaults */ }
+  return "2d"
 }

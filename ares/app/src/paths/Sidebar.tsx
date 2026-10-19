@@ -3,7 +3,7 @@ import type { RobotNames } from "../autos/CommandTree"
 import { markerLink } from "../autos/robotNames"
 import Thumb from "../ui/Thumb"
 import { FolderRow, ITEM_MIME, LooseDrop, groupByFolder } from "../ui/Folders"
-import { GLYPH, StopIcon, WaypointIcon, positionColor } from "./glyphs"
+import { AprilTagIcon, GLYPH, StopIcon, WaypointIcon, positionColor } from "./glyphs"
 import { linkedPose } from "../vars/variables"
 import {
   PathEntry, PathSpec, PathStatus, SegmentMode, Selection, WaypointKind, constraintChip, constraintMeta, kindOf, rangeOf, segmentMode, stopAt, targetLabel, waitAt,
@@ -31,7 +31,7 @@ interface Props {
   onDeleteEvent: (i: number) => void
   /** The robot code's names, for marking the event markers that do nothing on the robot. */
   robotNames?: RobotNames | null
-  /** Folders (PathPlanner's path folders): the project's, and moving paths into them. */
+  /** Folders: the project's, and moving paths into them. */
   folders: string[]
   folderOpen: (name: string) => boolean
   onToggleFolder: (name: string) => void
@@ -52,7 +52,7 @@ const NEXT_KIND: Record<WaypointKind, WaypointKind> = { pose: "translation", tra
 const NEXT_START: Record<WaypointKind, WaypointKind> = { pose: "translation", translation: "unknown", unknown: "continue", continue: "pose", empty: "pose" }
 export const KIND_LABEL: Record<WaypointKind, string> = { pose: "Pose", translation: "Translation", empty: "Empty", unknown: "Unknown start", continue: "Continue" }
 
-// Choreo's sidebar: the project's paths, then the open path's waypoints,
+// The sidebar: the project's paths, then the open path's waypoints,
 // constraints and event markers as lists. Every row says what it is at a
 // glance (the same glyphs as the field) and the common edits are one click
 // on the row itself: a waypoint's type, its stop, deleting it, dragging it
@@ -201,7 +201,7 @@ export default function Sidebar(p: Props) {
                 <Item key={i} active={sel} dim={!on} title={`${meta.label}: ${meta.hint}`}
                   onClick={() => p.onSelect({ kind: "constraint", index: i })}
                   onMouseEnter={() => p.onHover({ kind: "constraint", index: i })}>
-                  {c.type === "stopPoint" ? <StopIcon /> : <i className={`ti ${meta.icon}`} style={{ fontSize: 14, color: sel ? "#ffffff" : "#e95420" }} />}
+                  {c.type === "stopPoint" ? <StopIcon /> : c.type === "seeTags" ? <AprilTagIcon size={14} inverted={sel} /> : <i className={`ti ${meta.icon}`} style={{ fontSize: 14, color: sel ? "#ffffff" : "#e95420" }} />}
                   <Label>
                     {meta.label}
                     {c.type !== "stopPoint" && <Dim sel={sel}> {constraintChip(c).replace(/^≤ /, "≤")}</Dim>}

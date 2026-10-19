@@ -1,7 +1,7 @@
 {
   "featureId": "AresLib",
   "name": "Ares",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "groupId": "com.stzteam.features.ares",
   "author": "STZ-Robotics",
   "description": "Runs what Ares plans: follows its trajectories with the wheel forces as feedforward, and builds its autos from the robot's named commands and conditions.",
@@ -14,7 +14,7 @@
     {
       "groupId": "com.stzteam.features.ares",
       "artifactId": "AresLib",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "isProcessor": false
     }
   ]

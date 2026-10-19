@@ -143,7 +143,11 @@ public final class NavGrid {
     int sc = (int) Math.floor(a.getX() / node), sr = (int) Math.floor(a.getY() / node);
     int gc = (int) Math.floor(b.getX() / node), gr = (int) Math.floor(b.getY() / node);
     if (sc < 0 || sr < 0 || sc >= cols || sr >= rows || gc < 0 || gr < 0 || gc >= cols || gr >= rows) return null;
-    int start = sr * cols + sc, goal = gr * cols + gc;
+    // A start or goal in a blocked cell (a pose against a wall, or in a zone the navgrid closes, as
+    // a shooting spot by the tower): route from and to the nearest open cell and drive that last
+    // stretch straight, as PathPlanner does, instead of giving up on the whole way.
+    int start = nearestOpen(sc, sr), goal = nearestOpen(gc, gr);
+    if (start < 0 || goal < 0) return null;
     Map<Integer, Double> g = new HashMap<>();
     Map<Integer, Integer> came = new HashMap<>();
     Set<Integer> closed = new HashSet<>();
@@ -179,7 +183,11 @@ public final class NavGrid {
     for (Integer k = goal; k != null; k = came.get(k)) cells.add(0, k);
     var pts = new ArrayList<Translation2d>();
     pts.add(a);
-    for (int i = 1; i < cells.size() - 1; i++) pts.add(center(cells.get(i) % cols, cells.get(i) / cols));
+    // The ends' own cells stand for a and b, unless they were moved out of a blocked one.
+    boolean startMoved = start != sr * cols + sc, goalMoved = goal != gr * cols + gc;
+    for (int i = startMoved ? 0 : 1; i < cells.size() - (goalMoved ? 0 : 1); i++) {
+      pts.add(center(cells.get(i) % cols, cells.get(i) / cols));
+    }
     pts.add(b);
     // Line of sight: keep only the corners the straight line cannot skip.
     var out = new ArrayList<Translation2d>();
@@ -192,6 +200,30 @@ public final class NavGrid {
       i = j;
     }
     return out;
+  }
+
+  /** The cell itself if it is open, else the nearest open one (ring by ring), or -1 if none. */
+  private int nearestOpen(int c, int r) {
+    if (!cell(c, r)) return r * cols() + c;
+    int cols = cols(), rows = rows();
+    for (int ring = 1; ring < Math.max(cols, rows); ring++) {
+      int best = -1;
+      double bestD = Double.POSITIVE_INFINITY;
+      for (int dr = -ring; dr <= ring; dr++) {
+        for (int dc = -ring; dc <= ring; dc++) {
+          if (Math.max(Math.abs(dc), Math.abs(dr)) != ring) continue;
+          int nc = c + dc, nr = r + dr;
+          if (nc < 0 || nr < 0 || nc >= cols || nr >= rows || cell(nc, nr)) continue;
+          double d = Math.hypot(dc, dr);
+          if (d < bestD) {
+            bestD = d;
+            best = nr * cols + nc;
+          }
+        }
+      }
+      if (best >= 0) return best;
+    }
+    return -1;
   }
 
   private boolean passable(int c, int r, int start, int goal) {

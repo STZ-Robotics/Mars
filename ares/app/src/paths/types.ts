@@ -1,3 +1,4 @@
+import type { Occluder } from "../vision/vision"
 // What the path editor exchanges with the backend. Mirrors ares-core's
 // PathSpec and Trajectory and the app's FieldDoc (serde, camelCase).
 import type { NavGrid } from "../field/navgrid"
@@ -20,7 +21,7 @@ export interface Waypoint {
   section?: string
   /** The segment to the next waypoint is drawn by hand (a Bézier). */
   manualNext?: boolean
-  /** Bézier control points, field coordinates (PathPlanner's). */
+  /** Bézier control points, field coordinates. */
   prevControl?: [number, number]
   nextControl?: [number, number]
   /** The segment to the next waypoint is pathfound at run time. */
@@ -28,7 +29,7 @@ export interface Waypoint {
   exprs?: Exprs
 }
 
-/** The limits the robot pathfinds with (PathPlanner's PathConstraints). */
+/** The limits the robot pathfinds with. */
 export interface PathfindOptions {
   maxVelocityMps?: number
   maxAccelerationMps2?: number
@@ -61,6 +62,7 @@ export type ConstraintKind =
   | { type: "keepInRectangle"; x: number; y: number; widthM: number; heightM: number }
   | { type: "keepInLane"; toleranceM: number }
   | { type: "keepOutCircle"; x: number; y: number; radiusM: number }
+  | { type: "seeTags"; camera?: string; minTags?: number; detourM?: number }
 
 export type ConstraintType = ConstraintKind["type"]
 
@@ -68,7 +70,7 @@ export type ScopedConstraint = ConstraintKind & { from: Target; to?: Target; ena
 
 /**
  * Something to do at a moment of the path. `command` is the command it runs,
- * built here as an auto's steps are (PathPlanner's markers carry one); without
+ * built here as an auto's steps are; without
  * it, the robot code's command with the marker's name runs. Either way,
  * ares.event(name) is true while it lasts.
  */
@@ -76,7 +78,7 @@ export interface EventMarker { name: string; target: Target; offsetS: number; du
 
 export interface PathConstraints { maxVelocityMps?: number; maxAngularVelocityDps?: number; exprs?: Exprs }
 
-/** A heading to hit partway along a segment (PathPlanner's rotation targets). */
+/** A heading to hit partway along a segment. */
 export interface RotationTarget { segment: number; fraction: number; headingDeg: number; exprs?: Exprs }
 
 export type ZoneShape =
@@ -150,6 +152,8 @@ export interface Trajectory {
   sections?: Section[]
   variant?: string
   sourceHash?: string
+  /** What the planner has to say: how well a See AprilTags span kept tags in view, or that it planned without it. */
+  notes?: string[]
 }
 
 export interface PathfindSpan {
@@ -169,7 +173,11 @@ export interface PathfindSpan {
 
 export interface KeepOut { x: number; y: number; radiusM: number; exprs?: Exprs }
 
-export interface FieldDoc { walls: boolean; keepOut: KeepOut[]; slowZones?: SlowZone[]; navgrid?: NavGrid }
+export interface FieldDoc {
+  walls: boolean; keepOut: KeepOut[]; slowZones?: SlowZone[]; navgrid?: NavGrid
+  /** The field's structures as a 2.5D map, for what the cameras can see. Unset: estimated from the AprilTags. */
+  occluders?: Occluder[] | null
+}
 
 export interface PathEntry { name: string; spec: PathSpec | null; error: string | null }
 
@@ -207,7 +215,7 @@ export interface ViewOptions {
    * WPILib puts the origin: as is, mirrored left-right, or turned 180°.
    * Only the picture changes; coordinates are always WPILib's.
    */
-  fieldFlip: "none" | "mirror" | "rotate"
+  fieldFlip: "auto" | "none" | "mirror" | "rotate"
   field: boolean
   grid: boolean
   guess: boolean
@@ -225,12 +233,23 @@ export interface ViewOptions {
   guides: boolean
   /** The navgrid's blocked cells, faintly, under the paths. */
   navgrid: boolean
+  /** The field's AprilTags. */
+  tags: boolean
+  /** What the cameras see (from the playback robot or the selected waypoint), and a halo on the
+   * trajectory where tags are in view. */
+  cameras: boolean
+  /** The field's structures (the 2.5D map), darker the taller. */
+  occluders: boolean
+  /** How many AprilTags the cameras can see from every point of the field, at the best heading. */
+  visionMap: boolean
+  /** Around the trajectory, how well the robot knows where it is: a band of two sigma. */
+  poseSigma: boolean
   gradient: Gradient
 }
 
 export const DEFAULT_VIEW: ViewOptions = {
-  fieldStyle: "blueprint", robotColor: "#22d3ee", fieldFlip: "mirror",
-  field: true, grid: false, guess: true, trajectory: true, samples: false, waypoints: true, flipped: false, corridor: true, charts: true, snap: 0, guides: true, navgrid: true, gradient: "velocity",
+  fieldStyle: "blueprint", robotColor: "#22d3ee", fieldFlip: "auto",
+  field: true, grid: false, guess: true, trajectory: true, samples: false, waypoints: true, flipped: false, corridor: true, charts: true, snap: 0, guides: true, navgrid: true, tags: true, cameras: true, occluders: true, visionMap: false, poseSigma: true, gradient: "velocity",
 }
 
 export const GRADIENTS: { id: Gradient; label: string; hint: string }[] = [
@@ -248,11 +267,12 @@ export const CONSTRAINTS: { type: ConstraintType; label: string; icon: string; s
   { type: "maxVelocity", label: "Max Velocity", icon: "ti-gauge", scope: "both", hint: "A cap on the chassis' speed." },
   { type: "maxAcceleration", label: "Max Acceleration", icon: "ti-trending-up", scope: "both", hint: "A cap on the chassis' acceleration." },
   { type: "maxAngularVelocity", label: "Max Angular Velocity", icon: "ti-rotate", scope: "both", hint: "A cap on the turn rate." },
-  { type: "pointAt", label: "Point At", icon: "ti-target-arrow", scope: "both", hint: "A side of the robot (the front, the back, a side, any angle) faces a field point, within a tolerance: PathPlanner's point-towards zones." },
+  { type: "pointAt", label: "Point At", icon: "ti-target-arrow", scope: "both", hint: "A side of the robot (the front, the back, a side, any angle) faces a field point, within a tolerance." },
   { type: "keepInCircle", label: "Keep In Circle", icon: "ti-circle-dashed", scope: "both", hint: "Every bumper corner stays inside a circle." },
   { type: "keepInRectangle", label: "Keep In Rectangle", icon: "ti-square-dashed", scope: "both", hint: "Every bumper corner stays inside a rectangle." },
   { type: "keepInLane", label: "Keep In Lane", icon: "ti-road", scope: "segment", hint: "The center stays within a distance of the straight line between the ends." },
   { type: "keepOutCircle", label: "Keep Out Circle", icon: "ti-circle-off", scope: "both", hint: "The bumper stays out of a circle, on this part of the path only." },
+  { type: "seeTags", label: "See AprilTags", icon: "apriltag", scope: "segment", hint: "Priority to the AprilTags: between the two waypoints the robot turns, as little as it can, so one of its fixed cameras keeps tags in view (for the pose estimate). Planned free first: if that already sees enough tags, it stays as fast as it was." },
 ]
 
 export function constraintMeta(type: ConstraintType) {
@@ -272,10 +292,30 @@ export function newConstraint(type: ConstraintType, from: Target, to: Target | u
     case "keepInRectangle": return { type, x: cx - 1.5, y: cy - 1, widthM: 3, heightM: 2, ...scope }
     case "keepInLane": return { type, toleranceM: 0.3, ...scope }
     case "keepOutCircle": return { type, x: cx, y: cy, radiusM: 0.5, ...scope }
+    case "seeTags": return { type, ...scope }
   }
 }
 
 /** The kind a waypoint reads as (files from before kinds use the heading). */
+/** The alliance colors, as the field draws them. */
+export const ALLIANCE_COLOR = { blue: "#2563eb", red: "#dc2626" } as const
+
+/**
+ * Whose half of the field a path starts on: blue's (x below the middle) or red's, by its first
+ * waypoint with a place (an unknown start has none). Null for a path with nowhere to start.
+ */
+export function allianceOf(spec: PathSpec | null, lengthM: number): "blue" | "red" | null {
+  const w = spec?.waypoints.find(q => kindOf(q) !== "unknown")
+  return w ? (w.x < lengthM / 2 ? "blue" : "red") : null
+}
+
+/** What the alliance chip says about how the robot runs it (AresLib flips paths on red). */
+export function allianceHint(side: "blue" | "red"): string {
+  return side === "blue"
+    ? "Starts on the blue half. AresLib reads paths as blue's: on blue it runs here, on red it runs the same path turned onto red's half."
+    : "Starts on the RED half. AresLib reads every path as blue's and flips it on red: on red this one would run turned onto blue's half. Draw it on blue's half (Mirror ▾ → to the other alliance) unless it is meant that way."
+}
+
 export function kindOf(w: Waypoint): WaypointKind {
   if (w.kind === "pose" && w.headingDeg === undefined) return "translation"
   if (w.kind) return w.kind
@@ -346,7 +386,7 @@ export function sampleAt(traj: Trajectory, t: number): Sample {
   }
 }
 
-/** A new path stops at both ends, like Choreo's. */
+/** A new path stops at both ends. */
 export function newPathSpec(name: string): PathSpec {
   return {
     name,
@@ -420,6 +460,7 @@ export function constraintChip(c: ScopedConstraint): string {
     case "keepInRectangle": return "Keep in ▭"
     case "keepInLane": return `Lane ±${c.toleranceM} m`
     case "keepOutCircle": return "Keep out ⊘"
+    case "seeTags": return `${c.minTags && c.minTags > 1 ? `${c.minTags}+ tags` : "tags"}${c.camera ? ` · ${c.camera}` : ""}${c.detourM ? ` · ↝${c.detourM} m` : ""}`
   }
 }
 
@@ -463,7 +504,7 @@ export function manualSide(spec: PathSpec, i: number, side: "prev" | "next"): bo
 /**
  * Moves one control point. When both of the waypoint's segments are manual
  * the other control turns with it (same line, its own length) so the curve
- * stays smooth, PathPlanner's behavior; `free` breaks the tangent instead.
+ * stays smooth; `free` breaks the tangent instead.
  */
 export function moveControl(spec: PathSpec, i: number, side: "prev" | "next", x: number, y: number, free: boolean): PathSpec {
   const ws = spec.waypoints.map(w => ({ ...w }))

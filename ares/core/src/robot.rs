@@ -22,7 +22,9 @@
 //!     "driveCurrentLimitA": 120,
 //!     "wheelCof": 0.9
 //!   },
-//!   "model": { "path": "meshes/robot.stl", "scale": 0.001 }
+//!   "model": { "path": "meshes/robot.stl", "scale": 0.001 },
+//!   "cameras": [{ "name": "front", "xM": 0.34, "yM": 0.07, "zM": 0.42, "pitchDeg": -10,
+//!                 "horizontalFovDeg": 82, "verticalFovDeg": 56.2 }]
 //! }
 //! ```
 
@@ -78,6 +80,9 @@ pub struct RobotConfig {
     pub drivetrain: Drivetrain,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<ModelRef>,
+    /// The fixed cameras that see AprilTags: where each one is on the chassis and what it sees.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cameras: Vec<CameraConfig>,
     /// Expressions behind numeric fields, by dotted path
     /// (`"drivetrain.wheelRadiusM"`); see `path::Exprs`.
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
@@ -150,6 +155,40 @@ pub struct ModelRef {
     /// Roll, pitch, yaw applied to the model, in degrees.
     #[serde(default)]
     pub rotation_deg: [f64; 3],
+}
+
+/// A FIXED camera on the robot (bolted to the chassis: it turns with the robot and nothing else; a
+/// camera on a turret, an arm or an elevator moves on its own and is not modeled), as WPILib's
+/// robot-to-camera `Transform3d`: from the robot's center on
+/// the carpet (X forward, Y left, Z up) to the lens, then roll, pitch and yaw about the camera's
+/// own X, Y and Z (extrinsic, WPILib's order). WPILib's pitch is positive tilting down: a camera
+/// tilted 10 degrees up has `pitchDeg: -10`. The same numbers go in the robot code as they are.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CameraConfig {
+    pub name: String,
+    pub x_m: f64,
+    pub y_m: f64,
+    pub z_m: f64,
+    #[serde(default)]
+    pub roll_deg: f64,
+    #[serde(default)]
+    pub pitch_deg: f64,
+    #[serde(default)]
+    pub yaw_deg: f64,
+    /// The whole horizontal and vertical field of view.
+    pub horizontal_fov_deg: f64,
+    pub vertical_fov_deg: f64,
+    /// Farthest a tag is still read reliably.
+    #[serde(default = "default_camera_range")]
+    pub max_range_m: f64,
+    /// The preset it came from ("limelight3g", "ov9281-70"...), for the app to show.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+}
+
+fn default_camera_range() -> f64 {
+    5.0
 }
 
 impl RobotConfig {
@@ -234,6 +273,28 @@ impl RobotConfig {
             });
             if collinear {
                 p.push("the modules are all on one line".into());
+            }
+        }
+        for (i, c) in self.cameras.iter().enumerate() {
+            let label = if c.name.trim().is_empty() { format!("camera {}", i + 1) } else { format!("camera {}", c.name) };
+            if c.name.trim().is_empty() {
+                p.push(format!("{label} has no name"));
+            }
+            if self.cameras.iter().filter(|o| o.name == c.name).count() > 1 && !c.name.trim().is_empty() {
+                p.push(format!("two cameras are called {}", c.name));
+            }
+            for (what, v) in [("xM", c.x_m), ("yM", c.y_m), ("zM", c.z_m), ("rollDeg", c.roll_deg), ("pitchDeg", c.pitch_deg), ("yawDeg", c.yaw_deg)] {
+                if !v.is_finite() {
+                    p.push(format!("{label}: {what} is not a number"));
+                }
+            }
+            for (what, v) in [("horizontalFovDeg", c.horizontal_fov_deg), ("verticalFovDeg", c.vertical_fov_deg)] {
+                if !(v.is_finite() && v > 0.0 && v < 180.0) {
+                    p.push(format!("{label}: {what} has to be between 0 and 180, it is {v}"));
+                }
+            }
+            if !(c.max_range_m.is_finite() && c.max_range_m > 0.0) {
+                p.push(format!("{label}: maxRangeM has to be a positive number, it is {}", c.max_range_m));
             }
         }
         if let Some(model) = &self.model {
@@ -325,6 +386,7 @@ pub(crate) mod tests {
                 max_speed_fraction: None,
             }),
             model: None,
+            cameras: vec![],
             exprs: Default::default(),
         }
     }

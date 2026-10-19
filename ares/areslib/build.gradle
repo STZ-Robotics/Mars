@@ -50,15 +50,54 @@ dependencies {
     // the real scheduler.
     nativeRelease wpi.java.deps.wpilibJniRelease(wpi.platforms.desktop)
 
+    // The end-to-end test drives a simulated CTRE swerve: Phoenix 6 from
+    // vendordeps/, for the tests only.
+    testImplementation wpi.java.vendor.java()
+    nativeRelease wpi.java.vendor.jniRelease(wpi.platforms.desktop)
+
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.1'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 test {
-    useJUnitPlatform()
+    useJUnitPlatform { excludeTags 'e2e' }
 }
 
 wpi.java.configureTestTasks(test)
+
+// End to end: the planner (the real `ares plan`, Rust) plans a path for a robot, and AresLib follows
+// it on a simulated CTRE swerve built from the same .robot.json. Not in `test`: it builds the
+// planner (Sleipnir, by CMake) the first time and runs in real time. `./gradlew e2eTest`.
+def e2eDir = layout.buildDirectory.dir('e2e').get().asFile
+// The team's robot from examples/, planned at 85% of the motor's free speed (as the app suggests):
+// at 100% no feedback can catch up, and Ares says so.
+def e2eRobot = file('src/test/resources/e2e/offseason2026.robot.json')
+def e2ePath = file('../examples/paths/hub-run.json')
+
+task planE2E(type: Exec) {
+    description = 'Plans the end-to-end test path with the real planner (ares plan).'
+    inputs.files(e2eRobot, e2ePath, fileTree('../core/src'), fileTree('../planner/src'))
+    outputs.file(new File(e2eDir, 'hub-run.traj.json'))
+    workingDir = file('..')
+    doFirst { e2eDir.mkdirs() }
+    commandLine 'cargo', 'run', '--release', '--quiet', '--bin', 'ares', '--',
+        'plan', e2eRobot.absolutePath, e2ePath.absolutePath, '-o', new File(e2eDir, 'hub-run.traj.json').absolutePath
+}
+
+task e2eTest(type: Test) {
+    description = 'Plans with ares plan and follows on a simulated CTRE swerve.'
+    group = 'verification'
+    dependsOn planE2E
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform { includeTags 'e2e' }
+    systemProperty 'ares.e2e.dir', e2eDir.absolutePath
+    systemProperty 'ares.e2e.robot', e2eRobot.absolutePath
+    if (project.hasProperty('trace')) systemProperty 'ares.e2e.trace', 'true'
+    testLogging { events 'passed', 'skipped', 'failed'; showStandardStreams = true }
+}
+
+wpi.java.configureTestTasks(e2eTest)
 
 publishing {
     publications {

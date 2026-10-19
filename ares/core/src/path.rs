@@ -185,6 +185,14 @@ fn yes() -> bool {
     true
 }
 
+fn one_tag() -> u32 {
+    1
+}
+
+fn is_one_tag(v: &u32) -> bool {
+    *v == 1
+}
+
 fn is_zero(v: &f64) -> bool {
     *v == 0.0
 }
@@ -224,6 +232,21 @@ pub enum ConstraintKind {
     KeepInLane { tolerance_m: f64 },
     /// The bumper clear of a circle, on this part of the path only.
     KeepOutCircle { x: f64, y: f64, radius_m: f64 },
+    /// Keep AprilTags in view of the robot's cameras: along the segment the planner turns the
+    /// robot (as little as it can) so a camera faces tags it can see, the one named or any, until
+    /// `min_tags` are in view (see `vision::aims`). Where no tag can be seen from where the path
+    /// goes, the robot turns freely.
+    SeeTags {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        camera: Option<String>,
+        /// How many tags in view is enough: more is only sought where fewer are seen.
+        #[serde(default = "one_tag", skip_serializing_if = "is_one_tag")]
+        min_tags: u32,
+        /// How far the path may leave its line to find tags (m): where turning is not enough,
+        /// the planner tries a hidden waypoint up to this far from the blind stretch. 0: never.
+        #[serde(default, skip_serializing_if = "is_zero")]
+        detour_m: f64,
+    },
 }
 
 /// The side of the robot a point-at turns to its target, in radians from the front.

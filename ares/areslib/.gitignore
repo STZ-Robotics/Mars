@@ -3,3 +3,5 @@ build/
 bin/
 src/main/java/com/stzteam/features/ares/generated/
 ares-test-nt.json*
+# CTRE's simulated devices' state, written by the simulation tests
+ctre_sim/

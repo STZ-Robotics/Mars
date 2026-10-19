@@ -66,6 +66,12 @@ What both stages model that PathPlanner and Choreo do not:
 - **The bumper**, not a point, against the field walls and keep-out circles.
 - **Every sample says what each module does**: speed, angle, force, load,
   the grip in use and the current the motor draws. Not just how fast, but why.
+- **The cameras.** The `.robot.json` carries each fixed AprilTag camera (bolted
+  to the chassis; one on a turret or an arm is not modeled), its position,
+  roll/pitch/yaw as WPILib's robot-to-camera transform, field of view and range.
+  The app draws what each one sees on the field's tags, and a **See AprilTags**
+  constraint turns the robot, as little as it can, so a camera keeps enough tags
+  in view along a stretch: planned free first, aimed only where that loses them.
 
 The app (`app/`) edits robots, paths and autos and generates the trajectories.
 The robot side is **AresLib** (`areslib/`), a MARS Feature that follows them

@@ -7,7 +7,7 @@ import {
 const L = 16.54, W = 8.07
 
 describe("navgrid", () => {
-  it("has PathPlanner's layout: rows along y, columns along x", () => {
+  it("has the standard layout: rows along y, columns along x", () => {
     const g = emptyGrid(L, W, 0.3)
     expect(rows(g)).toBe(27)
     expect(cols(g)).toBe(56)

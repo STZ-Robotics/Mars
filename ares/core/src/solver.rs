@@ -457,6 +457,7 @@ pub fn solve_between(
         sections: vec![],
         variant: None,
         source_hash: None,
+        notes: Vec::new(),
         samples,
     })
 }

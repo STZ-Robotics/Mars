@@ -1,4 +1,4 @@
-//! Java constants from the project's variables (Choreo's ChoreoVars): the
+//! Java constants from the project's variables (a generated constants class): the
 //! app writes the class (it evaluates the formulas), this puts it in the
 //! robot project, where the project's settings say.
 

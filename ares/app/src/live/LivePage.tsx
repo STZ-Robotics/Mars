@@ -7,7 +7,7 @@ import TimeChart from "../ui/TimeChart"
 import { BarButton, useNtConnection } from "../ui/NtConnect"
 import { LiveState, Pose, Sample, readLive, sample } from "./model"
 
-// The Live tab: the robot as AresLib reports it, as PathPlanner's telemetry
+// The Live tab: the robot as AresLib reports it, as path telemetry
 // shows it. The path being driven, where the trajectory says to be (the
 // target) and where the robot is, with its trail; the speed it is asked for
 // against the speed it has, and how far off it is, over the last seconds.

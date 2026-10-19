@@ -10,6 +10,7 @@ import RobotTurntable, { autoPlaceOffset } from "./RobotTurntable"
 import {
   Check, Derived, GEAR_PRESETS, MOTOR_LABELS, MotorId, MotorInfo, ModelRef, RobotConfig, SwerveConfig,
   rectangleOf, squareModules,
+  CAMERA_PRESETS, newCamera, type CameraConfig,
 } from "./types"
 import { Card, Collapsible, MiniButton, Q, QInput, Toggle } from "../ui/controls"
 import { bindField } from "../vars/bind"
@@ -150,8 +151,32 @@ export default function RobotSettingsPage({ robot, onChange, robotPath }: Props)
               label="Usable speed" dim="plain" unit="% free" optional
               value={dt.maxSpeedFraction === undefined ? undefined : Number((dt.maxSpeedFraction * 100).toFixed(1))}
               onChange={v => setDrive({ maxSpeedFraction: v === undefined ? undefined : v / 100 })}
-              hint="How much of the motor's free speed trajectories may use. Choreo suggests about 80%: the rest is headroom for the feedback controller. Empty = 100%."
+              hint="How much of the motor's free speed trajectories may use. About 80% is a good start: the rest is headroom for the feedback controller. Empty = 100%."
             />
+          </Panel>
+
+          <Panel title="Fixed cameras" icon="ti-camera">
+            {(robot.cameras ?? []).map((c, i) => (
+              <CameraEditor
+                key={i}
+                camera={c}
+                index={i}
+                rb={rb}
+                onChange={patch => set({ cameras: robot.cameras!.map((o, j) => (j === i ? { ...o, ...patch } : o)) })}
+                onRemove={() => set({ cameras: robot.cameras!.filter((_, j) => j !== i) })}
+              />
+            ))}
+            <div style={{ padding: "8px 10px", display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-start" }}>
+              {!(robot.cameras ?? []).length && (
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                  The cameras that read AprilTags. The Paths tab draws what each one sees, and the See AprilTags constraint turns the robot to keep tags in view.
+                </span>
+              )}
+              <span style={{ fontSize: 10.5, color: "var(--status-warning)", lineHeight: 1.4 }}>
+                <b>Fixed cameras only:</b> bolted to the chassis, they turn with the robot and nothing else. A camera on a turret, an arm or an elevator moves on its own and is not modeled: what Ares draws and plans for it would be wrong.
+              </span>
+              <MiniButton onClick={() => set({ cameras: [...(robot.cameras ?? []), newCamera(robot.cameras ?? [])] })}>Add camera</MiniButton>
+            </div>
           </Panel>
 
           {derived && (
@@ -322,5 +347,61 @@ function Stat({ label, value, note, bind }: { label: string; value: string; note
       {note && <span style={{ fontSize: 10, color: "var(--text-muted)", marginLeft: 8 }}>{note}</span>}
       {bind && <span style={{ fontSize: 9.5, color: "var(--mars-red)", marginLeft: 8 }}>limits</span>}
     </PropertyRow>
+  )
+}
+
+/** One camera: where it is on the robot, how it is turned, and what it sees. */
+function CameraEditor({ camera: c, index: i, rb, onChange, onRemove }: {
+  camera: CameraConfig
+  index: number
+  rb: (key: string) => ReturnType<typeof bindField>
+  onChange: (patch: Partial<CameraConfig>) => void
+  onRemove: () => void
+}) {
+  const preset = CAMERA_PRESETS.find(p => p.id === c.model && p.horizontalFovDeg === c.horizontalFovDeg && p.verticalFovDeg === c.verticalFovDeg)
+  const key = (field: string) => rb(`cameras.${i}.${field}`)
+  return (
+    <div style={{ borderBottom: "1px solid var(--border-main)", paddingBottom: 4, marginBottom: 4 }}>
+      <PropertyRow label="Name">
+        <input style={propertyInputStyle} value={c.name} onChange={e => onChange({ name: e.target.value })} />
+        <MiniButton onClick={onRemove} title="Remove this camera">remove</MiniButton>
+      </PropertyRow>
+      <PropertyRow label="Camera">
+        <select
+          style={propertyInputStyle}
+          value={preset?.id ?? ""}
+          onChange={e => {
+            const p = CAMERA_PRESETS.find(q => q.id === e.target.value)
+            if (p) onChange({ model: p.id, horizontalFovDeg: p.horizontalFovDeg, verticalFovDeg: p.verticalFovDeg, maxRangeM: p.maxRangeM })
+            else onChange({ model: undefined })
+          }}
+        >
+          <option value="">Custom</option>
+          {CAMERA_PRESETS.map(p => <option key={p.id} value={p.id}>{p.label} ({p.horizontalFovDeg}° × {p.verticalFovDeg}°)</option>)}
+        </select>
+      </PropertyRow>
+      <div style={{ padding: "2px 10px 4px", fontSize: 10, color: "var(--text-muted)" }}>Fixed to the chassis: it only turns with the robot.</div>
+      <PropertyRow label="Position x, y, z">
+        <div style={{ display: "flex", gap: 4, width: "100%" }} title="From the robot's center on the carpet: X forward, Y left, Z up (WPILib).">
+          <QInput dim="length" {...key("xM")} />
+          <QInput dim="length" {...key("yM")} />
+          <QInput dim="length" {...key("zM")} />
+        </div>
+      </PropertyRow>
+      <PropertyRow label="Roll, pitch, yaw (°)">
+        <div style={{ display: "flex", gap: 4, width: "100%" }} title="WPILib's order and signs: pitch is positive tilting DOWN (a camera tilted up has a negative pitch); yaw is counterclockwise from the front (90 = facing left).">
+          <QInput dim="plain" {...key("rollDeg")} exprDim="angle" />
+          <QInput dim="plain" {...key("pitchDeg")} exprDim="angle" />
+          <QInput dim="plain" {...key("yawDeg")} exprDim="angle" />
+        </div>
+      </PropertyRow>
+      <PropertyRow label="FOV horizontal, vertical (°)">
+        <div style={{ display: "flex", gap: 4, width: "100%" }} title="The whole field of view. Limelight: from the maker. OV9281: depends on the lens.">
+          <QInput dim="plain" {...key("horizontalFovDeg")} />
+          <QInput dim="plain" {...key("verticalFovDeg")} />
+        </div>
+      </PropertyRow>
+      <Q label="Range" dim="length" unit="m" {...key("maxRangeM")} hint="Farthest a tag is still read reliably. Empty = 5 m." optional />
+    </div>
   )
 }

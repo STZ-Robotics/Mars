@@ -251,7 +251,7 @@ function Tuner({ robot, robotPath }: { robot: RobotConfig; robotPath: string }) 
         <div style={{ display: "grid", gridTemplateColumns: "18px 1fr 52px 52px 52px", gap: 4, padding: "0 12px", fontSize: 9.5, color: "var(--text-muted)" }}>
           <span /><span /><span>now</span><span>min</span><span>max</span>
         </div>
-        <label title="AresLib feeds each wheel's force from the trajectory forward. Off: speeds only, as a PathPlanner robot that drops its feedforwards"
+        <label title="AresLib feeds each wheel's force from the trajectory forward. Off: speeds only, with no feedforward"
           style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", fontSize: 11.5 }}>
           <input type="checkbox" checked={code.forceFf} onChange={e => setCode(c => ({ ...c, forceFf: e.target.checked }))} /> Feed the wheel forces forward (AresLib)
         </label>

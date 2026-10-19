@@ -49,9 +49,13 @@ pub struct FieldDoc {
     pub keep_out: Vec<ares_planner::KeepOutCircle>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub slow_zones: Vec<ares_planner::SlowZone>,
-    /// Where the pathfinder may not go (PathPlanner's navgrid).
+    /// Where the pathfinder may not go (the navgrid).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub navgrid: Option<ares_planner::NavGrid>,
+    /// What blocks the cameras' view: the field's structures as a 2.5D map. None: estimated from
+    /// the AprilTags (an empty list means nothing blocks).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub occluders: Option<Vec<ares_core::vision::Occluder>>,
 }
 
 fn yes() -> bool {
@@ -60,7 +64,7 @@ fn yes() -> bool {
 
 impl Default for FieldDoc {
     fn default() -> Self {
-        FieldDoc { walls: true, keep_out: vec![], slow_zones: vec![], navgrid: None }
+        FieldDoc { walls: true, keep_out: vec![], slow_zones: vec![], navgrid: None, occluders: None }
     }
 }
 
@@ -73,11 +77,15 @@ fn field_for(field: &FieldDoc, spec: &PathSpec) -> serde_json::Value {
     if !pathfinds {
         f.navgrid = None;
     }
+    // The 2.5D map only matters to a path that aims its cameras.
+    if !spec.scoped.iter().any(|c| c.enabled && matches!(c.kind, ares_core::path::ConstraintKind::SeeTags { .. })) {
+        f.occluders = None;
+    }
     serde_json::to_value(&f).unwrap_or(serde_json::Value::Null)
 }
 
-/// PathPlanner's navgrid.json, written next to the project so AresLib (or
-/// PathPlannerLib's pathfinder, if the file is copied to deploy/pathplanner)
+/// The navgrid.json (standard format), written next to the project so AresLib (or
+/// any pathfinder that reads the format)
 /// reads the same cells.
 fn navgrid_json(grid: &ares_planner::NavGrid, size: FieldSize) -> serde_json::Value {
     serde_json::json!({
@@ -269,7 +277,7 @@ pub fn field_save(robot_path: String, field: FieldDoc, field_size: Option<FieldS
     }
 }
 
-/// A PathPlanner navgrid.json (theirs or ours), for importing.
+/// A navgrid.json (any in the standard format), for importing.
 #[tauri::command]
 pub fn navgrid_import(path: String) -> Result<ares_planner::NavGrid, String> {
     let text = fs::read_to_string(&path).map_err(|e| format!("Could not read {path}: {e}"))?;
@@ -282,7 +290,7 @@ pub fn navgrid_import(path: String) -> Result<ares_planner::NavGrid, String> {
     Ok(ares_planner::NavGrid { node_size_meters: node, grid })
 }
 
-/// The navgrid as PathPlanner's navgrid.json, wherever the user picks.
+/// The navgrid as a navgrid.json, wherever the user picks.
 #[tauri::command]
 pub fn navgrid_export(path: String, grid: ares_planner::NavGrid, field_size: FieldSize) -> Result<(), String> {
     let mut v = navgrid_json(&grid, field_size);
@@ -371,6 +379,7 @@ pub async fn path_plan(
     field_size: Option<FieldSize>,
     robot_path: Option<String>,
     variant: Option<String>,
+    tags: Option<Vec<ares_core::vision::Tag>>,
 ) -> Result<PlanResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let started = Instant::now();
@@ -382,7 +391,14 @@ pub async fn path_plan(
         if let Some(rp) = robot_path.as_ref() {
             options.start_state = link_start(rp, &mut spec)?;
         }
-        let env = Environment { field: if field.walls { field_size } else { None }, keep_out: field.keep_out, slow_zones: field.slow_zones, navgrid: field.navgrid };
+        let env = Environment {
+            field: if field.walls { field_size } else { None },
+            keep_out: field.keep_out,
+            slow_zones: field.slow_zones,
+            navgrid: field.navgrid,
+            tags: tags.unwrap_or_default(),
+            occluders: field.occluders,
+        };
         let token = CancelToken::default();
         options.cancel = Some(token.clone());
         RUNNING.lock().unwrap().push(token.clone());
@@ -569,6 +585,13 @@ pub fn index_json(robot_path: &str) -> serde_json::Value {
             "modules": r.swerve().modules.iter().map(|m| serde_json::json!({ "name": m.name, "xM": m.x_m, "yM": m.y_m })).collect::<Vec<_>>(),
             // For the pathfinder's obstacles: how far the robot reaches from its center.
             "bumper": { "lengthM": r.bumper.length_m, "widthM": r.bumper.width_m },
+            // What the trajectories were planned with, for AresLib to check against the
+            // drivetrain's constants: a stale .robot.json plans for another robot.
+            "drive": {
+                "wheelRadiusM": r.swerve().wheel_radius_m,
+                "driveGearRatio": r.swerve().drive_gear_ratio,
+                "driveCurrentLimitA": r.swerve().drive_current_limit_a,
+            },
         })
     });
     // The field, for the robot's alliance flip and pathfinding grid.
@@ -712,6 +735,9 @@ mod tests {
         // The robot side needs the modules to mirror the wheel forces.
         assert_eq!(index["robot"]["modules"].as_array().unwrap().len(), 4);
         assert!(index["robot"]["modules"][0]["xM"].is_number());
+        assert!(index["robot"]["drive"]["driveGearRatio"].as_f64().unwrap() > 0.0);
+        assert!(index["robot"]["drive"]["wheelRadiusM"].as_f64().unwrap() > 0.0);
+        assert!(index["robot"]["drive"]["driveCurrentLimitA"].as_f64().unwrap() > 0.0);
         auto_delete(rp.clone(), "Four piece".into()).unwrap();
         assert!(autos_list(rp).is_empty());
     }

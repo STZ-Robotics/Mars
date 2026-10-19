@@ -8,6 +8,7 @@
 //! - [`solver`]: Ares' own time-optimal solver: how fast the robot can follow
 //!   that path, wheel by wheel, motor by motor.
 //! - [`trajectory`]: the result, sampled in time, with what every module does.
+//! - [`vision`]: which AprilTags the robot's cameras see from a pose.
 //!
 //! All units are SI (meters, seconds, radians, newtons, amps) unless a field's
 //! name says otherwise, as in `headingDeg`.
@@ -18,7 +19,9 @@ pub mod motor;
 pub mod path;
 pub mod robot;
 pub mod solver;
+pub mod tag36h11;
 pub mod trajectory;
+pub mod vision;
 
 pub use error::AresError;
 pub use path::{PathConstraints, PathSpec, Waypoint};

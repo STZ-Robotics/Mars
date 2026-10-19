@@ -10,7 +10,7 @@
 //!   trajectories/        what Generate solved (.traj.json, read by AresLib)
 //!   autos/               one .auto.json per auto
 //!   field.json           keep-outs, slow zones, the navgrid
-//!   navgrid.json         the navgrid, PathPlanner's format
+//!   navgrid.json         the navgrid, standard navgrid.json format
 //!   ares-index.json      what AresLib reads first: paths, branches, autos
 //!   gains.json           the gains Tune applied
 //!   characterization.json  what Measure found
@@ -18,9 +18,9 @@
 //! ```
 //!
 //! Opening a project with no robot.json there creates one, from what the
-//! project already says: PathPlanner's settings.json (mass, inertia, bumper,
+//! project already says: the settings.json in deploy (mass, inertia, bumper,
 //! modules, wheel, gearing, motor, current limit, grip), else Tuner X's
-//! TunerConstants, else defaults. PathPlanner's navgrid comes along too.
+//! TunerConstants, else defaults. A navgrid already in deploy comes along too.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -48,7 +48,7 @@ fn count(dir: &Path, ext: &str) -> usize {
     fs::read_dir(dir).map(|e| e.flatten().filter(|f| f.file_name().to_string_lossy().ends_with(ext)).count()).unwrap_or(0)
 }
 
-/// PathPlanner's motor names to Ares's.
+/// The deploy settings' motor names to Ares's.
 fn motor(pp: &str) -> &'static str {
     let m = pp.to_lowercase();
     if m.contains("kraken") {
@@ -70,8 +70,8 @@ fn module(name: &str, x: f64, y: f64) -> Value {
     json!({ "name": name, "xM": x, "yM": y })
 }
 
-/// A robot.json from PathPlanner's settings.json.
-fn from_pathplanner(name: &str, s: &Value) -> Option<Value> {
+/// A robot.json from the deploy settings.json.
+fn from_deploy_settings(name: &str, s: &Value) -> Option<Value> {
     let f = |k: &str| s.get(k).and_then(Value::as_f64);
     let modules = vec![
         module("fl", f("flModuleX")?, f("flModuleY")?),
@@ -202,8 +202,8 @@ pub fn project_open(root: String) -> Result<OpenedProject, String> {
         None => {
             let name = root.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "robot".into());
             let pp = fs::read_to_string(root.join("src/main/deploy/pathplanner/settings.json")).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok());
-            let (doc, from) = match pp.as_ref().and_then(|s| from_pathplanner(&name, s)) {
-                Some(d) => (d, "PathPlanner's settings.json"),
+            let (doc, from) = match pp.as_ref().and_then(|s| from_deploy_settings(&name, s)) {
+                Some(d) => (d, "the robot settings already in the project"),
                 None => match from_tuner(&name, &root) {
                     Some(d) => (d, "TunerConstants (mass, inertia and bumper are guesses: check them)"),
                     None => (default_robot(&name), "defaults (check every value)"),
@@ -217,7 +217,7 @@ pub fn project_open(root: String) -> Result<OpenedProject, String> {
             path
         }
     };
-    // PathPlanner's navgrid, when Ares has none yet.
+    // The navgrid already in deploy, when Ares has none yet.
     let mut navgrid_imported = false;
     let field = ares.join("field.json");
     let pp_grid = root.join("src/main/deploy/pathplanner/navgrid.json");
@@ -256,7 +256,7 @@ mod tests {
     }
 
     #[test]
-    fn a_project_with_pathplanner_gets_its_robot_from_it() {
+    fn a_project_with_deploy_settings_gets_its_robot_from_them() {
         let dir = project("pp");
         fs::create_dir_all(dir.join("src/main/deploy/pathplanner")).unwrap();
         fs::write(dir.join("src/main/deploy/pathplanner/settings.json"), r#"{
@@ -267,7 +267,7 @@ mod tests {
             "blModuleX": -0.276225, "blModuleY": 0.276225, "brModuleX": -0.276225, "brModuleY": -0.276225 }"#).unwrap();
         fs::write(dir.join("src/main/deploy/pathplanner/navgrid.json"), r#"{"field_size":{"x":16.54,"y":8.07},"nodeSizeMeters":0.3,"grid":[[false,true]]}"#).unwrap();
         let p = project_open(dir.join("src/main/java").to_string_lossy().into_owned()).unwrap();
-        assert!(p.created.as_deref().unwrap().contains("PathPlanner"));
+        assert!(p.created.as_deref().unwrap().contains("robot settings"));
         assert!(p.navgrid_imported);
         let r = RobotConfig::load(Path::new(&p.robot_path)).unwrap();
         assert_eq!(r.mass_kg, 57.0);
@@ -281,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    fn without_pathplanner_it_reads_tuner_constants() {
+    fn without_deploy_settings_it_reads_tuner_constants() {
         let dir = project("tuner");
         fs::write(dir.join("src/main/java/frc/robot/TunerConstants.java"), r#"
             private static final Current kSlipCurrent = Amps.of(70);

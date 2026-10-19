@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "name": "Offseason2026",
+  "massKg": 58.0,
+  "moiKgM2": 7.0,
+  "bumper": {
+    "lengthM": 0.851,
+    "widthM": 0.851
+  },
+  "drivetrain": {
+    "type": "swerve",
+    "modules": [
+      {
+        "name": "fl",
+        "xM": 0.276225,
+        "yM": 0.276225
+      },
+      {
+        "name": "fr",
+        "xM": 0.276225,
+        "yM": -0.276225
+      },
+      {
+        "name": "bl",
+        "xM": -0.276225,
+        "yM": 0.276225
+      },
+      {
+        "name": "br",
+        "xM": -0.276225,
+        "yM": -0.276225
+      }
+    ],
+    "wheelRadiusM": 0.0508,
+    "driveGearRatio": 5.2734375,
+    "driveMotor": "kraken_x60",
+    "driveMotorsPerModule": 1,
+    "driveCurrentLimitA": 120,
+    "wheelCof": 0.9,
+    "batteryVoltage": 12.0,
+    "maxSpeedFraction": 0.85
+  }
+}

@@ -88,6 +88,27 @@ class NavGridTest {
   }
 
   @Test
+  void aGoalInsideABlockedZoneIsReachedFromItsNearestOpenCell() {
+    // A closed block at x in [1.2, 1.8), y in [3.3, 4.8): the goal is in it, as a shooting spot by
+    // the tower; the start is behind the wall, so a straight line would cross it.
+    var g = wall();
+    var cells = new boolean[g.rows()][g.cols()];
+    for (int r = 0; r < g.rows(); r++) for (int c = 0; c < g.cols(); c++) cells[r][c] = g.blocked(new Translation2d((c + 0.5) * NODE, (r + 0.5) * NODE));
+    for (int r = 11; r < 16; r++) for (int c = 4; c < 6; c++) cells[r][c] = true;
+    var grid = new NavGrid(NODE, cells);
+    var a = new Translation2d(12, 2);
+    var b = new Translation2d(1.5, 4.0);
+    assertTrue(grid.blocked(b));
+    var r = grid.route(a, b);
+    assertEquals(a, r.get(0));
+    assertEquals(b, r.get(r.size() - 1));
+    assertTrue(r.stream().anyMatch(p -> p.getY() > 6.3), "over the top of the wall, not through it");
+    // Every leg is clear but the last, which only crosses the block the goal is in.
+    for (int i = 1; i < r.size() - 1; i++) assertTrue(grid.sees(r.get(i - 1), r.get(i)));
+    assertTrue(r.get(r.size() - 2).getDistance(b) < 1.0, "the last stretch is short");
+  }
+
+  @Test
   void saysWhenThereIsNoWay() {
     int cols = (int) Math.ceil(L / NODE), rows = (int) Math.ceil(W / NODE);
     var cells = new boolean[rows][cols];

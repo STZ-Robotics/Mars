@@ -3,7 +3,7 @@ import { propertyInputStyle } from "@desktop/styles/pageForm"
 import type { PathSpec, PathStatus } from "../paths/types"
 import { Auto, GROUPS, GroupType, ListKey, Step, StepPath, Trigger, duration, isGroup, moveStep, pathKey, updateList } from "./types"
 
-// The auto as PathPlanner draws it: a tree of cards. Every group has a + that
+// The auto as a tree of cards. Every group has a + that
 // adds a command to it, its type can be changed in place, and any card can be
 // dragged to another place, in its list or into another group.
 
@@ -343,7 +343,7 @@ function TriggerFields({ trigger, warn, onChange }: { trigger: Trigger; warn?: s
   )
 }
 
-/** PathPlanner's + : what can go into a group. */
+/** The + menu: what can go into a group. */
 function AddMenu({ ctx, onPick, big }: { ctx: Ctx; onPick: (s: Step) => void; big?: boolean }) {
   const [open, setOpen] = useState(false)
   const host = useRef<HTMLSpanElement>(null)

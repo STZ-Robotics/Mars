@@ -2,12 +2,12 @@ import { useEffect, useRef, useState } from "react"
 import type { NavGrid } from "../field/navgrid"
 import { drawNavGrid } from "../field/drawNavGrid"
 import type { FieldConfig } from "@desktop/utils/field/fieldImages"
+import { Detection, detections, fovOnFloor, fovPolygon, Occluder, poseSigma, Tag, VisionMap, World } from "../vision/vision"
 import type { RobotConfig } from "../robot/types"
 import {
   KeepOut, PathSpec, RotationTarget, Sample, ScopedConstraint, Selection, SlowZone, Tool, Trajectory, ViewOptions, constraintChip, kindOf, rangeOf, sampleAt, stopAt, waitAt,
-  facingDeg, sideName,
-} from "./types"
-import { GLYPH, drawChip, drawHeadingTriangle, drawStop, positionColor } from "./glyphs"
+  facingDeg, sideName, ALLIANCE_COLOR, allianceOf } from "./types"
+import { GLYPH, drawChip, drawHeadingTriangle, drawStop, positionColor, drawAprilTag, sinkChips } from "./glyphs"
 import type { TopView } from "../robot/topView"
 import { fieldSketch } from "./fieldSketch"
 import { linkedPose } from "../vars/variables"
@@ -26,6 +26,15 @@ interface Props {
   keepOut: KeepOut[]
   /** Where the pathfinder may not go, drawn faintly when the view says so. */
   navgrid?: NavGrid
+  /** The field's AprilTags and its structures (the 2.5D map). */
+  world: World
+  /** How many tags the cameras see from each point, when the view shows it (computed by the page). */
+  visionMap?: VisionMap | null
+  /** The view holds still: no panning, no zooming (Fit still fits). */
+  locked?: boolean
+  /** When given, the drawing is also painted here in the field's frame (DECAL_PX_PER_M), and
+   * `version` goes up: the 3D view lays it on its carpet. */
+  decal?: Decal
   selected: Selection
   /** What the pointer is over in the lists: highlighted on the field. */
   hovered: Selection
@@ -131,6 +140,20 @@ const SPLIT_COLORS = ["#2f6fdb", "#c2410c", "#1f7a1f", "#e95420", "#0e7490", "#a
 // constraint shapes, the guess and the generated trajectory, the waypoints,
 // the events and the playback robot, and turns mouse gestures into edits it
 // hands back to the page.
+/** The 2D drawing on a canvas in the field's own frame, for the 3D view: no photo under it. */
+export interface Decal {
+  canvas: HTMLCanvasElement
+  version: number
+  /** The labels of the drawing, left off the carpet: the 3D view floats them, in field coordinates.
+   * `select` is what a click on one selects. */
+  labels: DecalLabel[]
+}
+
+export interface DecalLabel { x: number; y: number; text: string; color: string; filled: boolean; select?: Selection }
+
+/** The decal's resolution: enough for the chips to read on the 3D carpet. */
+export const DECAL_PX_PER_M = 100
+
 export default function FieldView(props: Props) {
   const { field, robot, spec, guess, generated, stale, keepOut, selected, hovered, tool, view: opts, topSpeed, playhead, fitSignal, topView } = props
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -199,18 +222,70 @@ export default function FieldView(props: Props) {
     canvas.height = size.h * dpr
     const ctx = canvas.getContext("2d")!
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    const plan = opts.fieldStyle === "blueprint"
-    drawFieldBackground(ctx, size, toScreen, view.k, field, image, sketch, opts)
+    paint(ctx, toScreen, view.k, false)
 
-    if (opts.navgrid && props.navgrid) drawNavGrid(ctx, toScreen, view.k, props.navgrid, false)
+    // The decal: the same drawing in the field's own frame, for the 3D view's carpet.
+    const d = props.decal
+    if (d) {
+      const dk = DECAL_PX_PER_M
+      if (d.canvas.width !== Math.round(L * dk)) {
+        d.canvas.width = Math.round(L * dk)
+        d.canvas.height = Math.round(W * dk)
+      }
+      const dctx = d.canvas.getContext("2d")!
+      dctx.setTransform(1, 0, 0, 1, 0, 0)
+      dctx.clearRect(0, 0, d.canvas.width, d.canvas.height)
+      d.labels = []
+      const h = d.canvas.height
+      sinkChips((x, y, text, color, filled) => d.labels.push({ x: x / dk, y: (h - y) / dk, text, color, filled }))
+      try {
+        paint(dctx, (x: number, y: number): [number, number] => [x * dk, h - y * dk], dk, true)
+      } finally {
+        sinkChips(null)
+      }
+      d.version++
+    }
+
+    /** On the decal, a label to float over (x, y) in the 3D view instead of painting it. */
+    function float(x: number, y: number, text: string, color: string, filled: boolean, select?: Selection) {
+      props.decal?.labels.push({ x, y, text, color, filled, select })
+    }
+
+    /** Everything the editor shows, at scale `k` (px per meter); `decal` leaves out the photo and
+     * what the 3D view draws itself (the tags, the structures, the robot and its cameras). */
+    function paint(ctx: CanvasRenderingContext2D, toScreen: ToScreen, k: number, decal: boolean) {
+    const plan = opts.fieldStyle === "blueprint"
+    if (!decal) drawFieldBackground(ctx, size, toScreen, k, field, image, sketch, opts)
+
+    if (opts.navgrid && props.navgrid) drawNavGrid(ctx, toScreen, k, props.navgrid, false)
+    if (opts.visionMap && props.visionMap) drawVisionMap(ctx, toScreen, k, props.visionMap)
+    if (opts.occluders && !decal) drawOccluders(ctx, toScreen, k, props.world.occluders)
+
+    // What the cameras see: from the playback robot, else from the selected waypoint's robot.
+    const cams = robot.cameras ?? []
+    const lookers: [number, number, number][] = []
+    if (opts.cameras && cams.length && props.world.tags.length && !decal) {
+      const traj = generated ?? guess
+      if (traj && playhead !== null) {
+        const s = sampleAt(traj, playhead)
+        lookers.push([s.x, s.y, s.heading])
+      } else if (spec && selected?.kind === "waypoint" && spec.waypoints[selected.index]) {
+        const w = spec.waypoints[selected.index]
+        const kind = kindOf(w)
+        if (kind !== "empty" && kind !== "unknown") lookers.push([w.x, w.y, headingOf(selected.index)])
+      }
+    }
+    // With the hidden ones: in a camera's view and range but behind a structure, drawn apart.
+    const seen: Detection[] = lookers.flatMap(([x, y, h]) => detections(robot, props.world, x, y, h, true))
+    if (opts.tags && !decal) drawTags(ctx, toScreen, k, props.world.tags, new Map(seen.filter(d => !d.hidden).map(d => [d.tag.id, FOV_GREEN])))
 
     // Keep-outs shared by every path.
     const reach = Math.hypot(robot.bumper.lengthM, robot.bumper.widthM) / 2
     keepOut.forEach((c, i) => {
       const sel = selected?.kind === "keepout" && selected.index === i
-      circle(ctx, toScreen, c.x, c.y, c.radiusM, view.k, COLORS.keepout, COLORS.keepoutEdge, sel ? 2 : 1.2)
+      circle(ctx, toScreen, c.x, c.y, c.radiusM, k, COLORS.keepout, COLORS.keepoutEdge, sel ? 2 : 1.2)
       ctx.setLineDash([4, 4])
-      circle(ctx, toScreen, c.x, c.y, c.radiusM + reach * 0.5, view.k, null, "rgba(194,28,28,0.35)", 1)
+      circle(ctx, toScreen, c.x, c.y, c.radiusM + reach * 0.5, k, null, "rgba(194,28,28,0.35)", 1)
       ctx.setLineDash([])
       if (sel) handle(ctx, ...toScreen(c.x + c.radiusM, c.y), 4.5, "#ffffff", COLORS.keepoutEdge)
     })
@@ -219,7 +294,7 @@ export default function FieldView(props: Props) {
     if (spec) {
       spec.scoped.forEach((c, i) => {
         const sel = selected?.kind === "constraint" && selected.index === i
-        drawShape(ctx, toScreen, view.k, c, sel, c.enabled === false)
+        drawShape(ctx, toScreen, k, c, sel, c.enabled === false)
       })
     }
 
@@ -244,6 +319,9 @@ export default function FieldView(props: Props) {
       ctx.globalAlpha = stale ? 0.35 : 1
       // On the photo, a white casing under the line so it reads over any color.
       const spans = (generated.pathfind ?? []).map(p => [p.startSample, p.endSample] as [number, number])
+      // Where the cameras keep tags in view (green) and where they see none (red), as a halo.
+      if (opts.poseSigma && cams.length && props.world.tags.length) drawPoseSigma(ctx, toScreen, k, generated, robot, props.world)
+      if (opts.cameras && cams.length && props.world.tags.length) drawCoverage(ctx, toScreen, generated, robot, props.world)
       if (!plan) polyline(ctx, generated.samples.map(q => toScreen(q.x, q.y)), "rgba(255,255,255,0.9)", 7.5)
       drawTrajectory(ctx, toScreen, generated, opts.gradient, topSpeed, 4, spans)
       if (opts.flipped) {
@@ -312,7 +390,31 @@ export default function FieldView(props: Props) {
         perMid.set(key, k + 1)
         const [sx, sy] = toScreen(x, y)
         const sel = (selected?.kind === "constraint" && selected.index === i) || (hovered?.kind === "constraint" && hovered.index === i)
-        drawChip(ctx, sx, sy - 18 - k * 18, constraintChip(c), COLORS.constraint, sel)
+        if (c.type === "seeTags") {
+          // The stretch the cameras keep tags in view: small tags along it, a bigger one by the chip.
+          if (reference && times && times.length === n) {
+            const [ta, tb] = [times[a], times[b]]
+            const marks = Math.max(2, Math.min(8, Math.round((tb - ta) / 0.6)))
+            for (let m = 1; m < marks; m++) {
+              const p = sampleAt(reference, ta + ((tb - ta) * m) / marks)
+              const [mx, my] = toScreen(p.x, p.y)
+              drawAprilTag(ctx, mx, my, 9)
+            }
+          }
+          const text = constraintChip(c)
+          ctx.font = "600 9.5px 'Segoe UI', Arial, sans-serif"
+          const w = ctx.measureText(text).width + 10
+          const cy = sy - 18 - k * 18
+          if (decal) float(x, y, `▣ ${text}`, COLORS.constraint, sel, { kind: "constraint", index: i })
+          else {
+            drawChip(ctx, sx + 9, cy, text, COLORS.constraint, sel)
+            drawAprilTag(ctx, sx + 9 - w / 2 - 9, cy, 15)
+          }
+        } else if (decal) {
+          float(x, y, constraintChip(c), COLORS.constraint, sel, { kind: "constraint", index: i })
+        } else {
+          drawChip(ctx, sx, sy - 18 - k * 18, constraintChip(c), COLORS.constraint, sel)
+        }
       })
     }
 
@@ -350,7 +452,7 @@ export default function FieldView(props: Props) {
     // Slow zones: hatched amber, with their caps.
     props.zones.forEach((z, i) => {
       const sel = selected?.kind === "zone" && selected.index === i
-      drawZone(ctx, toScreen, view.k, z, sel)
+      drawZone(ctx, toScreen, k, z, sel)
     })
 
     // Pose variables: small teal diamonds with their names.
@@ -388,7 +490,7 @@ export default function FieldView(props: Props) {
           ? generated.samples.slice(span.startSample, span.endSample + 1).map(q => toScreen(q.x, q.y))
           : [toScreen(w.x, w.y), toScreen(next.x, next.y)]
         ctx.globalAlpha = stale && span ? 0.45 : 1
-        if (span && opts.corridor) polyline(ctx, pts, "rgba(22,163,74,0.13)", 2 * reachM * view.k)
+        if (span && opts.corridor) polyline(ctx, pts, "rgba(22,163,74,0.13)", 2 * reachM * k)
         if (!plan) polyline(ctx, pts, "rgba(255,255,255,0.9)", 6)
         ctx.setLineDash([9, 6])
         polyline(ctx, pts, PATHFIND, 3)
@@ -460,7 +562,7 @@ export default function FieldView(props: Props) {
         const [cx, cy] = toScreen(w.x, w.y)
         if (isHover || (hoverWp === i && tool.kind !== "select" && tool.kind !== "waypoint")) {
           ctx.beginPath()
-          ctx.arc(cx, cy, Math.max(HANDLE_R + 7, robot.bumper.lengthM * view.k * 0.62), 0, Math.PI * 2)
+          ctx.arc(cx, cy, Math.max(HANDLE_R + 7, robot.bumper.lengthM * k * 0.62), 0, Math.PI * 2)
           ctx.strokeStyle = GLYPH.selected
           ctx.lineWidth = 2.5
           ctx.setLineDash([5, 4])
@@ -478,7 +580,7 @@ export default function FieldView(props: Props) {
           } else {
             ctx.setLineDash([5, 4])
             ctx.beginPath()
-            ctx.arc(cx, cy, Math.max(16, robot.bumper.lengthM * view.k * 0.55), 0, Math.PI * 2)
+            ctx.arc(cx, cy, Math.max(16, robot.bumper.lengthM * k * 0.55), 0, Math.PI * 2)
             ctx.strokeStyle = ring
             ctx.lineWidth = 2
             ctx.stroke()
@@ -491,16 +593,16 @@ export default function FieldView(props: Props) {
           ctx.textBaseline = "middle"
           ctx.fillText(kind === "unknown" ? "?" : "↪", cx, cy + 1)
           const note = kind === "unknown" ? "start anywhere" : spec.continuesFrom ? `after ${spec.continuesFrom}` : "where the last path ended"
-          drawChip(ctx, cx, cy + Math.max(26, robot.bumper.widthM * view.k * 0.5 + 14), note, ring)
+          drawChip(ctx, cx, cy + Math.max(26, robot.bumper.widthM * k * 0.5 + 14), note, ring)
           return
         }
         if (topView && kind !== "empty") {
-          drawRobot(ctx, toScreen, view.k, w.x, w.y, headingOf(i), robot, topView, null, 0.45, opts.robotColor)
+          drawRobot(ctx, toScreen, k, w.x, w.y, headingOf(i), robot, topView, null, 0.45, opts.robotColor)
         }
         if (kind === "pose") {
           const heading = headingOf(i)
           bumper(ctx, toScreen, w.x, w.y, heading, robot, color, [], isSel ? 2.4 : 1.6, isSel ? 0.2 : 0.12)
-          drawHeadingTriangle(ctx, cx, cy, heading, Math.max(7, robot.bumper.lengthM * view.k * 0.3), color)
+          drawHeadingTriangle(ctx, cx, cy, heading, Math.max(7, robot.bumper.lengthM * k * 0.3), color)
           const [hx, hy] = toScreen(w.x + Math.cos(heading) * robot.bumper.lengthM / 2, w.y + Math.sin(heading) * robot.bumper.lengthM / 2)
           handle(ctx, hx, hy, HEADING_HANDLE_R, "#ffffff", color)
         } else if (kind === "translation") {
@@ -514,15 +616,17 @@ export default function FieldView(props: Props) {
           handle(ctx, cx, cy, HANDLE_R, "rgba(255,255,255,0.75)", color)
           ctx.setLineDash([])
         }
-        // The number, under the glyph.
+        // The number, under the glyph (over the puck, in 3D).
         ctx.font = "700 10px 'Segoe UI', Arial, sans-serif"
         ctx.textAlign = "center"
         ctx.textBaseline = "middle"
-        if (kind === "translation") {
+        if (decal) {
+          float(w.x, w.y, `Waypoint ${i + 1}`, color, isSel, { kind: "waypoint", index: i })
+        } else if (kind === "translation") {
           ctx.fillStyle = "#ffffff"
           ctx.fillText(String(i + 1), cx, cy + 0.5)
         } else {
-          const ly = cy + (kind === "pose" ? Math.max(14, robot.bumper.widthM * view.k * 0.5 + 9) : 15)
+          const ly = cy + (kind === "pose" ? Math.max(14, robot.bumper.widthM * k * 0.5 + 9) : 15)
           ctx.lineWidth = 3
           ctx.strokeStyle = "rgba(255,255,255,0.9)"
           ctx.strokeText(String(i + 1), cx, ly)
@@ -531,14 +635,17 @@ export default function FieldView(props: Props) {
         }
         // Linked to a pose variable: its name, in the link color.
         const link = linkedPose(w)
-        if (link) drawChip(ctx, cx, cy - Math.max(24, robot.bumper.widthM * view.k * 0.5 + 12), `⛓ ${link}`, GLYPH.linked, true)
+        if (link) drawChip(ctx, cx, cy - Math.max(24, robot.bumper.widthM * k * 0.5 + 12), `⛓ ${link}`, GLYPH.linked, true)
         // Badges: stop, waypoint-scope constraints, split.
-        const bx = cx + Math.max(13, robot.bumper.lengthM * view.k * 0.5 + 4)
-        let by = cy - Math.max(13, robot.bumper.widthM * view.k * 0.5 + 4)
+        const bx = cx + Math.max(13, robot.bumper.lengthM * k * 0.5 + 4)
+        let by = cy - Math.max(13, robot.bumper.widthM * k * 0.5 + 4)
         if (stopAt(spec, i) >= 0) {
-          drawStop(ctx, bx, by, 7.5)
           const wait = waitAt(spec, i)
-          if (wait > 0) drawChip(ctx, bx + 30, by, `wait ${wait} s`, GLYPH.stop)
+          if (decal) float(w.x, w.y, `⬣ STOP${wait > 0 ? ` · wait ${wait} s` : ""}`, GLYPH.stop, true, { kind: "constraint", index: stopAt(spec, i) })
+          else {
+            drawStop(ctx, bx, by, 7.5)
+            if (wait > 0) drawChip(ctx, bx + 30, by, `wait ${wait} s`, GLYPH.stop)
+          }
           by += 18
         }
         spec.scoped.forEach((c, j) => {
@@ -550,15 +657,16 @@ export default function FieldView(props: Props) {
           ctx.font = "600 9.5px 'Segoe UI', Arial, sans-serif"
           const w2 = ctx.measureText(constraintChip(c)).width / 2 + 5
           ctx.restore()
-          drawChip(ctx, bx + w2 - 7, by, constraintChip(c), COLORS.constraint, sel)
+          if (decal) float(w.x, w.y, constraintChip(c), COLORS.constraint, sel, { kind: "constraint", index: j })
+          else drawChip(ctx, bx + w2 - 7, by, constraintChip(c), COLORS.constraint, sel)
           by += 18
         })
         if ((w.split || w.section) && i > 0 && i < n - 1) drawChip(ctx, bx + 18, by, `✂ ${w.section ?? "split"}`, GLYPH.ink)
       })
     }
 
-    // Rotation targets: an orange arrow on the path at their fraction.
-    if (spec && opts.waypoints) {
+    // Rotation targets: an orange arrow on the path at their fraction (the 3D view draws its own, to turn).
+    if (spec && opts.waypoints && !decal) {
       (spec.rotationTargets ?? []).forEach((r, i) => {
         const at = rotationPoint(spec, generated ?? guess, r)
         if (!at) return
@@ -618,7 +726,8 @@ export default function FieldView(props: Props) {
         if (!p) return
         const [x, y] = toScreen(p.x, p.y)
         const sel = selected?.kind === "event" && selected.index === i
-        pin(ctx, x, y, sel ? COLORS.selected : COLORS.event, e.name)
+        if (decal) float(p.x, p.y, `⚑ ${e.name}`, COLORS.event, sel, { kind: "event", index: i })
+        else pin(ctx, x, y, sel ? COLORS.selected : COLORS.event, e.name)
       })
     }
 
@@ -635,7 +744,7 @@ export default function FieldView(props: Props) {
     }
     if (zoneDraft) {
       const [x0, y0] = [Math.min(zoneDraft.a[0], zoneDraft.b[0]), Math.min(zoneDraft.a[1], zoneDraft.b[1])]
-      drawZone(ctx, toScreen, view.k, { shape: "rectangle", x: x0, y: y0, widthM: Math.abs(zoneDraft.b[0] - zoneDraft.a[0]), heightM: Math.abs(zoneDraft.b[1] - zoneDraft.a[1]), maxVelocityMps: 1.5 }, true)
+      drawZone(ctx, toScreen, k, { shape: "rectangle", x: x0, y: y0, widthM: Math.abs(zoneDraft.b[0] - zoneDraft.a[0]), heightM: Math.abs(zoneDraft.b[1] - zoneDraft.a[1]), maxVelocityMps: 1.5 }, true)
     }
     if (guides) {
       ctx.strokeStyle = "rgba(14,116,144,0.8)"
@@ -662,12 +771,23 @@ export default function FieldView(props: Props) {
 
     // The playback robot, with each wheel's velocity.
     const traj = generated ?? guess
-    if (traj && playhead !== null) {
+    if (traj && playhead !== null && !decal) {
       const s = sampleAt(traj, playhead)
-      drawRobot(ctx, toScreen, view.k, s.x, s.y, s.heading, robot, topView, opts.robotColor, 1)
+      drawRobot(ctx, toScreen, k, s.x, s.y, s.heading, robot, topView, opts.robotColor, 1)
       moduleVectors(ctx, toScreen, s, robot)
     }
-  }, [view, size, image, sketch, spec, guess, generated, stale, keepOut, selected, hovered, playhead, robot, field, opts, topSpeed, tool, hoverWp, topView, box, ruler, guides, zoneDraft, props.multi, props.zones, props.poseMarks, props.branches, props.navgrid])
+
+    for (const [x, y, h] of lookers) drawCameras(ctx, toScreen, k, robot, x, y, h, seen, props.world.occluders)
+
+    // Whose path it is: a chip by its start, in the alliance's color.
+    const side = allianceOf(spec, L)
+    const start = spec?.waypoints.find(q => kindOf(q) !== "unknown")
+    if (side && start && opts.waypoints) {
+      const [sx, sy] = toScreen(start.x, start.y)
+      drawChip(ctx, sx, sy + Math.max(34, robot.bumper.widthM * k * 0.5 + 24), side === "blue" ? "◆ BLUE ALLIANCE" : "◆ RED ALLIANCE", ALLIANCE_COLOR[side], true)
+    }
+    }
+  }, [view, size, image, sketch, spec, guess, generated, stale, keepOut, selected, hovered, playhead, robot, field, opts, topSpeed, tool, hoverWp, topView, box, ruler, guides, zoneDraft, props.multi, props.zones, props.poseMarks, props.branches, props.navgrid, props.world, props.visionMap, props.decal])
 
   // --- Interaction -----------------------------------------------------------
   const waypointAt = (sx: number, sy: number): number | null => {
@@ -780,19 +900,22 @@ export default function FieldView(props: Props) {
     return [e.clientX - r.left, e.clientY - r.top]
   }
 
+  /** A pan from here, unless the view is locked. */
+  const panFrom = (sx: number, sy: number): Drag | null => (propsRef.current.locked ? null : { kind: "pan", sx, sy, view })
+
   const onPointerDown = (e: React.PointerEvent) => {
     const [sx, sy] = local(e)
     const p = propsRef.current
     canvasRef.current!.setPointerCapture(e.pointerId)
     if (e.button !== 0) {
-      drag.current = { kind: "pan", sx, sy, view }
+      drag.current = panFrom(sx, sy)
       return
     }
     // Constraint and event tools only care about waypoints.
     if (p.tool.kind === "constraint" || p.tool.kind === "event") {
       const i = waypointAt(sx, sy)
       if (i !== null) p.onWaypointClick(i)
-      else drag.current = { kind: "pan", sx, sy, view }
+      else drag.current = panFrom(sx, sy)
       return
     }
     const [wx, wy] = toWorld(sx, sy)
@@ -846,7 +969,7 @@ export default function FieldView(props: Props) {
     }
     p.onSelect(null)
     p.onMulti([])
-    drag.current = { kind: "pan", sx, sy, view }
+    drag.current = panFrom(sx, sy)
   }
 
   const onPointerMove = (e: React.PointerEvent) => {
@@ -1112,6 +1235,7 @@ export default function FieldView(props: Props) {
     const canvas = canvasRef.current!
     const onWheel = (e: WheelEvent) => {
       e.preventDefault()
+      if (propsRef.current.locked) return
       const [sx, sy] = local(e)
       setView(v => {
         const k = Math.min(600, Math.max(10, v.k * Math.exp(-e.deltaY * 0.0015)))
@@ -1419,7 +1543,7 @@ function moduleVectors(ctx: CanvasRenderingContext2D, toScreen: ToScreen, s: Sam
 
 /** Where an event fires: on the generated trajectory when there is one,
  *  otherwise at its waypoint. */
-function eventPoint(spec: PathSpec, generated: Trajectory | null, e: NonNullable<PathSpec["events"]>[number], i: number): { x: number; y: number } | null {
+export function eventPoint(spec: PathSpec, generated: Trajectory | null, e: NonNullable<PathSpec["events"]>[number], i: number): { x: number; y: number } | null {
   const fired = generated?.events?.[i]
   if (generated && fired && fired.name === e.name) {
     const s = sampleAt(generated, fired.t)
@@ -1480,7 +1604,7 @@ function waypointWords(spec: PathSpec, i: number, generated: Trajectory | null):
 function constraintTitle(type: ScopedConstraint["type"]): string {
   return ({
     stopPoint: "Stop point", maxVelocity: "Max velocity", maxAcceleration: "Max acceleration", maxAngularVelocity: "Max angular velocity",
-    pointAt: "Point at", keepInCircle: "Keep in circle", keepInRectangle: "Keep in rectangle", keepInLane: "Keep in lane", keepOutCircle: "Keep out circle",
+    pointAt: "Point at", keepInCircle: "Keep in circle", keepInRectangle: "Keep in rectangle", keepInLane: "Keep in lane", keepOutCircle: "Keep out circle", seeTags: "See AprilTags",
   } as const)[type]
 }
 
@@ -1492,6 +1616,7 @@ function constraintLine(c: ScopedConstraint, n: number): string {
     case "keepInCircle": return `The bumper stays inside r = ${c.radiusM} m, ${scope}.`
     case "keepInRectangle": return `The bumper stays inside ${c.widthM} × ${c.heightM} m, ${scope}.`
     case "keepOutCircle": return `The bumper stays out of r = ${c.radiusM} m, ${scope}.`
+    case "seeTags": return `${c.camera ? `Camera ${c.camera}` : "The cameras"} keep${c.camera ? "s" : ""} ${c.minTags && c.minTags > 1 ? `${c.minTags} AprilTags` : "an AprilTag"} in view, ${scope}.`
     default: return `${constraintChip(c)}, ${scope}.`
   }
 }
@@ -1602,7 +1727,7 @@ function dimensionLine(ctx: CanvasRenderingContext2D, x0: number, y0: number, x1
 
 // --- Zones and rotation targets ------------------------------------------------
 
-const ZONE = "#ca8a04"
+export const ZONE = "#ca8a04"
 
 function drawZone(ctx: CanvasRenderingContext2D, toScreen: ToScreen, k: number, z: SlowZone, sel: boolean) {
   ctx.save()
@@ -1647,7 +1772,7 @@ function drawZone(ctx: CanvasRenderingContext2D, toScreen: ToScreen, k: number, 
 }
 
 /** Where a rotation target sits: its fraction of the segment's time on the trajectory. */
-function rotationPoint(spec: PathSpec, traj: Trajectory | null, r: RotationTarget): { x: number; y: number } | null {
+export function rotationPoint(spec: PathSpec, traj: Trajectory | null, r: RotationTarget): { x: number; y: number } | null {
   const wt = traj?.waypointTimes
   if (traj && wt && wt.length === spec.waypoints.length && r.segment + 1 < wt.length) {
     const s = sampleAt(traj, wt[r.segment] + r.fraction * (wt[r.segment + 1] - wt[r.segment]))
@@ -1658,7 +1783,7 @@ function rotationPoint(spec: PathSpec, traj: Trajectory | null, r: RotationTarge
 }
 
 /** A rotation target from a click near the path: the segment and fraction there, at the current heading. */
-function rotationAt(spec: PathSpec | null, traj: Trajectory | null, sx: number, sy: number, toScreen: ToScreen): { segment: number; fraction: number; headingDeg: number } | null {
+export function rotationAt(spec: PathSpec | null, traj: Trajectory | null, sx: number, sy: number, toScreen: ToScreen): { segment: number; fraction: number; headingDeg: number } | null {
   const wt = traj?.waypointTimes
   if (!spec || !traj || !wt || wt.length !== spec.waypoints.length) return null
   let best: Sample | null = null, bd = 14
@@ -1704,8 +1829,9 @@ export function drawFieldBackground(
       // center when the image has red there.
       const [fcx, fcy] = toScreen(L / 2, W / 2)
       ctx.save()
-      if (opts.fieldFlip === "mirror") { ctx.translate(2 * fcx, 0); ctx.scale(-1, 1) }
-      else if (opts.fieldFlip === "rotate") { ctx.translate(2 * fcx, 2 * fcy); ctx.scale(-1, -1) }
+      const flip = pictureFlip(field, opts.fieldFlip)
+      if (flip === "mirror") { ctx.translate(2 * fcx, 0); ctx.scale(-1, 1) }
+      else if (flip === "rotate") { ctx.translate(2 * fcx, 2 * fcy); ctx.scale(-1, -1) }
       if (plan) {
         if (sketch) ctx.drawImage(sketch, ix, iy, iw, ih)
       } else {
@@ -1729,4 +1855,195 @@ export function drawFieldBackground(
       ctx.strokeRect(x0, y0, L * view.k, W * view.k)
     }
 
+}
+
+// --- Cameras and AprilTags -----------------------------------------------------
+
+const TAG_SIZE_M = 0.165
+
+/** The field's tags, as the small squares they are, with a tick toward where each one faces. */
+export function drawTags(ctx: CanvasRenderingContext2D, toScreen: ToScreen, k: number, tags: Tag[], lit: Map<number, string>) {
+  for (const t of tags) {
+    const face = Math.atan2(t.ny, t.nx)
+    const [cx, cy] = toScreen(t.x, t.y)
+    const half = Math.max(3, (TAG_SIZE_M / 2) * k)
+    const color = lit.get(t.id)
+    ctx.save()
+    ctx.translate(cx, cy)
+    ctx.rotate(-face)
+    ctx.fillStyle = color ?? "#ffffff"
+    ctx.strokeStyle = color ? color : "#111114"
+    ctx.lineWidth = color ? 2 : 1.2
+    ctx.fillRect(-half * 0.35, -half, half * 0.7, 2 * half)
+    ctx.strokeRect(-half * 0.35, -half, half * 0.7, 2 * half)
+    ctx.beginPath()
+    ctx.moveTo(half * 0.35, 0)
+    ctx.lineTo(half * 0.35 + Math.max(5, 0.18 * k), 0)
+    ctx.stroke()
+    ctx.restore()
+    ctx.font = "700 9px 'Segoe UI', Arial, sans-serif"
+    ctx.textAlign = "center"
+    ctx.textBaseline = "middle"
+    const lx = cx + Math.cos(face) * (half + 9), ly = cy - Math.sin(face) * (half + 9)
+    ctx.lineWidth = 3
+    ctx.strokeStyle = "rgba(255,255,255,0.9)"
+    ctx.strokeText(String(t.id), lx, ly)
+    ctx.fillStyle = color ?? "#111114"
+    ctx.fillText(String(t.id), lx, ly)
+  }
+}
+
+/** The cameras' green in 2D: plain, no glow (the 3D view keeps the Limelight's). */
+const FOV_GREEN = "#16a34a"
+
+/** Each camera's field of view on the carpet, and a line to every tag it detects. */
+function drawCameras(ctx: CanvasRenderingContext2D, toScreen: ToScreen, _k: number, robot: RobotConfig, x: number, y: number, heading: number, seen: Detection[], occluders: Occluder[]) {
+  ;(robot.cameras ?? []).forEach((c, i) => {
+    const color = FOV_GREEN
+    const f = fovOnFloor(c, x, y, heading)
+    const [ax, ay] = toScreen(f.at[0], f.at[1])
+    // The field of view as it really reaches: cut short by every structure in the way.
+    const poly = fovPolygon(c, x, y, heading, occluders)
+    ctx.beginPath()
+    ctx.moveTo(ax, ay)
+    for (const [px, py] of poly.points) ctx.lineTo(...toScreen(px, py))
+    ctx.closePath()
+    ctx.fillStyle = "rgba(22,163,74,0.14)"
+    ctx.fill()
+    ctx.strokeStyle = FOV_GREEN
+    ctx.lineWidth = 1.6
+    ctx.stroke()
+    for (const d of seen.filter(q => q.camera === i && Math.hypot(q.from[0] - f.at[0], q.from[1] - f.at[1]) < 1e-6)) {
+      const [tx, ty] = toScreen(d.tag.x, d.tag.y)
+      ctx.beginPath()
+      ctx.moveTo(ax, ay)
+      ctx.lineTo(tx, ty)
+      // Behind a structure: in view and range, not detected. Grey and dashed, so it reads as "no".
+      ctx.save()
+      ctx.strokeStyle = d.hidden ? "rgba(90,90,100,0.55)" : color
+      ctx.lineWidth = d.hidden ? 1.2 : 2.4
+      ctx.setLineDash(d.hidden ? [3, 4] : [])
+      ctx.stroke()
+      ctx.restore()
+    }
+    ctx.beginPath()
+    ctx.arc(ax, ay, 4.5, 0, Math.PI * 2)
+    ctx.fillStyle = color
+    ctx.fill()
+    ctx.strokeStyle = "#ffffff"
+    ctx.lineWidth = 1.5
+    ctx.stroke()
+    const mine = seen.filter(q => q.camera === i && Math.hypot(q.from[0] - f.at[0], q.from[1] - f.at[1]) < 1e-6)
+    const seenHere = mine.filter(q => !q.hidden).length, hiddenHere = mine.length - seenHere
+    drawChip(ctx, ax, ay - 14, `${c.name}: ${seenHere ? `${seenHere} tag${seenHere > 1 ? "s" : ""}` : "no tags"}${hiddenHere ? ` · ${hiddenHere} hidden` : ""}`, "#15803d", true)
+  })
+}
+
+/** A halo under the trajectory: green where the cameras see a tag, red where they see none. */
+function drawCoverage(ctx: CanvasRenderingContext2D, toScreen: ToScreen, t: Trajectory, robot: RobotConfig, world: World) {
+  const s = t.samples
+  const ok = s.map(q => detections(robot, world, q.x, q.y, q.heading).length > 0)
+  ctx.lineCap = "round"
+  ctx.lineWidth = 13
+  for (let i = 1; i < s.length; i++) {
+    ctx.strokeStyle = ok[i - 1] && ok[i] ? "rgba(34,197,94,0.38)" : "rgba(239,68,68,0.38)"
+    ctx.beginPath()
+    ctx.moveTo(...toScreen(s[i - 1].x, s[i - 1].y))
+    ctx.lineTo(...toScreen(s[i].x, s[i].y))
+    ctx.stroke()
+  }
+  ctx.lineCap = "butt"
+}
+
+/**
+ * The field's structures, as a map with depth: each footprint shaded darker the taller it is,
+ * with its height, so it reads which ones hide a tag from a camera at a given height.
+ */
+export function drawOccluders(ctx: CanvasRenderingContext2D, toScreen: ToScreen, k: number, occluders: Occluder[]) {
+  for (const o of occluders) {
+    const yaw = ((o.yawDeg ?? 0) * Math.PI) / 180
+    const c = Math.cos(yaw), s = Math.sin(yaw)
+    const corners = [[1, 1], [-1, 1], [-1, -1], [1, -1]].map(([u, v]) => {
+      const lx = (u * o.lengthM) / 2, ly = (v * o.widthM) / 2
+      return toScreen(o.x + c * lx - s * ly, o.y + s * lx + c * ly)
+    })
+    // Up to 2.5 m reads from light to dark.
+    const depth = Math.min(1, Math.max(0, o.zMaxM / 2.5))
+    ctx.beginPath()
+    corners.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)))
+    ctx.closePath()
+    ctx.fillStyle = `rgba(30,41,59,${0.18 + 0.45 * depth})`
+    ctx.fill()
+    ctx.strokeStyle = "rgba(15,23,42,0.85)"
+    ctx.lineWidth = 1.4
+    ctx.stroke()
+    // Hatching: a structure, not a zone.
+    ctx.save()
+    ctx.clip()
+    ctx.strokeStyle = "rgba(255,255,255,0.18)"
+    ctx.lineWidth = 1
+    const [cx, cy] = toScreen(o.x, o.y)
+    const r = Math.hypot(o.lengthM, o.widthM) * k
+    for (let d = -r; d < r; d += 7) {
+      ctx.beginPath()
+      ctx.moveTo(cx + d - r, cy - r)
+      ctx.lineTo(cx + d + r, cy + r)
+      ctx.stroke()
+    }
+    ctx.restore()
+    const [lx, ly] = toScreen(o.x, o.y)
+    drawChip(ctx, lx, ly, `${(o.zMinM ?? 0) > 0 ? `${(o.zMinM ?? 0).toFixed(2)}–` : "▲ "}${o.zMaxM.toFixed(2)} m`, "#0f172a", true)
+  }
+}
+
+/** The vision map: each cell colored by how many tags the cameras can see from it. */
+export function drawVisionMap(ctx: CanvasRenderingContext2D, toScreen: ToScreen, k: number, m: VisionMap) {
+  const colors = ["rgba(239,68,68,0.30)", "rgba(250,204,21,0.30)", "rgba(132,204,22,0.32)", "rgba(34,197,94,0.36)", "rgba(21,128,61,0.42)"]
+  const size = m.cellM * k + 0.5
+  for (let r = 0; r < m.rows; r++) {
+    for (let c = 0; c < m.cols; c++) {
+      const n = m.counts[r * m.cols + c]
+      const [x, y] = toScreen(c * m.cellM, (r + 1) * m.cellM)
+      ctx.fillStyle = colors[Math.min(n, colors.length - 1)]
+      ctx.fillRect(x, y, size, size)
+    }
+  }
+}
+
+/**
+ * Around the trajectory, two sigma of where the robot thinks it is: thin where the cameras keep
+ * the pose honest, wide where the odometry has been drifting on its own. Starts from a pose known
+ * to 5 cm, as after a vision-seeded start.
+ */
+function drawPoseSigma(ctx: CanvasRenderingContext2D, toScreen: ToScreen, k: number, t: Trajectory, robot: RobotConfig, world: World) {
+  const s = t.samples
+  const sigma = poseSigma(robot, world, s, 0.05)
+  ctx.fillStyle = "rgba(99,102,241,0.13)"
+  ctx.strokeStyle = "rgba(99,102,241,0.35)"
+  ctx.lineWidth = 1
+  // Circles of 2 sigma along the way: their union is the band.
+  for (let i = 0; i < s.length; i += Math.max(1, Math.floor(s.length / 120))) {
+    const [x, y] = toScreen(s[i].x, s[i].y)
+    ctx.beginPath()
+    ctx.arc(x, y, Math.max(2, 2 * sigma[i] * k), 0, Math.PI * 2)
+    ctx.fill()
+  }
+  const last = s.length - 1
+  const [ex, ey] = toScreen(s[last].x, s[last].y)
+  ctx.beginPath()
+  ctx.arc(ex, ey, Math.max(2, 2 * sigma[last] * k), 0, Math.PI * 2)
+  ctx.stroke()
+  drawChip(ctx, ex, ey + Math.max(14, 2 * sigma[last] * k + 10), `pose ±${(200 * sigma[last]).toFixed(0)} cm (2σ)`, "#4f46e5", false)
+}
+
+/**
+ * How the field picture is turned so blue sits at x = 0. "auto" follows the game's symmetry: the
+ * pictures have red on the left, and a field that is the same turned 180 degrees (2026) is turned;
+ * one that is the same in a mirror (2023, 2024) is mirrored. Mirroring a rotational field puts its
+ * asymmetric parts (2026's depot and outpost) on the wrong side, checked against the official 3D
+ * model aligned by its AprilTags: the blue depot is at (0.34, 5.96), top left.
+ */
+export function pictureFlip(field: FieldConfig, flip: ViewOptions["fieldFlip"]): "none" | "mirror" | "rotate" {
+  if (flip !== "auto") return flip
+  return symmetryOf(field) === "mirrored" ? "mirror" : "rotate"
 }

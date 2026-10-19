@@ -40,6 +40,12 @@ public final class AresIndex {
   public record Module(String name, double xM, double yM) {}
 
   /**
+   * The drive's mechanics as the {@code .robot.json} has them, to check them against the
+   * drivetrain's: the trajectories were planned with these. NaN where the index does not say.
+   */
+  public record Drive(double wheelRadiusM, double driveGearRatio, double driveCurrentLimitA) {}
+
+  /**
    * An auto. {@code resetOdometry} is the Autos tab's choice for this one
    * (PathPlanner's "Reset Odometry"): whether it sets the robot's pose to its
    * first path's start; null leaves it to {@code Config.withResetPoseAtAutoStart}.
@@ -93,6 +99,7 @@ public final class AresIndex {
   private final String robot;
   private final List<Module> modules;
   private final double[] bumper;
+  private final Drive drive;
   private final Field field;
   private final Map<String, PathEntry> paths;
   private final Map<String, Auto> autos;
@@ -100,12 +107,13 @@ public final class AresIndex {
   /** The field the Ares project plays on (Settings → Field). */
   public record Field(String key, double lengthM, double widthM, boolean mirrored) {}
 
-  private AresIndex(File folder, String robot, List<Module> modules, double[] bumper, Field field, Map<String, PathEntry> paths, Map<String, Auto> autos) {
+  private AresIndex(File folder, String robot, List<Module> modules, double[] bumper, Drive drive, Field field, Map<String, PathEntry> paths, Map<String, Auto> autos) {
     this.field = field;
     this.folder = folder;
     this.robot = robot;
     this.modules = modules;
     this.bumper = bumper;
+    this.drive = drive;
     this.paths = paths;
     this.autos = autos;
   }
@@ -161,11 +169,15 @@ public final class AresIndex {
     }
     var b = n.path("robot").path("bumper");
     double[] bumper = b.has("lengthM") && b.has("widthM") ? new double[] {b.path("lengthM").asDouble(), b.path("widthM").asDouble()} : null;
+    var d = n.path("robot").path("drive");
+    Drive drive = d.isObject()
+        ? new Drive(d.path("wheelRadiusM").asDouble(Double.NaN), d.path("driveGearRatio").asDouble(Double.NaN), d.path("driveCurrentLimitA").asDouble(Double.NaN))
+        : null;
     var f = n.path("field");
     var field = f.has("lengthM") && f.has("widthM")
         ? new Field(f.path("key").asText(""), f.path("lengthM").asDouble(), f.path("widthM").asDouble(), "mirrored".equals(f.path("symmetry").asText()))
         : null;
-    return new AresIndex(folder, n.path("robot").path("name").asText(""), List.copyOf(modules), bumper, field, paths, autos);
+    return new AresIndex(folder, n.path("robot").path("name").asText(""), List.copyOf(modules), bumper, drive, field, paths, autos);
   }
 
   /** One step (an event marker's command); null for a kind this version does not know. */
@@ -232,6 +244,11 @@ public final class AresIndex {
   /** The bumper's length and width (m), or null in an index from before Ares wrote it. */
   public double[] bumper() {
     return bumper;
+  }
+
+  /** The drive's mechanics, or null in an index from before Ares wrote them. */
+  public Drive drive() {
+    return drive;
   }
 
   public List<Module> modules() {

@@ -44,6 +44,24 @@ public interface AresDrive {
     return null;
   }
 
+  /**
+   * The drive's mechanics as the drivetrain has them (wheel radius, gear ratio, the current at
+   * which the wheels slip, its top speed at 12 V), for Ares to check against the {@code
+   * .robot.json} the trajectories were planned with: a stale one plans for another robot, and a
+   * path faster than the robot cannot be followed. Null (the default): not checked.
+   */
+  default Mechanics mechanics() {
+    return null;
+  }
+
+  /** See {@link #mechanics()}. NaN where the drivetrain does not say. */
+  record Mechanics(double wheelRadiusM, double driveGearRatio, double driveCurrentLimitA, double maxSpeedMps) {
+    /** Without a top speed: the paths' speed is not checked. */
+    public Mechanics(double wheelRadiusM, double driveGearRatio, double driveCurrentLimitA) {
+      this(wheelRadiusM, driveGearRatio, driveCurrentLimitA, Double.NaN);
+    }
+  }
+
   static AresDrive of(
       Supplier<Pose2d> pose,
       Supplier<ChassisSpeeds> robotSpeeds,

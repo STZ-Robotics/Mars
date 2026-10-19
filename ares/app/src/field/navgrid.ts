@@ -1,6 +1,6 @@
 // The navigation grid: where the pathfinder may not take the robot.
 //
-// PathPlanner's layout, so one file works for both: square cells of
+// The standard navgrid.json layout: square cells of
 // `nodeSizeMeters` from the field's origin, `grid[row][col]` with the row
 // along y and the column along x, and `true` for a cell the robot's CENTER
 // may not enter (a blocked area already includes the robot's reach).
@@ -15,7 +15,7 @@ export interface NavGrid { nodeSizeMeters: number; grid: boolean[][] }
 export type Cell = [number, number] // [col, row]
 
 
-/** PathPlanner's default cell. */
+/** The standard cell. */
 export const DEFAULT_NODE_M = 0.3
 
 export function emptyGrid(lengthM: number, widthM: number, node = DEFAULT_NODE_M): NavGrid {
@@ -176,7 +176,7 @@ export function route(g: NavGrid, a: [number, number], b: [number, number]): [nu
   const gs = new Map<number, number>([[key(start), 0]])
   const came = new Map<number, number>()
   const h = ([c, r]: Cell) => Math.hypot(c - goal[0], r - goal[1])
-  // A binary heap would be faster; at PathPlanner's cell size the field is
+  // A binary heap would be faster; at the standard cell size the field is
   // ~1500 cells and this runs in a frame.
   const frontier: { f: number; cell: Cell }[] = [{ f: h(start), cell: start }]
   const closed = new Set<number>()

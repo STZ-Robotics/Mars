@@ -1,7 +1,7 @@
 import { ReactNode, useCallback, useEffect, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
 
-// Folders for the paths and the autos, as PathPlanner has them. What each
+// Folders for the paths and the autos. What each
 // item is in lives on the item (its `folder`); folders.json keeps the
 // folders themselves, so an empty one stays.
 

@@ -6,7 +6,9 @@ import { propertyInputStyle } from "@desktop/styles/pageForm"
 import { FIELDS } from "@desktop/utils/field/fieldImages"
 import type { RobotConfig } from "../robot/types"
 import type { FieldDoc } from "../paths/types"
-import { drawFieldBackground } from "../paths/FieldView"
+import { drawFieldBackground, drawOccluders, drawTags } from "../paths/FieldView"
+import { estimateOccluders, occludersFor, tagsForField, type Occluder } from "../vision/vision"
+import { QInput } from "../ui/controls"
 import { fieldSketch } from "../paths/fieldSketch"
 import { loadView } from "../paths/PathsPage"
 import { Toggle } from "../ui/controls"
@@ -19,7 +21,7 @@ import {
 import { useField } from "../ui/field"
 
 // The Field tab: what is true of the field for every path. For now, the
-// navigation grid (PathPlanner's navgrid): the cells the pathfinder keeps the
+// navigation grid (navgrid.json): the cells the pathfinder keeps the
 // robot's center out of, for the "?" segments in Ares and for AresLib's
 // pathfinder on the robot. Keep-outs and slow zones are still drawn in Paths
 // and shown here for reference.
@@ -65,13 +67,13 @@ export default function FieldPage({ robot, robotPath }: { robot: RobotConfig; ro
     const t = setTimeout(async () => {
       try {
         const now = await invoke<FieldDoc>("field_open", { robotPath })
-        await invoke("field_save", { robotPath, field: { ...now, navgrid: doc.navgrid }, fieldSize: FIELD_SIZE })
+        await invoke("field_save", { robotPath, field: { ...now, navgrid: doc.navgrid, occluders: doc.occluders }, fieldSize: FIELD_SIZE })
       } catch (e) {
-        toast({ kind: "error", title: "Could not save the navgrid", body: String(e) })
+        toast({ kind: "error", title: "Could not save the field", body: String(e) })
       }
     }, SAVE_DELAY_MS)
     return () => clearTimeout(t)
-  }, [doc?.navgrid])
+  }, [doc?.navgrid, doc?.occluders])
 
   /** Changes the grid; `record` puts the old one on the undo stack (once per gesture). */
   const setGrid = useCallback((f: (g: NavGrid | undefined) => NavGrid | undefined, record: boolean) => {
@@ -100,7 +102,7 @@ export default function FieldPage({ robot, robotPath }: { robot: RobotConfig; ro
   const create = (node: number) => setGrid(() => emptyGrid(L, W, node), true)
 
   const importGrid = async () => {
-    const path = await open({ multiple: false, title: "Import a PathPlanner navgrid", filters: [{ name: "navgrid.json", extensions: ["json"] }] })
+    const path = await open({ multiple: false, title: "Import a navgrid.json", filters: [{ name: "navgrid.json", extensions: ["json"] }] })
     if (typeof path !== "string") return
     try {
       const g = await invoke<NavGrid>("navgrid_import", { path })
@@ -113,7 +115,7 @@ export default function FieldPage({ robot, robotPath }: { robot: RobotConfig; ro
 
   const exportGrid = async () => {
     if (!grid) return
-    const path = await save({ title: "Export for PathPlanner (deploy/pathplanner/navgrid.json)", defaultPath: "navgrid.json", filters: [{ name: "navgrid.json", extensions: ["json"] }] })
+    const path = await save({ title: "Export the navgrid.json", defaultPath: "navgrid.json", filters: [{ name: "navgrid.json", extensions: ["json"] }] })
     if (!path) return
     try {
       await invoke("navgrid_export", { path, grid, fieldSize: FIELD_SIZE })
@@ -178,17 +180,23 @@ export default function FieldPage({ robot, robotPath }: { robot: RobotConfig; ro
           )}
         </div>
 
+        <Structures
+          drawn={doc.occluders ?? null}
+          estimated={estimateOccluders(tagsForField(field.key))}
+          onChange={occluders => setDoc(d => (d ? { ...d, occluders } : d))}
+        />
+
         <Heading label="Navgrid" />
         <Help>
           Where the <b>pathfinder</b> may not take the robot: the <b style={{ color: "#16a34a" }}>?</b> segments in Ares, and AresLib on the robot.
           A path you draw goes where you draw it. A blocked cell is one the robot's <b>center</b> cannot enter, so paint an obstacle
           <b> plus the robot's reach</b> ({reach.toFixed(2)} m from its center to a bumper corner): <i>Grow</i> adds a cell all around.
-          Same file as PathPlanner's navgrid.
+          The standard navgrid.json format.
         </Help>
         {!grid ? (
           <div style={{ padding: "4px 12px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
             <Button icon="ti-grid-4x4" onClick={() => create(DEFAULT_NODE_M)}>Create a navgrid ({DEFAULT_NODE_M} m cells)</Button>
-            <Button icon="ti-file-import" onClick={importGrid}>Import a PathPlanner navgrid.json…</Button>
+            <Button icon="ti-file-import" onClick={importGrid}>Import a navgrid.json…</Button>
           </div>
         ) : (
           <>
@@ -200,7 +208,7 @@ export default function FieldPage({ robot, robotPath }: { robot: RobotConfig; ro
               <select style={propertyInputStyle} value={grid.nodeSizeMeters}
                 onChange={e => { const n = Number(e.target.value); setGrid(g => (g ? resample(g, n, L, W) : g), true) }}>
                 {[...new Set([...CELL_SIZES, grid.nodeSizeMeters])].sort((a, b) => a - b).map(s => (
-                  <option key={s} value={s}>{s} m{s === DEFAULT_NODE_M ? " (PathPlanner's)" : ""}</option>
+                  <option key={s} value={s}>{s} m{s === DEFAULT_NODE_M ? " (standard)" : ""}</option>
                 ))}
               </select>
             </PropertyRow>
@@ -226,8 +234,8 @@ export default function FieldPage({ robot, robotPath }: { robot: RobotConfig; ro
 
             <Heading label="File" />
             <div style={{ padding: "8px 12px", display: "flex", flexDirection: "column", gap: 6 }}>
-              <Button icon="ti-file-import" onClick={importGrid}>Import a PathPlanner navgrid.json…</Button>
-              <Button icon="ti-file-export" onClick={exportGrid}>Export for PathPlanner…</Button>
+              <Button icon="ti-file-import" onClick={importGrid}>Import a navgrid.json…</Button>
+              <Button icon="ti-file-export" onClick={exportGrid}>Export navgrid.json…</Button>
               <Button icon="ti-trash" onClick={() => { if (window.confirm("Delete the navgrid? The pathfinder will only avoid the keep-outs.")) setGrid(() => undefined, true) }}>Delete the navgrid</Button>
             </div>
             <Help>
@@ -358,6 +366,10 @@ function GridCanvas(p: {
     const ctx = canvas.getContext("2d")!
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     drawFieldBackground(ctx, size, toScreen, view.k, field, image, sketch, opts)
+    // The field's AprilTags: where the cameras will look.
+    // The structures (drawn, or estimated from the tags) and the tags on them.
+    drawOccluders(ctx, toScreen, view.k, occludersFor(p.doc.occluders, tagsForField(field.key)))
+    drawTags(ctx, toScreen, view.k, tagsForField(field.key), new Map())
 
     // Keep-outs, only when asked: a faint outline of each, to compare.
     if (p.showKeepOuts) {
@@ -428,7 +440,7 @@ function GridCanvas(p: {
       ctx.fillStyle = blockedAt(grid, cursor[0], cursor[1]) ? "#c21c1c" : "#1c1c1f"
       ctx.beginPath(); ctx.arc(sx, sy, 2.5, 0, 2 * Math.PI); ctx.fill()
     }
-  }, [size, view, image, sketch, grid, p.doc, cursor, boxDraft, tool, p.brushM, p.route, p.routeAB, p.reach, p.showKeepOuts])
+  }, [size, view, image, sketch, grid, p.doc, cursor, boxDraft, tool, p.brushM, p.route, p.routeAB, p.reach, p.showKeepOuts, field.key])
 
   const local = (e: React.MouseEvent): [number, number] => {
     const r = canvasRef.current!.getBoundingClientRect()
@@ -549,5 +561,65 @@ function Empty({ children }: { children: ReactNode }) {
     <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "var(--text-muted)", fontSize: 13, background: "var(--bg-page)" }}>
       {children}
     </div>
+  )
+}
+
+/**
+ * The field's structures as a 2.5D map: footprints with a height, for what the cameras can and
+ * cannot see. Until one is drawn, Ares estimates them from the AprilTags (a group of tags facing
+ * several ways is a structure, such as the hub); a drawn list replaces the estimate entirely.
+ */
+function Structures({ drawn, estimated, onChange }: {
+  drawn: Occluder[] | null
+  estimated: Occluder[]
+  onChange: (occluders: Occluder[] | undefined) => void
+}) {
+  const list = drawn ?? estimated
+  const set = (i: number, patch: Partial<Occluder>) => onChange(list.map((o, j) => (j === i ? { ...o, ...patch } : o)))
+  return (
+    <>
+      <Heading label="Structures (2.5D)" />
+      <Help>
+        What blocks the cameras' view: each structure is a footprint with a height, so a camera in front of the hub sees the two tags on its
+        face and not the ones behind it. {drawn
+          ? <>Drawn by hand ({drawn.length}).</>
+          : <><b>Estimated from the AprilTags</b> ({estimated.length}): a group of tags facing several ways is a structure, 0.6 m above its highest tag. Edit any value to make it yours.</>}
+      </Help>
+      {list.map((o, i) => (
+        <div key={i} style={{ borderBottom: "1px solid var(--border-light)", paddingBottom: 4 }}>
+          <PropertyRow label="Name">
+            <input style={propertyInputStyle} value={o.name} onChange={e => set(i, { name: e.target.value })} />
+            <Button icon="ti-trash" title="Remove it" onClick={() => onChange(list.filter((_, j) => j !== i))}>{""}</Button>
+          </PropertyRow>
+          <PropertyRow label="Center x, y (m)">
+            <div style={{ display: "flex", gap: 4, width: "100%" }}>
+              <QInput dim="length" value={o.x} onChange={v => set(i, { x: v })} />
+              <QInput dim="length" value={o.y} onChange={v => set(i, { y: v })} />
+            </div>
+          </PropertyRow>
+          <PropertyRow label="Length, width (m)">
+            <div style={{ display: "flex", gap: 4, width: "100%" }}>
+              <QInput dim="length" value={o.lengthM} onChange={v => set(i, { lengthM: Math.max(0.01, v) })} />
+              <QInput dim="length" value={o.widthM} onChange={v => set(i, { widthM: Math.max(0.01, v) })} />
+            </div>
+          </PropertyRow>
+          <PropertyRow label="Turned (°)">
+            <QInput dim="plain" value={o.yawDeg ?? 0} onChange={v => set(i, { yawDeg: v })} />
+          </PropertyRow>
+          <PropertyRow label="From, to height (m)">
+            <div style={{ display: "flex", gap: 4, width: "100%" }} title="From the carpet up. A bar the robot drives under starts above 0.">
+              <QInput dim="length" value={o.zMinM ?? 0} onChange={v => set(i, { zMinM: Math.max(0, v) })} />
+              <QInput dim="length" value={o.zMaxM} onChange={v => set(i, { zMaxM: Math.max(0.01, v) })} />
+            </div>
+          </PropertyRow>
+        </div>
+      ))}
+      <div style={{ padding: "8px 12px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+        <Button icon="ti-plus" title="A new structure in the middle of the field" onClick={() => onChange([...list, { name: `structure ${list.length + 1}`, x: 8.27, y: 4.03, lengthM: 1, widthM: 1, yawDeg: 0, zMinM: 0, zMaxM: 1 }])}>Add</Button>
+        {drawn
+          ? <Button icon="ti-wand" title="Forget the drawn ones and estimate them from the AprilTags again" onClick={() => onChange(undefined)}>Estimate again</Button>
+          : <Button icon="ti-ban" title="Nothing blocks the cameras (an empty map)" onClick={() => onChange([])}>None</Button>}
+      </div>
+    </>
   )
 }

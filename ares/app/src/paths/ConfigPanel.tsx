@@ -4,7 +4,7 @@ import { propertyInputStyle } from "@desktop/styles/pageForm"
 import { Q, QInput } from "../ui/controls"
 import { bindField } from "../vars/bind"
 import { linkedPose } from "../vars/variables"
-import { StopIcon, WaypointIcon, positionColor } from "./glyphs"
+import { AprilTagIcon, StopIcon, WaypointIcon, positionColor } from "./glyphs"
 import CommandTree, { RobotNames } from "../autos/CommandTree"
 import { markerLink } from "../autos/robotNames"
 import type { Step } from "../autos/types"
@@ -17,6 +17,8 @@ import {
 interface Props {
   spec: PathSpec
   selected: NonNullable<Selection>
+  /** The robot's camera names, for See AprilTags. */
+  cameras: string[]
   keepOut: KeepOut[]
   trajectory: Trajectory | null
   stale: boolean
@@ -66,7 +68,7 @@ const START_KINDS: { kind: WaypointKind; label: string; hint: string }[] = [
   { kind: "continue", label: "Continue", hint: "Start where the previous path ended, at its speed. Pick the path to take its end pose." },
 ]
 
-// Choreo's floating config panel: whatever is selected, edited right over
+// The floating config panel: whatever is selected, edited right over
 // the field without leaving it.
 export default function ConfigPanel(p: Props) {
   const { spec, selected } = p
@@ -168,7 +170,7 @@ export default function ConfigPanel(p: Props) {
             hint="How long the robot stays stopped before moving on (to score, to intake). Everything after it happens that much later." />
         )}
         {i < n - 1 && (
-          <div title="Optimized: the optimizer shapes the curve to the next waypoint. Manual: you draw it with two handles (PathPlanner style) and the optimizer only times it. Pathfind: not planned; the robot finds its way there at run time from wherever it is, and Ares shows the likely route.">
+          <div title="Optimized: the optimizer shapes the curve to the next waypoint. Manual: you draw it with two handles and the optimizer only times it. Pathfind: not planned; the robot finds its way there at run time from wherever it is, and Ares shows the likely route.">
             <PropertyRow label="Curve to next">
               <select style={propertyInputStyle} value={segmentMode(w)} onChange={e => p.onSetSegment(i, e.target.value as SegmentMode)}>
                 <option value="optimized">Optimized (free shape)</option>
@@ -241,8 +243,8 @@ export default function ConfigPanel(p: Props) {
     if (!c) return null
     const meta = constraintMeta(c.type)
     title = meta.label
-    icon = c.type === "stopPoint" ? <StopIcon /> : <i className={`ti ${meta.icon}`} style={{ fontSize: 15, color: "#e95420" }} />
-    body = <ConstraintFields c={c} n={n} onChange={patch => p.onConstraint(selected.index, patch)} onUpdate={f => p.onConstraintFn(selected.index, f)} />
+    icon = c.type === "stopPoint" ? <StopIcon /> : c.type === "seeTags" ? <AprilTagIcon size={15} /> : <i className={`ti ${meta.icon}`} style={{ fontSize: 15, color: "#e95420" }} />
+    body = <ConstraintFields c={c} n={n} cameras={p.cameras} onChange={patch => p.onConstraint(selected.index, patch)} onUpdate={f => p.onConstraintFn(selected.index, f)} />
   } else if (selected.kind === "event") {
     const e = (spec.events ?? [])[selected.index]
     if (!e) return null
@@ -257,7 +259,7 @@ export default function ConfigPanel(p: Props) {
         </datalist>
         <PropertyRow label="From waypoint"><TargetSelect value={e.target} n={n} onChange={t => t && p.onEvent(selected.index, { target: t })} /></PropertyRow>
         <Q label="Offset" dim="plain" unit="s" hint="Negative fires before the waypoint" {...bindField(e, "offsetS", f => p.onEventFn(selected.index, f))} />
-        <Q label="Duration" dim="plain" unit="s" optional hint="Empty: a moment. A duration makes it a zone (PathPlanner's zoned events): from the start to start + duration."
+        <Q label="Duration" dim="plain" unit="s" optional hint="Empty: a moment. A duration makes it a zone: from the start to start + duration."
           {...bindField(e, "durationS", f => p.onEventFn(selected.index, f))} />
         {fired && !p.stale && (
           <PropertyRow label="Fires at">
@@ -311,7 +313,7 @@ export default function ConfigPanel(p: Props) {
     body = (
       <>
         <div style={{ padding: "5px 10px", fontSize: 10.5, color: "var(--text-muted)", borderBottom: "1px solid var(--border-light)", lineHeight: 1.45 }}>
-          A heading the robot hits partway along a segment, without a waypoint there (PathPlanner's rotation targets).
+          A heading the robot hits partway along a segment, without a waypoint there.
         </div>
         <PropertyRow label="Segment">
           <select style={propertyInputStyle} value={r.segment} onChange={e => p.onRotationFn(selected.index, q => ({ ...q, segment: Number(e.target.value) }))}>
@@ -360,8 +362,8 @@ export default function ConfigPanel(p: Props) {
   )
 }
 
-function ConstraintFields({ c, n, onChange, onUpdate }: {
-  c: ScopedConstraint; n: number; onChange: (patch: Partial<ScopedConstraint>) => void; onUpdate: (f: (c: ScopedConstraint) => ScopedConstraint) => void
+function ConstraintFields({ c, n, cameras, onChange, onUpdate }: {
+  c: ScopedConstraint; n: number; cameras: string[]; onChange: (patch: Partial<ScopedConstraint>) => void; onUpdate: (f: (c: ScopedConstraint) => ScopedConstraint) => void
 }) {
   const meta = constraintMeta(c.type)
   const set = (patch: Record<string, unknown>) => onChange(patch as Partial<ScopedConstraint>)
@@ -410,7 +412,7 @@ function ConstraintFields({ c, n, onChange, onUpdate }: {
             </PropertyRow>
           )}
           <div style={{ padding: "2px 10px 6px", fontSize: 10.5, color: "var(--text-muted)", lineHeight: 1.4 }}>
-            PathPlanner's point-towards zone: between the two waypoints the robot turns so that side faces the target (a shooter, an intake). Counterclockwise is positive.
+            Point-at zone: between the two waypoints the robot turns so that side faces the target (a shooter, an intake). Counterclockwise is positive.
           </div>
         </>
       )}
@@ -430,6 +432,35 @@ function ConstraintFields({ c, n, onChange, onUpdate }: {
         </>
       )}
       {c.type === "keepInLane" && <Q label="Tolerance" dim="length" unit="m" {...b("toleranceM")} />}
+      {c.type === "seeTags" && (
+        <>
+          <PropertyRow label="Camera">
+            <select style={propertyInputStyle} value={c.camera ?? ""} onChange={e => set({ camera: e.target.value || undefined })}>
+              <option value="">Any of them</option>
+              {cameras.map(name => <option key={name} value={name}>{name}</option>)}
+              {c.camera && !cameras.includes(c.camera) && <option value={c.camera}>{c.camera} (not on the robot)</option>}
+            </select>
+          </PropertyRow>
+          <PropertyRow label="Enough tags">
+            <select style={propertyInputStyle} value={String(c.minTags ?? 1)} onChange={e => set({ minTags: Number(e.target.value) === 1 ? undefined : Number(e.target.value) })}>
+              <option value="1">1 (any tag)</option>
+              <option value="2">2 (a better pose)</option>
+              <option value="3">3</option>
+            </select>
+          </PropertyRow>
+          <Q
+            label="Detour up to" dim="length" unit="m" optional
+            value={c.detourM}
+            onChange={v => set({ detourM: v === undefined || v <= 0 ? undefined : v })}
+            hint="Where no heading sees enough tags (a structure in the way, too far), the path may leave its line up to this far to find a place that does. Only taken when it pays: at least 5 points more of the span with tags in view, and 15 points per second it adds. Empty = never."
+          />
+          <div style={{ padding: "2px 10px 6px", fontSize: 10.5, color: lineColor(cameras.length), lineHeight: 1.4 }}>
+            {cameras.length
+              ? "Where fewer tags than that are in view, the robot turns (the least it can) so a camera faces the tags it can see. Generate to see how much of the span keeps them: the halo on the path is green where a tag is in view."
+              : "The robot has no cameras: add them in the Robot tab."}
+          </div>
+        </>
+      )}
     </>
   )
 }
@@ -471,7 +502,7 @@ function SmallButton({ icon, title, onClick }: { icon: string; title: string; on
 
 /**
  * What the marker does on the robot: the robot code's command with its name,
- * or a command built here (PathPlanner's way), and whether the robot code has
+ * or a command built here, and whether the robot code has
  * anything by that name at all.
  */
 function MarkerCommand({ marker, names, onChange }: { marker: { name: string; command?: Step }; names: RobotNames | null; onChange: (c: Step | undefined) => void }) {
@@ -516,4 +547,8 @@ function MarkerCommand({ marker, names, onChange }: { marker: { name: string; co
       )}
     </div>
   )
+}
+
+function lineColor(cameras: number): string {
+  return cameras ? "var(--text-muted)" : "var(--status-warning)"
 }

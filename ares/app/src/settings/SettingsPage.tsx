@@ -105,7 +105,7 @@ function ProjectSection({ robotPath }: { robotPath: string }) {
           {FIELDS.map(f => <option key={f.key} value={f.key}>{f.game} · {f.sizeMeters[0].toFixed(2)} × {f.sizeMeters[1].toFixed(2)} m</option>)}
         </select>
       </Row>
-      <Switch label="Variables in the robot code" hint={`Choreo's ChoreoVars: the Variables tab as a Java class of constants (WPILib units, Pose2d), written again every time a variable changes. ${variables.length} variable${variables.length === 1 ? "" : "s"} now. Saved in project.json, for the whole team.`}
+      <Switch label="Variables in the robot code" hint={`The Variables tab as a Java class of constants (WPILib units, Pose2d), written again every time a variable changes. ${variables.length} variable${variables.length === 1 ? "" : "s"} now. Saved in project.json, for the whole team.`}
         on={vj.enabled} onChange={async on => save({ varsJava: { enabled: on, file: vj.file || (await defaultFile()) } }, on)} />
       {vj.enabled && (
         <Row label="The class" hint="Inside the robot project, under src/main/java: the package comes from the folder.">

@@ -21,21 +21,19 @@ import PageBoundary from "./ui/PageBoundary"
 import SettingsPage from "./settings/SettingsPage"
 import { getSettings } from "./settings/settings"
 import { FieldProvider } from "./ui/field"
+import aresLogo from "./assets/ares-logo.png"
+import HomePage from "./home/HomePage"
 
-type Page = "robot" | "paths" | "autos" | "live" | "logs" | "tune" | "characterize" | "field" | "variables" | "settings"
+type Page = "home" | "robot" | "paths" | "autos" | "live" | "logs" | "tune" | "characterize" | "field" | "variables" | "settings"
 
 const LAST_ROBOT_KEY = "ares.lastRobot"
-const LAST_PAGE_KEY = "ares.lastPage"
 
 // The shell: MARS Desktop's chrome (dark menu bar, docked panels, status bar)
 // around Ares' pages. One robot is open at a time; its robot.json is the
 // document the File menu opens and saves.
 export default function App() {
-  const [page, setPage] = useState<Page>(() => {
-    try { const p = localStorage.getItem(LAST_PAGE_KEY); if (p === "robot" || p === "paths" || p === "autos" || p === "live" || p === "logs" || p === "tune" || p === "characterize" || p === "field" || p === "variables" || p === "settings") return p } catch { /* first run */ }
-    return "robot"
-  })
-  useEffect(() => { try { localStorage.setItem(LAST_PAGE_KEY, page) } catch { /* nothing to remember */ } }, [page])
+  // Ares opens on Home.
+  const [page, setPage] = useState<Page>("home")
   const [robot, setRobot] = useState<RobotConfig>(newRobot)
   const [robotPath, setRobotPath] = useState<string | null>(null)
   const [saved, setSaved] = useState<string>(() => JSON.stringify(newRobot()))
@@ -94,7 +92,7 @@ export default function App() {
   const fileSave = () => (robotPath ? saveTo(robotPath) : fileSaveAs())
 
   // A MARS robot project: Ares lives in its src/main/deploy/ares/, and is
-  // set up there (the robot read from PathPlanner or TunerConstants) the
+  // set up there (the robot read from the project's settings or TunerConstants) the
   // first time.
   const fileOpenProject = async () => {
     if (!confirmDiscard()) return
@@ -104,8 +102,8 @@ export default function App() {
       const p = await invoke<{ root: string; aresDir: string; robotPath: string; created: string | null; navgridImported: boolean; paths: number; autos: number }>("project_open", { root })
       await openPath(p.robotPath)
       setStatus(p.created
-        ? `Set up Ares in ${p.aresDir}: the robot came from ${p.created}${p.navgridImported ? "; PathPlanner's navgrid came along" : ""}. Check it in the Robot tab.`
-        : `Opened ${fileNameOf(p.root)}: ${p.paths} path${p.paths === 1 ? "" : "s"}, ${p.autos} auto${p.autos === 1 ? "" : "s"}${p.navgridImported ? "; PathPlanner's navgrid came along" : ""}`)
+        ? `Set up Ares in ${p.aresDir}: the robot came from ${p.created}${p.navgridImported ? "; the project's navgrid came along" : ""}. Check it in the Robot tab.`
+        : `Opened ${fileNameOf(p.root)}: ${p.paths} path${p.paths === 1 ? "" : "s"}, ${p.autos} auto${p.autos === 1 ? "" : "s"}${p.navgridImported ? "; the project's navgrid came along" : ""}`)
     } catch (e) {
       setStatus(String(e))
     }
@@ -153,6 +151,7 @@ export default function App() {
         <Rail page={page} onSelect={setPage} />
         <div key={page} className="ares-page" style={{ flex: 1, display: "flex", minWidth: 0, minHeight: 0 }}>
         <PageBoundary key={page} name={PAGES.find(q => q.id === page)?.label ?? page}>
+          {page === "home" && <HomePage robot={robot} onOpen={setPage} onOpenProject={fileOpenProject} />}
           {page === "robot" && <RobotSettingsPage robot={robot} onChange={setRobot} robotPath={robotPath} />}
           {page === "paths" && <PathsPage robot={robot} robotPath={robotPath} onSaveRobot={fileSave} />}
           {page === "autos" && <AutosPage robot={robot} robotPath={robotPath} />}
@@ -196,7 +195,7 @@ function MenuBar({ menus }: { menus: { label: string; items: MenuEntry[] }[] }) 
   const [openMenu, setOpenMenu] = useState<string | null>(null)
   return (
     <div style={{ height: 30, background: "var(--bg-menubar-dark)", display: "flex", alignItems: "center", flexShrink: 0, position: "relative", zIndex: 20 }}>
-      <span style={{ color: "var(--text-menubar)", fontWeight: 700, letterSpacing: 2, fontSize: 12, padding: "0 14px 0 12px" }}>ARES</span>
+      <span style={{ color: "var(--text-menubar)", fontWeight: 700, letterSpacing: -0.2, fontSize: 13, padding: "0 14px 0 12px" }}>Ares</span>
       {menus.map(m => (
         <div key={m.label} style={{ position: "relative" }}>
           <button
@@ -238,6 +237,7 @@ function MenuBar({ menus }: { menus: { label: string; items: MenuEntry[] }[] }) 
 }
 
 const PAGES: { id: Page; label: string; icon: string; ready: boolean }[] = [
+  { id: "home", label: "Home", icon: "logo", ready: true },
   { id: "robot", label: "Robot", icon: "swerve", ready: true },
   { id: "paths", label: "Paths", icon: "ti-route", ready: true },
   { id: "autos", label: "Autos", icon: "ti-list-details", ready: true },
@@ -287,7 +287,8 @@ function Rail({ page, onSelect }: { page: Page; onSelect: (p: Page) => void }) {
             color: page === p.id ? "var(--ares-accent)" : p.ready ? "var(--icon-tree)" : "var(--text-light)", opacity: p.ready ? 1 : 0.6,
           }}
         >
-          {p.icon === "swerve" ? <SwerveIcon size={21} /> : <i className={`ti ${p.icon}`} style={{ fontSize: 20 }} aria-hidden />}
+          {p.icon === "logo" ? <img src={aresLogo} alt="" draggable={false} style={{ width: 24, height: 24, borderRadius: 6 }} />
+            : p.icon === "swerve" ? <SwerveIcon size={21} /> : <i className={`ti ${p.icon}`} style={{ fontSize: 20 }} aria-hidden />}
           <span style={{ fontSize: 9.5, color: page === p.id ? "var(--text-primary)" : undefined, fontWeight: page === p.id ? 600 : 400 }}>{p.label}</span>
         </button>
       ))}
@@ -335,7 +336,7 @@ function WherePanel({ robotPath, onClose }: { robotPath: string; onClose: () => 
     ["autos/", "every auto, one .auto.json each (Autos tab)"],
     ["ares-index.json", "what AresLib reads first: paths, branches, variants, autos"],
     ["field.json", "keep-outs, slow zones and the navgrid (Paths and Field tabs)"],
-    ["navgrid.json", "the navgrid in PathPlanner's format, for AresLib's pathfinder"],
+    ["navgrid.json", "the navgrid (the standard navgrid.json format), for AresLib's pathfinder"],
     ["variables.json", "the project's variables (Variables tab)"],
     ["gains.json", "the gains and recovery Tune applied: AresLib uses them"],
     ["characterization.json", "what Measure found on the robot"],

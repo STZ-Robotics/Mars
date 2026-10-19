@@ -1,0 +1,92 @@
+# Ares checks: what someone otherwise had to remember before merging a change to Ares.
+#
+#   core, planner,     cargo test (the planner builds Sleipnir, C++23, by CMake)
+#   tune
+#   app                vitest and the type check, and its backend's cargo test
+#   AresLib            ./gradlew test, then ./gradlew e2eTest: the real `ares plan` on
+#                      examples/, followed by a simulated CTRE swerve built from the same
+#                      .robot.json. The one check that crosses from the planner to the robot.
+#
+# Only when ares/ (or this file) changed, on a pull request or a push to main.
+
+name: ares
+
+on:
+  pull_request:
+    paths:
+      - "ares/**"
+      - "desktop/src/**"
+      - ".github/workflows/ares.yml"
+  push:
+    branches: [main]
+    paths:
+      - "ares/**"
+      - "desktop/src/**"
+      - ".github/workflows/ares.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ares-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ares:
+    name: Planner, app and AresLib
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      # The planner's solver (Sleipnir) needs C++23: GCC 13. The app's backend needs WebKitGTK.
+      - name: System dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev gcc-13 g++-13 cmake
+          echo "CC=gcc-13" >> "$GITHUB_ENV"
+          echo "CXX=g++-13" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ares
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+          cache: gradle
+
+      - name: Core, planner and tuning
+        working-directory: ares
+        run: cargo test --release -p ares-core -p ares-planner -p ares-tune
+
+      # Ares reuses MARS Desktop's code (the @desktop alias), so both get their node_modules.
+      - run: npm ci
+        working-directory: desktop
+      - run: npm ci
+        working-directory: ares/app
+      - name: App, front end
+        working-directory: ares/app
+        run: |
+          npx tsc --noEmit
+          npm test
+      - name: App, backend
+        working-directory: ares/app/src-tauri
+        run: cargo test
+
+      - name: AresLib
+        working-directory: ares/areslib
+        run: |
+          chmod +x gradlew
+          ./gradlew test
+      - name: End to end (planner to a simulated CTRE swerve)
+        working-directory: ares/areslib
+        run: ./gradlew e2eTest

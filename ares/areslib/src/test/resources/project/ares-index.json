@@ -23,7 +23,12 @@
         "xM": -0.276225,
         "yM": -0.276225
       }
-    ]
+    ],
+    "drive": {
+      "wheelRadiusM": 0.0508,
+      "driveGearRatio": 5.2734375,
+      "driveCurrentLimitA": 120.0
+    }
   },
   "paths": [
     {

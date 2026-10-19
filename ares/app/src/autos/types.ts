@@ -1,10 +1,10 @@
-// Autos: a tree of commands, as in PathPlanner's auto editor.
+// Autos: a tree of commands.
 //
 // The auto is a sequential group. Its commands are paths to follow, the robot
 // code's NamedCommands, waits, and groups that hold more commands:
 // sequential (one after another), parallel (all at once, until all end),
 // deadline (all at once, until the first ends) and race (all at once, until
-// any ends). Beyond PathPlanner: an if takes one list or the other on a
+// any ends). Beyond the usual groups: an if takes one list or the other on a
 // NamedCondition, a when runs its commands alongside the rest once a time
 // comes, the robot enters a zone or a condition holds, and an auto runs
 // another auto. The robot code reads them from ares-index.json.
@@ -31,7 +31,7 @@ export type Trigger =
 
 /**
  * An auto. `resetOdometry`: whether it sets the robot's pose to its first
- * path's start (PathPlanner's "Reset Odometry"); unset, the robot code's
+ * path's start ("reset odometry"); unset, the robot code's
  * Config decides (yes by default). `folder` groups it in the list.
  */
 export interface Auto { name: string; budgetS?: number; resetOdometry?: boolean; folder?: string; steps: Step[] }
@@ -58,7 +58,7 @@ type OldParallel = { type: "parallel"; mode: "all" | "race" | "deadline"; branch
 /**
  * Autos saved before the command tree: a parallel step held lists
  * (`mode`, `branches`) and a command could run `alongside` the rest of its
- * list. Both become groups, the way PathPlanner would write them.
+ * list. Both become command groups.
  */
 export function migrate(steps: Step[]): Step[] {
   const out: Step[] = []

@@ -34,7 +34,8 @@ knows the branches, variants and autos without listing folders.
 
 ```java
 Ares ares = new Ares(
-    CtreSwerve.of(drivetrain),        // the Tuner X CommandSwerveDrivetrain
+    CtreSwerve.of(drivetrain)         // the Tuner X CommandSwerveDrivetrain
+        .withModuleConstants(TunerConstants.FrontLeft),   // checks the .robot.json against it
     new Ares.Config()                 // defaults are fine to start
         .withGains(new AresController.Gains(3, 0, 0), new AresController.Gains(3, 0, 0)));
 
@@ -52,6 +53,18 @@ project: what the Tune tab's "Apply to robot" writes after tuning, so a deploy
 carries the tuned gains with no code to change. `withGains` in the code wins
 over the file. Either way it prints which gains it runs with and from where,
 and publishes them on `/Ares/Gains`.
+
+**The robot it was planned for.** With `withModuleConstants`, Ares compares the
+`.robot.json`'s drive (gear ratio, wheel radius, current limit, carried in
+`ares-index.json`) with TunerConstants and raises an alert naming every one
+that differs: a stale `.robot.json` plans speeds and forces for another robot.
+The wheel radius gets 3% of room (wheels wear), the ratio 0.5%, the current 10%.
+It also names every path that asks for more speed than the drivetrain reaches
+at 12 V (TunerConstants' `SpeedAt12Volts`): planned at the motor's whole free
+speed, the robot falls behind on every straight and the feedback has nothing
+left to catch up with; `maxSpeedFraction` in the `.robot.json` (about 0.8)
+leaves that headroom. Another drivetrain reports these through
+`AresDrive.mechanics()`.
 
 Not CTRE? `AresDrive.of(pose, robotSpeeds, resetPose, setpoint -> ..., subsystem)`
 takes four lambdas. The setpoint has the speeds (field and robot frame) and
@@ -124,13 +137,21 @@ Also: `ares.path("Hub run")`, `ares.path("Hub run", "wide")` (a variant),
 ## Going somewhere by itself
 
 PathPlanner's `pathfindToPose` and `pathfindThenFollowPath`: around the
-project's navgrid when it has one, straight otherwise. Poses are in blue's
-coordinates, as the paths are drawn, and flip on red.
+project's navgrid when it has one, straight otherwise. `pathfindTo` takes
+poses in blue's coordinates, as the paths are drawn, and flips them on red;
+`pathfindToField` takes them in the field's own coordinates (the estimator's,
+the AprilTag layout's) and never flips, for a goal the code already worked out
+for its alliance, such as a spot in front of this alliance's hub from its tags.
 
 ```java
 driver.a().whileTrue(ares.pathfindTo(new Pose2d(1.8, 7.6, Rotation2d.fromDegrees(-90)))); // line up at the amp
+driver.b().whileTrue(ares.pathfindToField(() -> hubSpotFor(alliance()), limits));        // already this alliance's
 ares.pathfindThenFollow("Score");   // to where Score starts, then Score
 ```
+
+A goal (or a start) inside a blocked cell, a shooting spot drawn against the
+tower, say, is reached from the nearest open cell, the last stretch straight,
+instead of giving up on the whole way.
 
 ## Hot reload, and the auto chooser
 
@@ -159,7 +180,9 @@ mirrored for 2023 and 2024) unless the code sets them with `withFieldSize` /
 
 PathPlanner's `setDynamicObstacles`: boxes by two opposite corners, in field
 coordinates as the robot sees them (other robots from vision, say). The
-pathfinder keeps the robot's center half its diagonal clear of them, and a
+pathfinder keeps the robot's center half its diagonal clear of them (or what
+`withObstacleClearance` says), so pass the obstacles' own size: growing them by
+the robot as well would keep it twice as far. A
 pathfind under way whose way ahead they now cross finds another from where
 the robot is. With no navgrid drawn, an open one the field's size takes them.
 
@@ -234,8 +257,19 @@ and the line as they come, compares with TunerConstants, and saves the results
 
 ```bash
 ./gradlew test          # trajectories, flips, and the commands on the real scheduler
+./gradlew e2eTest       # the real planner, then a simulated CTRE swerve following it
 ./gradlew publish       # writes maven/, which is committed
 ```
+
+`e2eTest` is the whole chain: it runs `ares plan` (the Rust planner, built by
+cargo the first time) on `examples/paths/hub-run.json` for the team's robot
+(`src/test/resources/e2e/`, planned at 85% of the free speed) and follows the result on a simulated
+CTRE swerve built from the same `.robot.json`, the wheel forces fed forward
+through `CtreSwerve`. It checks the tracking error along the path and at its
+end on both alliances, that the grid pathfinder never puts the robot's center
+in a blocked cell, and that a stale `.robot.json` is caught. It runs in real
+time. On Windows with a newer Visual Studio than CMake knows, set
+`CMAKE_GENERATOR="Visual Studio 17 2022"`.
 
 The tests drive a perfect simulated drivetrain through the fixture project in
 `src/test/resources/project/` (made with `ares plan`): ending where the path

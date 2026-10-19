@@ -104,4 +104,33 @@ class DynamicObstaclesTest {
     assertEquals(goal.getX(), drive.pose.getX(), 0.06);
     assertTrue(closest > 0.9, "came within " + closest + " m of the obstacle's middle");
   }
+
+  @Test
+  void aFieldPoseIsNotFlippedOnRed() {
+    red = true;
+    // Worked out by the code for the alliance it is on: (8, 4) is where it goes, red or not.
+    drive.pose = new Pose2d(2, 4, Rotation2d.kZero);
+    run(ares.pathfindToField(new Pose2d(8, 4, Rotation2d.kZero)), 15, MIDDLE, null);
+    assertEquals(8, drive.pose.getX(), 0.06);
+    assertEquals(4, drive.pose.getY(), 0.06);
+  }
+
+  @Test
+  void theClearanceFromTheObstaclesCanBeSet() {
+    ares.setDynamicObstacles(List.of(BOX));
+    drive.pose = new Pose2d(2, 4, Rotation2d.kZero);
+    run(ares.pathfindTo(new Pose2d(8, 4, Rotation2d.kZero)), 15, MIDDLE, null);
+    double byDefault = closest;
+
+    tearDown();
+    setUp();
+    ares = new Ares(drive, new Ares.Config().withFolder(TrajectoryTest.PROJECT).withFlip(() -> red).withObstacleClearance(1.2));
+    ares.setDynamicObstacles(List.of(BOX));
+    drive.pose = new Pose2d(2, 4, Rotation2d.kZero);
+    run(ares.pathfindTo(new Pose2d(8, 4, Rotation2d.kZero)), 15, MIDDLE, null);
+    assertEquals(8, drive.pose.getX(), 0.06);
+    // Half the box (0.45) plus 1.2 m, and farther than the default's robot reach kept it.
+    assertTrue(closest > 1.6, "came within " + closest + " m of the obstacle's middle");
+    assertTrue(closest > byDefault + 0.4, closest + " m with 1.2 m of clearance, " + byDefault + " m by default");
+  }
 }

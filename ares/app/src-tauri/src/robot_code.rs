@@ -7,7 +7,7 @@
 //! `build.gradle` and a `src/main/java`. Another folder can be given instead
 //! (a project kept elsewhere). The Java is read, not compiled: a name is
 //! registered when it appears as the first, literal argument of AresLib's
-//! `registerCommand` / `registerCondition`, PathPlanner's
+//! `registerCommand` / `registerCondition`, and
 //! `NamedCommands.registerCommand`, or AresLib's `event("...")` trigger.
 
 use std::fs;
@@ -73,7 +73,7 @@ pub fn scan(root: &Path) -> RobotNames {
                 let Ok(text) = fs::read_to_string(&p) else { continue };
                 names.files += 1;
                 let text = strip_comments(&text);
-                // registerCommand covers AresLib and PathPlanner's NamedCommands.
+                // registerCommand covers AresLib and NamedCommands.
                 literal_args(&text, "registerCommand", &mut names.commands);
                 literal_args(&text, "registerCondition", &mut names.conditions);
                 literal_args(&text, ".event", &mut names.events);
