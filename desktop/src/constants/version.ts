@@ -14,7 +14,7 @@
 // vite.config.ts imports this file and runs it in Node, so it cannot depend on
 // anything from the bundle. The compiled edition lives in `edition.ts`.
 
-export const MARS_VERSION = "1.1.7"
+export const MARS_VERSION = "1.1.8"
 
 /** How it is written on screen. */
 export const MARS_VERSION_LABEL = `v${MARS_VERSION}`

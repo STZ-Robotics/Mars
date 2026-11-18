@@ -1,13 +1,20 @@
 # Change Log
 
+## 0.3.2
+
+### Fixed
+
+- **On macOS, MARS Desktop is found as `MARS Desktop.app`,** the app bundle
+  the installer puts there from MARS 1.1.8 on. 0.3.1's notes claimed this
+  already; that change had not reached its build.
+
 ## 0.3.1
 
 ### Fixed
 
 - **MARS Desktop is found wherever it was installed.** The launcher looked only
   in the installer's default folder; it now reads the folder the installer
-  recorded in `installation.json` first, and on macOS it finds the
-  `MARS Desktop.app` bundle the installer puts there.
+  recorded in `installation.json` first.
 
 ### Removed
 
