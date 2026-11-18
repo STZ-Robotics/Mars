@@ -17,7 +17,7 @@ somebody's project. In here, a change to both is one commit.
 touching anything — is the dashboard installed, what team is this, which run
 mode is the Manifest pinned to, which MARS am I compiling against, what packages
 are installed — and every answer is a link to the file that decides it. Its title
-bar has the buttons that launch **MARS Desktop** and **Simulation Studio**.
+bar has the button that launches **MARS Desktop**.
 
 **Architecture.** MARS spreads a subsystem across files on purpose: the data
 here, the IO interface there, three implementations of it, one class per
@@ -111,8 +111,7 @@ method. Those are reported as unresolved rather than guessed at, which is what
 
 | | |
 |---|---|
-| `mars.desktopPath` | Full path to `mars-desktop`. Empty means look where the installer puts it, and in this repository's build output. |
-| `mars.simulationStudioPath` | The same for `mars-sim-app`. |
+| `mars.desktopPath` | Full path to `mars-desktop`. Empty means look where the installer put it (the folder it recorded, then its default), and in this repository's build output. |
 | `mars.codeLens` | Turn the lenses off. |
 | `mars.networkTables.address` | Connect straight to this `host:port`. Empty means being offered the simulator, the robot derived from the team number, the Driver Station and Systemcore. |
 
@@ -165,6 +164,6 @@ found it.
   id, which is an account thing and not a code thing.
 - The Marketplace wants a 128×128 PNG icon; `media/mars.svg` is the activity bar
   icon, which is a different thing and may stay an SVG.
-- The version is the *extension's* and follows nothing else here. The dashboard,
-  the Studio and the library each have their own, and `scripts/sync-version.mjs`
+- The version is the *extension's* and follows nothing else here. The dashboard
+  and the library each have their own, and `scripts/sync-version.mjs`
   deliberately does not touch this one.

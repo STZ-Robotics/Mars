@@ -1,29 +1,32 @@
-// Finding and starting the two MARS applications.
+// Finding and starting MARS Desktop.
 //
-// The search order mirrors what the installer does, because it has to: the
-// installer is always per-user (never Program Files, never /opt, so a student
-// can install on a lab machine without a password), so the default location is
-// under the user's own data directory and differs on each platform. The
-// development build is looked for too -- somebody working on this repository
-// should not have to install the dashboard to launch it from the editor.
+// The search follows what the installer does, because it has to: the installer
+// is always per-user (never Program Files, never /opt, so a student can install
+// on a lab machine without a password), and it records the folder it used --
+// which the user may have changed -- in installation.json. The default folder
+// is the fallback. The development build is looked for too: somebody working
+// on this repository should not have to install the dashboard to launch it from
+// the editor.
 //
-// Both processes are started and let go. The Studio's own launcher in the
-// dashboard says why in more detail; the short version is that these have their
-// own windows and their own life cycle, and closing the editor should not take
-// a running dashboard down at a competition.
+// The process is started and let go: it has its own window and its own life
+// cycle, and closing the editor should not take a running dashboard down at a
+// competition.
+//
+// There used to be a second application, the Simulation Studio. It is no
+// longer distributed, and its command went with it.
 
 import { spawn } from 'child_process';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-export type App = 'desktop' | 'studio';
+export type App = 'desktop';
 
 interface AppSpec {
 	label: string;
 	/** The setting that overrides the search entirely. */
 	setting: string;
-	/** The environment variable the dashboard itself honours for the Studio. */
+	/** An environment variable that points straight at the executable. */
 	environment: string;
 	/** Executable base name, without the platform extension. */
 	binary: string;
@@ -42,16 +45,6 @@ const APPS: Readonly<Record<App, AppSpec>> = {
 			path.join('desktop', 'src-tauri', 'target', 'debug'),
 		],
 	},
-	studio: {
-		label: 'MARS Simulation Studio',
-		setting: 'simulationStudioPath',
-		environment: 'MARS_SIM_APP',
-		binary: 'mars-sim-app',
-		devPaths: [
-			path.join('simulationstudio', 'app', 'target', 'release'),
-			path.join('simulationstudio', 'app', 'target', 'debug'),
-		],
-	},
 };
 
 const RELEASES = 'https://github.com/STZ-Robotics/Mars/releases/latest';
@@ -60,8 +53,8 @@ function executableName(binary: string): string {
 	return process.platform === 'win32' ? `${binary}.exe` : binary;
 }
 
-/** The folder the installer puts MARS in, per platform. Never a system location. */
-function installDirectory(): string {
+/** The folder the installer suggests, per platform. Never a system location. */
+function defaultInstallDirectory(): string {
 	const home = os.homedir();
 	switch (process.platform) {
 		case 'win32':
@@ -73,6 +66,52 @@ function installDirectory(): string {
 			// ~/.local/share, as the XDG spec says.
 			return path.join(process.env.XDG_DATA_HOME ?? path.join(home, '.local', 'share'), 'MARS');
 	}
+}
+
+/**
+ * Where the installer keeps its record: Rust's `dirs::config_dir()` plus `MARS`,
+ * the same folder MARS Desktop keeps its preferences in.
+ */
+function userDataDirectory(): string {
+	const home = os.homedir();
+	switch (process.platform) {
+		case 'win32':
+			return path.join(process.env.APPDATA ?? path.join(home, 'AppData', 'Roaming'), 'MARS');
+		case 'darwin':
+			return path.join(home, 'Library', 'Application Support', 'MARS');
+		default:
+			return path.join(process.env.XDG_CONFIG_HOME ?? path.join(home, '.config'), 'MARS');
+	}
+}
+
+/**
+ * The install folder written in an installation record, or `undefined`.
+ *
+ * `carpeta` is the name the field had in the installer's first releases, whose
+ * records are still on machines that installed then.
+ */
+export function installDirectoryFromRecord(text: string): string | undefined {
+	try {
+		const record = JSON.parse(text) as { dir?: unknown; carpeta?: unknown };
+		const dir = record.dir ?? record.carpeta;
+		return typeof dir === 'string' && dir.trim() ? dir : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/** The folder MARS was actually installed in, from the installer's record. */
+async function recordedInstallDirectory(): Promise<string | undefined> {
+	for (const name of ['installation.json', 'instalacion.json']) {
+		try {
+			const bytes = await vscode.workspace.fs.readFile(vscode.Uri.file(path.join(userDataDirectory(), name)));
+			const dir = installDirectoryFromRecord(Buffer.from(bytes).toString('utf8'));
+			if (dir) { return dir; }
+		} catch {
+			// No record under this name: try the next one.
+		}
+	}
+	return undefined;
 }
 
 async function isFile(candidate: string): Promise<boolean> {
@@ -122,15 +161,21 @@ export async function locate(app: App): Promise<string | undefined> {
 		}
 	}
 
-	// On macOS the installed dashboard is an app bundle, which `open` takes as a
-	// path and every other platform's spawn would choke on.
-	if (process.platform === 'darwin') {
-		const bundle = path.join(installDirectory(), `${spec.binary}.app`);
-		if (await isFile(bundle)) { return bundle; }
+	// Where the installer says it put MARS first: the user may have picked
+	// another folder than the one it suggests.
+	const recorded = await recordedInstallDirectory();
+	const folders = [...new Set([recorded, defaultInstallDirectory()].filter((d): d is string => !!d))];
+	for (const folder of folders) {
+		// On macOS an app bundle, which `open` takes as a path and every other
+		// platform's spawn would choke on (isFile accepts the bundle's folder).
+		if (process.platform === 'darwin') {
+			const bundle = path.join(folder, `${spec.binary}.app`);
+			if (await isFile(bundle)) { return bundle; }
+		}
+		const installed = path.join(folder, exe);
+		if (await isFile(installed)) { return installed; }
 	}
-
-	const installed = path.join(installDirectory(), exe);
-	return await isFile(installed) ? installed : undefined;
+	return undefined;
 }
 
 /**

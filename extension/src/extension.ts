@@ -100,7 +100,6 @@ function commands(
 
 	return [
 		register('mars.launchDesktop', () => launch('desktop')),
-		register('mars.launchStudio', () => launch('studio')),
 
 		register('mars.refresh', async () => {
 			await workspace.refresh();

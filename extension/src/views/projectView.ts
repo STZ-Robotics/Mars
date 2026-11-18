@@ -28,7 +28,6 @@ export class ProjectView extends RefreshableTree {
 	async update(): Promise<void> {
 		this.locations = {
 			desktop: await locate('desktop'),
-			studio: await locate('studio'),
 		};
 		this.refresh();
 	}
@@ -42,7 +41,7 @@ export class ProjectView extends RefreshableTree {
 	}
 
 	private applications(): TreeNode[] {
-		return (['desktop', 'studio'] as const).map((app) => {
+		return (['desktop'] as const).map((app) => {
 			const location = this.locations[app];
 			return new TreeNode({
 				label: labelOf(app),
@@ -51,12 +50,12 @@ export class ProjectView extends RefreshableTree {
 					? new vscode.MarkdownString(`Click to launch.\n\n\`${location}\``)
 					: 'Not installed, or not where the MARS installer puts it. Click for the download.',
 				icon: new vscode.ThemeIcon(
-					app === 'desktop' ? 'dashboard' : 'beaker',
+					'dashboard',
 					location ? undefined : new vscode.ThemeColor('disabledForeground'),
 				),
 				contextValue: `mars.app.${app}`,
 				command: {
-					command: app === 'desktop' ? 'mars.launchDesktop' : 'mars.launchStudio',
+					command: 'mars.launchDesktop',
 					title: `Launch ${labelOf(app)}`,
 				},
 			});

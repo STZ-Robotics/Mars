@@ -1,5 +1,18 @@
 # Change Log
 
+## 0.2.1
+
+### Fixed
+
+- **MARS Desktop is found wherever it was installed.** The launcher looked only
+  in the installer's default folder; it now reads the folder the installer
+  recorded in `installation.json` first.
+
+### Removed
+
+- **Launch Simulation Studio** and `mars.simulationStudioPath`: the Simulation
+  Studio is no longer distributed with MARS.
+
 ## 0.2.0
 
 ### Added
