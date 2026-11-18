@@ -30,6 +30,11 @@ pub const ARCHIVE_EXT: &str = if cfg!(windows) { "zip" } else { "tar.gz" };
 /// Executable suffix.
 pub const EXE_EXT: &str = if cfg!(windows) { ".exe" } else { "" };
 
+/// The app bundle the macOS archive carries at its root. A bare executable is
+/// not an app there: Finder opens it in a Terminal and Launchpad and Spotlight
+/// do not list it. The name is a contract with `scripts/package-release.mjs`.
+pub const MAC_APP: &str = "MARS Desktop.app";
+
 /// The components of the ecosystem. `id` is what release file names and the
 /// install record use.
 ///
@@ -63,8 +68,14 @@ impl Component {
         }
     }
 
+    /// Where the executable lands, relative to the install folder: at its
+    /// root, or inside the app bundle on macOS.
     pub fn exe_file(&self) -> String {
-        format!("{}{}", self.binary(), EXE_EXT)
+        if cfg!(target_os = "macos") {
+            format!("{MAC_APP}/Contents/MacOS/{}", self.binary())
+        } else {
+            format!("{}{}", self.binary(), EXE_EXT)
+        }
     }
 }
 

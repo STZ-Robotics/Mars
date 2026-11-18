@@ -98,10 +98,24 @@ fn launch_installed(app: tauri::AppHandle, component: String) -> Result<(), Stri
     if !exe.is_file() {
         return Err(format!("could not find {}", exe.display()));
     }
-    std::process::Command::new(&exe)
+    // On macOS the app is opened as an app, through Launch Services: started
+    // by its inner executable it would run, but not as the bundle the Dock
+    // and the menu bar know.
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut c = std::process::Command::new("open");
+        c.arg(record.dir.join(platform::MAC_APP));
+        c
+    };
+    #[cfg(not(target_os = "macos"))]
+    let mut command = {
+        let mut c = std::process::Command::new(&exe);
         // The working directory is set to the executable's own so it finds
         // whatever travels beside it.
-        .current_dir(exe.parent().unwrap_or(&record.dir))
+        c.current_dir(exe.parent().unwrap_or(&record.dir));
+        c
+    };
+    command
         .spawn()
         .map_err(|e| format!("could not open {}: {e}", comp.name()))?;
 
