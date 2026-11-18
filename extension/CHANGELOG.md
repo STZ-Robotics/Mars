@@ -6,7 +6,8 @@
 
 - **MARS Desktop is found wherever it was installed.** The launcher looked only
   in the installer's default folder; it now reads the folder the installer
-  recorded in `installation.json` first.
+  recorded in `installation.json` first, and on macOS it finds the
+  `MARS Desktop.app` bundle the installer now puts there.
 
 ### Removed
 

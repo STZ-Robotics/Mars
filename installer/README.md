@@ -88,7 +88,10 @@ taking them along.
   locked by its own process. It leaves a `.bat` that waits for the process to
   die, retries the delete, and removes itself at the end.
 - **The archives are flat**, with the executable at the root, which is where
-  the shortcuts point.
+  the shortcuts point. On macOS the root holds `MARS Desktop.app` instead: a
+  bare executable opens in a Terminal and Launchpad and Spotlight do not list
+  it. The packager assembles the bundle and signs it ad hoc; the installer
+  opens it with `open`.
 - **The Simulation Studio is no longer installed.** Releases up to 1.1.6
   carried it in the Complete edition; updating one of those installs removes
   it along with everything else the install record lists.

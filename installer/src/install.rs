@@ -398,14 +398,24 @@ fn remove_installation(record: &InstallRecord) {
 
     // Folders that ended up empty, innermost first. Never recursive: if
     // anything we did not put there is left over, it stays.
-    let mut dirs: Vec<PathBuf> = record
-        .files
-        .iter()
-        .filter_map(|rel| record.dir.join(rel).parent().map(|p| p.to_path_buf()))
-        .filter(|p| p.starts_with(&record.dir) && p != &record.dir)
-        .collect();
+    //
+    // Every folder between a file and the install folder counts, not only the
+    // file's own: a macOS app bundle holds files in Contents/MacOS and
+    // Contents/Resources and none directly in `MARS Desktop.app/`, which
+    // stayed behind as an empty -- and broken-looking -- app.
+    let mut dirs: std::collections::BTreeSet<PathBuf> = std::collections::BTreeSet::new();
+    for rel in &record.files {
+        let mut current = record.dir.join(rel);
+        while let Some(parent) = current.parent() {
+            if parent == record.dir || !parent.starts_with(&record.dir) {
+                break;
+            }
+            dirs.insert(parent.to_path_buf());
+            current = parent.to_path_buf();
+        }
+    }
+    let mut dirs: Vec<PathBuf> = dirs.into_iter().collect();
     dirs.sort_by_key(|p| std::cmp::Reverse(p.components().count()));
-    dirs.dedup();
     for d in dirs {
         let _ = std::fs::remove_dir(d);
     }
@@ -696,6 +706,44 @@ mod tests {
 
         drop(held);
         assert!(files_in_use(&record).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Uninstalling an app bundle leaves no empty `MARS Desktop.app` behind,
+    /// and keeps a folder that holds something the installer did not put there.
+    #[test]
+    fn removing_an_install_takes_every_folder_it_emptied() {
+        let dir = std::env::temp_dir().join(format!("mars-installer-remove-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let files = [
+            "MARS Desktop.app/Contents/Info.plist",
+            "MARS Desktop.app/Contents/MacOS/mars-desktop",
+            "MARS Desktop.app/Contents/Resources/icon.icns",
+            "sub/kept/data.bin",
+        ];
+        for f in files {
+            let p = dir.join(f);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(&p, b"x").unwrap();
+        }
+        // Something the user put there, which must survive.
+        std::fs::write(dir.join("sub/notes.txt"), b"mine").unwrap();
+
+        let record = InstallRecord {
+            schema: SCHEMA,
+            version: "1.1.7".into(),
+            edition: Edition::Full,
+            installed_at: "0".into(),
+            dir: dir.clone(),
+            components: vec!["mars-desktop".into()],
+            files: files.iter().map(|s| s.to_string()).collect(),
+            shortcuts: vec![],
+        };
+        remove_installation(&record);
+
+        assert!(!dir.join("MARS Desktop.app").exists(), "no empty bundle is left");
+        assert!(!dir.join("sub/kept").exists());
+        assert!(dir.join("sub/notes.txt").exists(), "what we did not install stays");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

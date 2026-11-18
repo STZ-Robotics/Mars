@@ -326,10 +326,10 @@ mod imp {
 mod imp {
     use super::*;
 
-    /// On macOS the "shortcut" is an alias in ~/Applications, and the app is
-    /// installed there already: there is nothing to create. A `.desktop` file
-    /// does not exist and a Finder alias would need AppleScript for something
-    /// that adds nothing.
+    /// On macOS there is nothing to create: the app is a bundle inside
+    /// ~/Applications, which is where Launchpad and Spotlight find apps. A
+    /// `.desktop` file does not exist and a Finder alias would need AppleScript
+    /// for something that adds nothing.
     pub fn create_shortcuts(_: &str, _: &Path, _: bool) -> (Vec<Shortcut>, Vec<String>) {
         (Vec::new(), Vec::new())
     }

@@ -30,6 +30,8 @@ interface AppSpec {
 	environment: string;
 	/** Executable base name, without the platform extension. */
 	binary: string;
+	/** The app bundle the installer puts in the install folder on macOS. */
+	macApp: string;
 	/** Where a development build lands, relative to this repository's root. */
 	devPaths: string[];
 }
@@ -40,6 +42,7 @@ const APPS: Readonly<Record<App, AppSpec>> = {
 		setting: 'desktopPath',
 		environment: 'MARS_DESKTOP',
 		binary: 'mars-desktop',
+		macApp: 'MARS Desktop.app',
 		devPaths: [
 			path.join('desktop', 'src-tauri', 'target', 'release'),
 			path.join('desktop', 'src-tauri', 'target', 'debug'),
@@ -169,7 +172,7 @@ export async function locate(app: App): Promise<string | undefined> {
 		// On macOS an app bundle, which `open` takes as a path and every other
 		// platform's spawn would choke on (isFile accepts the bundle's folder).
 		if (process.platform === 'darwin') {
-			const bundle = path.join(folder, `${spec.binary}.app`);
+			const bundle = path.join(folder, spec.macApp);
 			if (await isFile(bundle)) { return bundle; }
 		}
 		const installed = path.join(folder, exe);
