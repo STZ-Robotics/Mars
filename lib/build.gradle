@@ -35,10 +35,20 @@ dependencies {
     testImplementation 'org.junit.jupiter:junit-jupiter:5.10.1'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 
+    // Desktop natives (HAL, ntcore), for the tests that run commands on the
+    // real scheduler. A GradleRIO configuration: it is not in the published pom.
+    nativeRelease wpi.java.deps.wpilibJniRelease(wpi.platforms.desktop)
+
     implementation 'com.stzteam.forgemini:ForgeMini:1.1.2'
 
     implementation "org.yaml:snakeyaml:2.0"
 }
+
+test {
+    useJUnitPlatform()
+}
+
+wpi.java.configureTestTasks(test)
 
 publishing {
     publications {

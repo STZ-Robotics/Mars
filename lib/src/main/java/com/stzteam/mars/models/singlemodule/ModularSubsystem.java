@@ -51,6 +51,12 @@ public abstract class ModularSubsystem<D extends Data<D>, A extends IO<D>> exten
     private String lastSentMessage = "";
 
     /**
+     * How many times a Request has been applied, so {@link #runRequestUntilDone}
+     * can tell a status its own Request produced from one left by the previous Request.
+     */
+    private long appliedCount = 0;
+
+    /**
      * Registered global input hooks, invoked once per subsystem per loop, right after
      * hardware inputs are read and before any Request logic runs. Intended for optional
      * addons/Features (e.g. an AdvantageKit bridge, an external telemetry adapter) to
@@ -145,6 +151,7 @@ public abstract class ModularSubsystem<D extends Data<D>, A extends IO<D>> exten
 
         if (currentRequest != null) {
             this.lastStatus = currentRequest.apply(data, actor);
+            appliedCount++;
         }
 
         if (this.lastStatus != null && this.lastStatus.code != null) {
@@ -227,13 +234,31 @@ public abstract class ModularSubsystem<D extends Data<D>, A extends IO<D>> exten
      * Creates a WPILib Command that executes a specific Request and automatically finishes 
      * when the subsystem's ActionStatus evaluates to 'Done' (Severity.OK).
      * Ideal for autonomous routines.
+     * <p>
+     * Only a status the new Request itself produced can finish it. The scheduler runs a
+     * subsystem's periodic before its commands, so on the command's first cycle the status
+     * still belongs to the previous Request -- usually an idle one reporting OK, which used
+     * to end the command before the new Request had run at all. On a fallback IO, where no
+     * Request ever runs, it finishes at once.
      *
      * @param requestSupplier A lambda providing the Request to run.
      * @return A WPILib {@link Command}.
      */
     public Command runRequestUntilDone(Supplier<? extends Request<D, A>> requestSupplier) {
-        return this.run(() -> this.setRequest(requestSupplier.get()))
+        // How many Requests had been applied when this command first set its own. Taken
+        // on the first execute, not on initialize: inside a sequence a command is
+        // initialized one cycle before it executes, and the periodic in between still
+        // applies the previous Request.
+        final long[] appliedWhenSet = new long[1];
+        return this.startRun(
+                    () -> appliedWhenSet[0] = Long.MAX_VALUE,
+                    () -> {
+                        this.setRequest(requestSupplier.get());
+                        if (appliedWhenSet[0] == Long.MAX_VALUE) appliedWhenSet[0] = appliedCount;
+                    })
                    .until(() -> {
+                       if (isFallback) return true;
+                       if (appliedCount <= appliedWhenSet[0]) return false;
                        ActionStatus status = this.getLastStatus();
                        return status != null && status.isDone();
                    });

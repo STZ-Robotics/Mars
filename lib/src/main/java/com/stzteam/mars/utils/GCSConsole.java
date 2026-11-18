@@ -4,6 +4,7 @@ package com.stzteam.mars.utils;
 import com.stzteam.mars.builder.Environment;
 import com.stzteam.mars.builder.Environment.RunMode;
 import com.stzteam.mars.diagnostics.AlertRegistry;
+import com.stzteam.mars.generated.MarsConstants;
 
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.Timer;
@@ -14,7 +15,7 @@ import java.net.InetAddress;
 
 public class GCSConsole {
     
-    // Paleta "Hacker Terminal" (Verde y Gris)
+    // "Hacker terminal" palette (green and grey)
     private static final String RESET = "\u001b[0m";
     private static final String BOLD_GREEN = "\u001b[1;32m";
     private static final String GREEN = "\u001b[32m";
@@ -87,7 +88,7 @@ public class GCSConsole {
         System.out.println("=--------------------------------------------------------------=");
         System.out.println("=  MARS Ground Control Station           STZ Robotics          =");
         System.out.println("=--------------------------------------------------------------=");
-        System.out.println(String.format("  Version : %-47s ", "2026.1.0"));
+        System.out.println(String.format("  Version : %-47s ", MarsConstants.MARS_VERSION));
         System.out.println(String.format("  Target  : %-47s ", targetOS));
         System.out.println(String.format("  Memory  : %-47s ", maxMemory + " MB Allocated"));
         System.out.println("=--------------------------------------------------------------=" + RESET);
@@ -136,17 +137,25 @@ public class GCSConsole {
         if (!DriverStation.isFMSAttached()) System.out.println(format("STAT", moduleName, "State -> " + stateName));
     }
 
+    /**
+     * The Driver Station gets plain text: it does not interpret ANSI colors, and showed
+     * them as "[1;32m" garbage around every warning and error.
+     */
+    private static String forDriverStation(String type, String tag, String message) {
+        return String.format("[%s] [%s] %s", type, tag, message);
+    }
+
     public static void logWarning(String tag, String message) {
         String msg = format("WARN", tag, message);
         System.out.println(msg);
-        DriverStation.reportWarning(msg, false);
+        DriverStation.reportWarning(forDriverStation("WARN", tag, message), false);
     }
 
     public static void logError(String tag, String message) {
         // In the hacker terminal, errors invert the color to draw attention
         String msg = format("FAIL", tag, BG_GREEN_BLACK_TEXT + " " + message + " " + RESET);
         System.out.println(msg);
-        DriverStation.reportError(msg, false);
+        DriverStation.reportError(forDriverStation("FAIL", tag, message), false);
     }
 
     public static void logProgress(String tag, String task, double percent) {
@@ -209,14 +218,23 @@ public class GCSConsole {
             System.out.println(BOLD_GREEN + "  Error  : " + RESET + GREEN + exception.toString());
             System.out.println(BOLD_GREEN + "  Trace  :" + RESET);
             
-            StackTraceElement[] trace = exception.getStackTrace();
-            for(int i = 0; i < Math.min(8, trace.length); ++i) {
-                String line = trace[i].toString();
-                if (!line.contains("stzteam") && !line.contains("frc.robot")) {
-                    System.out.println("    -> " + GRAY + line + RESET);
-                } else {
-                    System.out.println("    -> " + BOLD_GREEN + line + RESET);
+            // The causes too: a wrapped exception's first lines are the wrapper's, and the
+            // line that explains the crash is usually in a "Caused by".
+            Throwable current = exception;
+            for (int depth = 0; current != null && depth < 5; depth++, current = current.getCause()) {
+                if (depth > 0) {
+                    System.out.println(BOLD_GREEN + "  Caused by : " + RESET + GREEN + current + RESET);
                 }
+                StackTraceElement[] trace = current.getStackTrace();
+                for(int i = 0; i < Math.min(8, trace.length); ++i) {
+                    String line = trace[i].toString();
+                    if (!line.contains("stzteam") && !line.contains("frc.robot")) {
+                        System.out.println("    -> " + GRAY + line + RESET);
+                    } else {
+                        System.out.println("    -> " + BOLD_GREEN + line + RESET);
+                    }
+                }
+                if (current.getCause() == current) break;
             }
             System.out.println(GRAY + "-----------------------------------" + RESET);
             DriverStation.reportError("Unhandled exception in " + thread.getName() + ": " + exception.getMessage(), false);

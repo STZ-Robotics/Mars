@@ -1,0 +1,61 @@
+# The library's checks: it compiles and its tests pass, on every change to it.
+#
+# Until this existed nothing built lib/ in CI: a release is a commit of the
+# jars `./gradlew publish` leaves in lib/maven/, and a change that did not
+# compile was only found by whoever ran that by hand.
+#
+# It also runs `publish` and uploads what it wrote to lib/maven/, so a release
+# can be cut from a machine that cannot reach WPILib's maven: download the
+# artifact, commit it, and the pages workflow serves it.
+
+name: lib
+
+on:
+  pull_request:
+    paths:
+      - "lib/**"
+      - ".github/workflows/lib.yml"
+  push:
+    branches: [main]
+    paths:
+      - "lib/**"
+      - ".github/workflows/lib.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+          cache: gradle
+
+      - name: Build and test
+        working-directory: lib
+        run: |
+          chmod +x gradlew
+          ./gradlew build
+
+      - name: Publish into lib/maven
+        working-directory: lib
+        run: ./gradlew publish
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lib-maven
+          path: lib/maven/
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: lib-test-reports
+          path: lib/build/reports/tests/
