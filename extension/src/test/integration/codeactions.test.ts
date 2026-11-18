@@ -87,7 +87,7 @@ async function revertAll(): Promise<void> {
 
 suite('quick fixes', () => {
 	suiteSetup(async () => {
-		const extension = vscode.extensions.all.find((e) => e.packageJSON.name === 'mars');
+		const extension = vscode.extensions.all.find((e) => e.packageJSON.name === (require('../../../package.json') as { name: string }).name);
 		assert.ok(extension, 'the MARS extension is not loaded');
 		workspace = ((await extension.activate()) as MarsApi).workspace;
 		root = (await eventually('the project', () => workspace.project)).root;
@@ -181,7 +181,7 @@ suite('quick fixes', () => {
 
 suite('renaming a table', () => {
 	suiteSetup(async () => {
-		const extension = vscode.extensions.all.find((e) => e.packageJSON.name === 'mars');
+		const extension = vscode.extensions.all.find((e) => e.packageJSON.name === (require('../../../package.json') as { name: string }).name);
 		workspace = ((await extension!.activate()) as MarsApi).workspace;
 		root = (await eventually('the project', () => workspace.project)).root;
 		await eventually('the first scan', () => workspace.model.subsystems.length > 0);

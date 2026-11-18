@@ -35,7 +35,7 @@ export class ProjectView extends RefreshableTree {
 	protected roots(): TreeNode[] {
 		const project = this.projectOf();
 		return [
-			group('Applications', this.applications(), 'rocket'),
+			group('Applications', this.applications(), 'symbol-function'),
 			...(project ? this.projectSections(project) : []),
 		];
 	}
@@ -98,7 +98,7 @@ export class ProjectView extends RefreshableTree {
 			new TreeNode({
 				label: project.name,
 				description: vscode.workspace.asRelativePath(project.root, false),
-				icon: new vscode.ThemeIcon('rocket'),
+				icon: new vscode.ThemeIcon('symbol-function'),
 				command: { command: 'revealFileInOS', title: 'Reveal', arguments: [project.root] },
 			}),
 		];

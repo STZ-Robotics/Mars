@@ -30,7 +30,7 @@ export class MarsStatusBar implements vscode.Disposable {
 		const mode = model.runMode?.value;
 		const version = project.mars ? ` ${project.mars.version}` : '';
 
-		this.item.text = `$(rocket) MARS${version}${mode ? ` · ${mode}` : ''}`;
+		this.item.text = `$(symbol-function) MARS${version}${mode ? ` · ${mode}` : ''}`;
 
 		// Only a non-REAL mode gets the warning colour. Colouring the normal case
 		// would make the bar shout permanently, and then it stops being a signal.

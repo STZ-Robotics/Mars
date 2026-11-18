@@ -31,8 +31,10 @@ async function eventually<T>(
 }
 
 async function api(): Promise<MarsApi> {
-	const extension = vscode.extensions.getExtension('mars')
-		?? vscode.extensions.all.find((e) => e.packageJSON.name === 'mars');
+	// The id comes from the manifest, so renaming the extension (it was `mars`
+	// until the Marketplace needed another name) cannot break the lookup.
+	const manifest = require('../../../package.json') as { publisher: string; name: string };
+	const extension = vscode.extensions.getExtension(`${manifest.publisher}.${manifest.name}`);
 	assert.ok(extension, 'the MARS extension is not loaded');
 	return await extension.activate() as MarsApi;
 }
@@ -98,7 +100,7 @@ suite('activation against a MARS project', () => {
 
 	test('the commands are registered', async () => {
 		const commands = await vscode.commands.getCommands(true);
-		for (const id of ['mars.launchDesktop', 'mars.refresh', 'mars.showTopics']) {
+		for (const id of ['mars.launchDesktop', 'mars.showHelp', 'mars.refresh', 'mars.showTopics']) {
 			assert.ok(commands.includes(id), `${id} is not registered`);
 		}
 	});
