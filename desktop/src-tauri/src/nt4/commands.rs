@@ -21,8 +21,10 @@ pub async fn connect_sim(app: AppHandle, state: State<'_, NT4State>) -> Result<S
     // on the target: the Driver Station re-exposes the same data on 6767 over
     // localhost.
     let port = crate::load_mars_settings().nt_port();
+    // Opened before taking the lock: see `NT4Client::attach`.
+    let ws_stream = super::client::open_socket("127.0.0.1", port).await?;
     let mut client = state.0.lock().await;
-    match client.connect("127.0.0.1", port, app).await {
+    match client.attach(ws_stream, "127.0.0.1", port, app, false).await {
         Ok(_) => {
             client.connection_mode = "sim".to_string();
             Ok(format!("Simulation connected at 127.0.0.1:{}", port))
@@ -46,9 +48,13 @@ pub async fn connect_real(team_number: Option<String>, app: AppHandle, state: St
             .unwrap_or_else(|| settings.team_number.clone());
         team_to_address(&team)
     };
+    if ip.is_empty() {
+        return Err("No team number yet: set it in Settings (or an address under NetworkTables) and connect again.".to_string());
+    }
 
+    let ws_stream = super::client::open_socket(&ip, port).await?;
     let mut client = state.0.lock().await;
-    match client.connect(&ip, port, app).await {
+    match client.attach(ws_stream, &ip, port, app, false).await {
         Ok(_) => {
             client.connection_mode = "real".to_string();
             Ok(format!("Connected to real robot at {}:{}", ip, port))
@@ -98,6 +104,7 @@ pub async fn open_wpilog(path: String, state: State<'_, NT4State>) -> Result<Ope
 
     let mut buffer = client.buffer.lock().await;
     wpilog::load_into_buffer(&mut buffer, topics, &summary);
+    buffer.reset_session_clock();
 
     Ok(OpenLogResult { summary, topics: announces })
 }
@@ -109,6 +116,7 @@ pub async fn close_log(state: State<'_, NT4State>) -> Result<(), String> {
     let mut buffer = client.buffer.lock().await;
     buffer.topics.clear();
     buffer.end_time = None;
+    buffer.reset_session_clock();
     Ok(())
 }
 

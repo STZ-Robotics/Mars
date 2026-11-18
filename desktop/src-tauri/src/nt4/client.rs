@@ -26,6 +26,18 @@ const RTT_PERIOD: Duration = Duration::from_millis(250);
 const RECONNECT_MIN_BACKOFF: Duration = Duration::from_secs(1);
 const RECONNECT_MAX_BACKOFF: Duration = Duration::from_secs(15);
 
+/// How long opening the socket may take before giving up. A robot that is
+/// there answers in milliseconds; one that is rebooting behind a radio that
+/// is up does not answer at all, and the operating system's own TCP timeout
+/// (about 20 s on Windows, over a minute elsewhere) is far too long to wait.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Gap left on the timeline between the samples from before a robot reboot and
+/// the ones after it, so the two sessions do not look like one stretch.
+const REBOOT_GAP_US: u64 = 1_000_000;
+
+type WsStream = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
 /// Equivalent to `[T]::partition_point` but for `VecDeque`, which does not
 /// expose the method directly. It assumes `deque` is sorted according to `pred`
 /// (monotonically decreasing from true to false), as `TopicHistory.data` is,
@@ -63,6 +75,17 @@ pub struct NTBuffer {
     pub end_time: Option<u64>,
     /// Retention window in microseconds. 0 = no limit.
     pub retention_us: u64,
+    /// Added to every live timestamp, so a session that follows a robot reboot
+    /// (whose clock starts again near zero) continues the timeline instead of
+    /// landing on top of the samples from before it. 0 until that happens.
+    session_offset_us: u64,
+    /// Where the previous session's samples ended, from an automatic
+    /// reconnection until the first sample of the new one says whether the
+    /// robot's clock kept running or started again.
+    continue_after: Option<u64>,
+    /// The last id handed to a topic from an earlier session (see
+    /// `begin_new_session`). Counts down from -2: -1 is the RTT ping.
+    last_stale_id: i32,
 }
 
 // Helper: extracts an f64 whether MessagePack sent it as Float, Integer or
@@ -88,13 +111,57 @@ fn now_epoch_us() -> u64 {
 
 impl NTBuffer {
     pub fn new() -> Self {
-        Self { topics: HashMap::new(), end_time: None, retention_us: DEFAULT_RETENTION_US }
+        Self {
+            topics: HashMap::new(),
+            end_time: None,
+            retention_us: DEFAULT_RETENTION_US,
+            session_offset_us: 0,
+            continue_after: None,
+            last_stale_id: -1,
+        }
     }
 
     pub fn add_topic(&mut self, id: i32, name: String, topic_type: String) {
-        if !self.topics.contains_key(&id) {
-            self.topics.insert(id, TopicHistory { name, topic_type, data: VecDeque::new() });
+        if self.topics.contains_key(&id) {
+            return;
         }
+        // A topic from before an automatic reconnection comes back under the
+        // id the server gives it now, and keeps its history.
+        let stale = self.topics.iter().find(|(k, h)| **k < -1 && h.name == name).map(|(k, _)| *k);
+        if let Some(old_id) = stale {
+            let history = self.topics.remove(&old_id).expect("found just above");
+            if history.topic_type == topic_type {
+                self.topics.insert(id, history);
+                return;
+            }
+            // Same name with another type: its old samples cannot be read as
+            // the new one, so they go.
+        }
+        self.topics.insert(id, TopicHistory { name, topic_type, data: VecDeque::new() });
+    }
+
+    /// Keeps the history across an automatic reconnection.
+    ///
+    /// The server numbers its topics anew on every connection, so the ids
+    /// from before mean nothing now and could collide with the new ones. Each
+    /// topic moves to an id of its own below -1, where `add_topic` finds it by
+    /// name when the server announces it again. Topics that never come back
+    /// stay there, still readable by name on the timeline.
+    pub fn begin_new_session(&mut self) {
+        let live: Vec<i32> = self.topics.keys().copied().filter(|id| *id >= 0).collect();
+        for id in live {
+            if let Some(history) = self.topics.remove(&id) {
+                self.last_stale_id -= 1;
+                self.topics.insert(self.last_stale_id, history);
+            }
+        }
+        self.continue_after = self.end_time;
+    }
+
+    /// Forgets the live-session clock: for a buffer that now holds a log.
+    pub fn reset_session_clock(&mut self) {
+        self.session_offset_us = 0;
+        self.continue_after = None;
     }
 
     /// Oldest timestamp still present in the buffer, computed on demand by
@@ -116,6 +183,17 @@ impl NTBuffer {
     // loop for that whole binary frame. With rmpv::Value the bytes arrive as
     // Value::Binary and can be read.
     pub fn insert_value(&mut self, id: i32, timestamp: u64, type_idx: i32, value: rmpv::Value) {
+        if !self.topics.contains_key(&id) {
+            return;
+        }
+        // The first sample after an automatic reconnection says whether the
+        // robot rebooted: its clock went back below where the history ends.
+        if let Some(previous_end) = self.continue_after.take() {
+            if timestamp + self.session_offset_us < previous_end {
+                self.session_offset_us = previous_end + REBOOT_GAP_US - timestamp;
+            }
+        }
+        let timestamp = timestamp + self.session_offset_us;
         if let Some(topic) = self.topics.get_mut(&id) {
             let nt_val = match type_idx {
                 0 => NTValue::Boolean(value.as_bool().unwrap_or(false)),
@@ -171,6 +249,21 @@ impl NTBuffer {
     }
 }
 
+/// Opens the WebSocket to an NT4 server, giving up after `CONNECT_TIMEOUT`.
+///
+/// Callers run this BEFORE taking the client's lock and hand the result to
+/// `NT4Client::attach`.
+pub async fn open_socket(ip: &str, port: u16) -> Result<WsStream, String> {
+    let url = format!("ws://{}:{}/nt/MARS", ip, port);
+    let mut request = url.into_client_request().map_err(|e| e.to_string())?;
+    request.headers_mut().insert("Sec-WebSocket-Protocol", "v4.1.networktables.first.wpi.edu".parse().unwrap());
+    match tokio::time::timeout(CONNECT_TIMEOUT, connect_async(request)).await {
+        Ok(Ok((ws_stream, _))) => Ok(ws_stream),
+        Ok(Err(e)) => Err(format!("Could not connect to {}:{}: {}", ip, port, e)),
+        Err(_) => Err(format!("{}:{} did not answer within {} s", ip, port, CONNECT_TIMEOUT.as_secs())),
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct TopicAnnounce { pub id: i32, pub name: String, pub topic_type: String }
 
@@ -216,11 +309,23 @@ impl NT4Client {
     // other), and the compiler cannot give a finite size to the Future type of
     // such a recursion between two plain `async fn`. Returning a
     // `Pin<Box<dyn Future>>` erases that concrete type and breaks the cycle.
-    pub fn connect<'a>(
+    //
+    // It takes a socket that is already open (`open_socket`) rather than
+    // opening it itself: opening can take seconds, and every caller holds the
+    // client's lock while it runs, which is the same lock every command that
+    // reads data takes. Waiting for a robot that does not answer with it held
+    // froze the whole dashboard, Disconnect button included.
+    //
+    // `keep_history` is for the automatic reconnection: the history recorded
+    // so far stays (see `NTBuffer::begin_new_session`). A connection the user
+    // asks for starts a clean buffer.
+    pub fn attach<'a>(
         &'a mut self,
+        ws_stream: WsStream,
         ip: &'a str,
         port: u16,
         app_handle: AppHandle,
+        keep_history: bool,
     ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
         Box::pin(async move {
         self.disconnect().await;
@@ -233,17 +338,13 @@ impl NT4Client {
         self.network_latency_us = Arc::new(AtomicI64::new(0));
         self.current_ip = ip.to_string();
         self.current_port = port;
-        let url = format!("ws://{}:{}/nt/MARS", ip, port);
 
-        let mut request = url.into_client_request().map_err(|e| e.to_string())?;
-        request.headers_mut().insert("Sec-WebSocket-Protocol", "v4.1.networktables.first.wpi.edu".parse().unwrap());
-
-        let (ws_stream, _) = connect_async(request).await.map_err(|e| format!("Error conectando a {}: {}", ip, e))?;
-
-        self.buffer = Arc::new(Mutex::new(NTBuffer::new()));
-        {
-            // connect() creates a new buffer: without this, every reconnection
-            // would discard the history window the user chose.
+        if keep_history {
+            self.buffer.lock().await.begin_new_session();
+        } else {
+            self.buffer = Arc::new(Mutex::new(NTBuffer::new()));
+            // A new buffer: without this, every connection would discard the
+            // history window the user chose.
             let retention_minutes = crate::load_mars_settings().nt_retention_minutes;
             self.buffer.lock().await.set_retention_us(retention_minutes as u64 * 60 * 1_000_000);
         }
@@ -270,6 +371,11 @@ impl NT4Client {
                         if let Some(msg) = msg { if write.send(msg).await.is_err() { break; } } else { break; }
                     }
                     incoming = read.next() => {
+                        // A session ended on purpose (a log was opened, another
+                        // connection replaced it) writes nothing more into the
+                        // buffer it shared: the socket can still deliver a few
+                        // frames before it closes.
+                        if manual_flag.load(Ordering::SeqCst) { break; }
                         match incoming {
                             Some(Ok(Message::Binary(bin))) => {
                                 let mut buff = buffer_clone.lock().await;
@@ -454,7 +560,7 @@ impl NT4Client {
         }
     }
 
-    /// Retries `connect()` with exponential backoff (1s -> 2s -> 4s ... capped at 15s)
+    /// Retries the connection with exponential backoff (1s -> 2s -> 4s ... capped at 15s)
     /// until it reconnects or `manual_flag` says the session was abandoned (by an
     /// explicit `disconnect_nt` or by a new manual connection that already replaced
     /// it).
@@ -471,13 +577,23 @@ impl NT4Client {
             tokio::time::sleep(backoff).await;
             if manual_flag.load(Ordering::SeqCst) { return; }
 
+            // Opened WITHOUT the client's lock: a robot that is still rebooting
+            // can take the whole timeout to not answer, and the dashboard has to
+            // keep reading the history (and Disconnect has to work) meanwhile.
+            let opened = open_socket(&ip, port).await;
+            if manual_flag.load(Ordering::SeqCst) { return; }
+            let Ok(ws_stream) = opened else {
+                backoff = std::cmp::min(backoff * 2, RECONNECT_MAX_BACKOFF);
+                continue;
+            };
+
             let mut client = client_arc.lock().await;
             // If another session already took this one's place (a manual reconnection
-            // while we were waiting), abort: that connect() already has its own socket
+            // while we were waiting), abort: that one already has its own socket
             // reader running.
             if !Arc::ptr_eq(&client.manual_disconnect, &manual_flag) { return; }
 
-            match client.connect(&ip, port, app_handle.clone()).await {
+            match client.attach(ws_stream, &ip, port, app_handle.clone(), true).await {
                 Ok(_) => {
                     let _ = app_handle.emit("nt-reconnected", client.connection_mode.clone());
                     return;
@@ -516,3 +632,126 @@ impl NT4Client {
 }
 
 pub struct NT4State(pub Arc<Mutex<NT4Client>>);
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn number(v: f64) -> rmpv::Value {
+        rmpv::Value::F64(v)
+    }
+
+    fn samples(buffer: &NTBuffer, name: &str) -> Vec<u64> {
+        buffer
+            .topics
+            .values()
+            .find(|h| h.name == name)
+            .map(|h| h.data.iter().map(|(ts, _)| *ts).collect())
+            .unwrap_or_default()
+    }
+
+    /// A connection that drops and comes back: the server numbers its topics
+    /// anew, and each one has to find its history again by name.
+    #[test]
+    fn a_reconnection_keeps_each_topics_history_under_its_new_id() {
+        let mut b = NTBuffer::new();
+        b.add_topic(1, "/Swerve/Speed".into(), "double".into());
+        b.add_topic(2, "/Arm/Angle".into(), "double".into());
+        b.insert_value(1, 1_000, 1, number(1.0));
+        b.insert_value(2, 2_000, 1, number(2.0));
+
+        b.begin_new_session();
+        // The new server swaps the numbers around.
+        b.add_topic(1, "/Arm/Angle".into(), "double".into());
+        b.add_topic(2, "/Swerve/Speed".into(), "double".into());
+        b.insert_value(1, 3_000, 1, number(3.0));
+        b.insert_value(2, 4_000, 1, number(4.0));
+
+        assert_eq!(samples(&b, "/Arm/Angle"), vec![2_000, 3_000]);
+        assert_eq!(samples(&b, "/Swerve/Speed"), vec![1_000, 4_000]);
+        assert_eq!(b.topics.len(), 2, "no topic is left twice");
+    }
+
+    /// The robot rebooted: its clock starts again near zero, and the new
+    /// samples continue after the old ones instead of landing on top of them.
+    #[test]
+    fn after_a_robot_reboot_the_timeline_continues_instead_of_going_back() {
+        let mut b = NTBuffer::new();
+        b.add_topic(1, "/Voltage".into(), "double".into());
+        b.insert_value(1, 150_000_000, 1, number(12.0));
+
+        b.begin_new_session();
+        b.add_topic(7, "/Voltage".into(), "double".into());
+        b.insert_value(7, 2_000_000, 1, number(11.0));
+        b.insert_value(7, 2_020_000, 1, number(11.1));
+
+        let ts = samples(&b, "/Voltage");
+        assert_eq!(ts[0], 150_000_000);
+        assert_eq!(ts[1], 150_000_000 + REBOOT_GAP_US, "right after the old samples, with the gap");
+        assert_eq!(ts[2] - ts[1], 20_000, "the new session keeps its own spacing");
+        assert_eq!(b.end_time, Some(ts[2]));
+    }
+
+    /// Only the network dropped: the robot's clock kept running and nothing
+    /// is shifted.
+    #[test]
+    fn a_network_blip_leaves_the_timestamps_alone() {
+        let mut b = NTBuffer::new();
+        b.add_topic(1, "/Voltage".into(), "double".into());
+        b.insert_value(1, 150_000_000, 1, number(12.0));
+
+        b.begin_new_session();
+        b.add_topic(3, "/Voltage".into(), "double".into());
+        b.insert_value(3, 153_000_000, 1, number(12.1));
+
+        assert_eq!(samples(&b, "/Voltage"), vec![150_000_000, 153_000_000]);
+    }
+
+    /// A topic that came back with another type cannot reuse its samples.
+    #[test]
+    fn a_topic_that_changed_type_starts_over() {
+        let mut b = NTBuffer::new();
+        b.add_topic(1, "/Mode".into(), "double".into());
+        b.insert_value(1, 1_000, 1, number(1.0));
+
+        b.begin_new_session();
+        b.add_topic(1, "/Mode".into(), "string".into());
+
+        assert!(samples(&b, "/Mode").is_empty());
+        assert_eq!(b.topics.len(), 1);
+    }
+
+    /// A topic the server never announces again stays readable by name.
+    #[test]
+    fn a_topic_that_does_not_come_back_keeps_its_history() {
+        let mut b = NTBuffer::new();
+        b.add_topic(1, "/Gone".into(), "double".into());
+        b.insert_value(1, 1_000, 1, number(1.0));
+        b.begin_new_session();
+        b.add_topic(1, "/New".into(), "double".into());
+
+        assert_eq!(samples(&b, "/Gone"), vec![1_000]);
+        assert!(b.topics.keys().all(|id| *id != -1), "-1 is the RTT ping, never a topic");
+    }
+
+    /// A server that accepts the connection and then never answers the
+    /// handshake, as a robot halfway through booting can: opening has to give
+    /// up on its own instead of hanging for as long as the system's TCP stack
+    /// feels like.
+    #[tokio::test]
+    async fn opening_a_socket_gives_up_on_a_server_that_never_answers() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let _hold = tokio::spawn(async move {
+            let (_socket, _) = listener.accept().await.unwrap();
+            tokio::time::sleep(Duration::from_secs(60)).await;
+        });
+
+        let started = std::time::Instant::now();
+        let result = open_socket("127.0.0.1", port).await;
+        let elapsed = started.elapsed();
+
+        assert!(result.is_err(), "nothing answered, so nothing can be open");
+        assert!(result.unwrap_err().contains("did not answer"));
+        assert!(elapsed >= CONNECT_TIMEOUT && elapsed < CONNECT_TIMEOUT + Duration::from_secs(2), "{elapsed:?}");
+    }
+}

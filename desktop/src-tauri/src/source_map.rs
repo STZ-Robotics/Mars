@@ -356,14 +356,7 @@ pub async fn open_in_editor(path: String, line: Option<usize>) -> Result<(), Str
         None => path.clone(),
     };
 
-    #[cfg(target_os = "windows")]
-    let status = tokio::process::Command::new("cmd")
-        .args(["/C", "code", "-g", &target])
-        .status()
-        .await;
-
-    #[cfg(not(target_os = "windows"))]
-    let status = tokio::process::Command::new("code")
+    let status = tokio::process::Command::from(crate::external::vscode())
         .args(["-g", &target])
         .status()
         .await;

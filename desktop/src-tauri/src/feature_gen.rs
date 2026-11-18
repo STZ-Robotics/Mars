@@ -10,7 +10,6 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 /// A dependency chosen in the wizard. `artifacts` already comes with the gradle
 /// coordinates resolved ("com.ctre.phoenix6:wpiapi-java:26.1.1"); the literal
@@ -505,7 +504,7 @@ fn scaffold_feature(config: FeatureWizardConfig) -> Result<CreateFeatureResult, 
 
 fn init_repository(target: &Path, config: &FeatureWizardConfig) -> Result<(), String> {
     // -b main: the publish workflow only fires on `main`.
-    let status = Command::new("git")
+    let status = crate::external::git()
         .args(["init", "-b", "main"])
         .current_dir(target)
         .status()
@@ -514,11 +513,11 @@ fn init_repository(target: &Path, config: &FeatureWizardConfig) -> Result<(), St
         return Err("git init failed; the folder was created but is not a repository.".into());
     }
 
-    let _ = Command::new("git").args(["add", "-A"]).current_dir(target).status();
+    let _ = crate::external::git().args(["add", "-A"]).current_dir(target).status();
 
     // The commit needs user.name/user.email; if they are not configured it fails
     // and we only warn -- the tree is already ready to commit by hand.
-    let committed = Command::new("git")
+    let committed = crate::external::git()
         .args(["commit", "-m", "Initial commit from MARS-Feature-Template"])
         .current_dir(target)
         .status()
@@ -528,7 +527,7 @@ fn init_repository(target: &Path, config: &FeatureWizardConfig) -> Result<(), St
     let user = config.github_user.trim();
     let repo = config.github_repo.trim();
     if !user.is_empty() && !repo.is_empty() {
-        let _ = Command::new("git")
+        let _ = crate::external::git()
             .args([
                 "remote",
                 "add",
@@ -546,13 +545,7 @@ fn init_repository(target: &Path, config: &FeatureWizardConfig) -> Result<(), St
 }
 
 fn open_in_editor(target: &Path) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    let spawned = Command::new("cmd")
-        .args(["/C", "code", target.to_str().unwrap_or("")])
-        .spawn();
-
-    #[cfg(not(target_os = "windows"))]
-    let spawned = Command::new("code").arg(target).spawn();
+    let spawned = crate::external::vscode().arg(target).spawn();
 
     spawned
         .map(|_| ())

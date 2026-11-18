@@ -11,6 +11,8 @@ mod nt4;
 // it is not a hidden button, it is code that is not compiled. The front end
 // does the same through the `@mars` alias (see src/mars/README.md).
 #[cfg(feature = "mars")]
+mod external;
+#[cfg(feature = "mars")]
 mod feature_gen;
 #[cfg(feature = "mars")]
 mod simlauncher;
@@ -96,7 +98,9 @@ impl Default for MarsSettings {
     fn default() -> Self {
         let home = dirs::home_dir().unwrap_or_default();
         MarsSettings {
-            team_number: "3472".to_string(),
+            // Empty, not a real team's number: a default one connected every
+            // other team to somebody else's robot address until they noticed.
+            team_number: String::new(),
             workspace_path: String::new(),
             tools_path: home.join("MARSTools").to_string_lossy().to_string(),
             auto_save_deploy: true,
@@ -127,13 +131,49 @@ impl MarsSettings {
 /// every `connect`.
 pub fn load_mars_settings() -> MarsSettings {
     let path = get_mars_config_path();
-    if !path.exists() {
+    let Ok(content) = fs::read_to_string(&path) else {
         return MarsSettings::default();
+    };
+    match serde_json::from_str(&content) {
+        Ok(settings) => settings,
+        Err(_) => {
+            // The defaults are used, and the next save writes them over this
+            // file: it is moved aside first, so the team number and paths it
+            // held can still be recovered by hand.
+            set_aside_corrupt(&path);
+            MarsSettings::default()
+        }
     }
-    fs::read_to_string(&path)
-        .ok()
-        .and_then(|content| serde_json::from_str(&content).ok())
-        .unwrap_or_else(MarsSettings::default)
+}
+
+/// Writes a file so that it is either the old version or the new one, never
+/// half of each.
+///
+/// `fs::write` truncates the file and then fills it: a laptop that dies in
+/// between (at competition, on battery) leaves a truncated JSON, and the
+/// layout or settings it held are gone. Writing next to it and renaming over
+/// it is atomic on every system MARS runs on.
+fn write_atomic(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
+    fs::write(&tmp, contents)?;
+    fs::rename(&tmp, path).inspect_err(|_| {
+        let _ = fs::remove_file(&tmp);
+    })
+}
+
+/// Moves an unreadable file out of the way (`name.corrupt-<seconds>.json`)
+/// instead of letting the next save overwrite it.
+fn set_aside_corrupt(path: &Path) -> Option<PathBuf> {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let stem = path.file_stem()?.to_string_lossy().into_owned();
+    let aside = path.with_file_name(format!("{stem}.corrupt-{secs}.json"));
+    fs::rename(path, &aside).ok()?;
+    Some(aside)
 }
 
 fn get_mars_config_path() -> PathBuf {
@@ -178,7 +218,7 @@ fn save_workspace(layout: serde_json::Value, path: Option<String>) -> Result<Str
     let target = workspace_path(path);
     let json = serde_json::to_string_pretty(&layout)
         .map_err(|e| format!("Error serializing layout: {}", e))?;
-    fs::write(&target, json)
+    write_atomic(&target, json.as_bytes())
         .map_err(|e| format!("Error saving layout: {}", e))?;
     Ok(target.display().to_string())
 }
@@ -187,15 +227,25 @@ fn save_workspace(layout: serde_json::Value, path: Option<String>) -> Result<Str
 /// happens the first time the app is opened.
 #[tauri::command]
 fn load_workspace(path: Option<String>) -> Result<Option<serde_json::Value>, String> {
+    let is_default = path.as_deref().is_none_or(|p| p.trim().is_empty());
     let target = workspace_path(path);
     if !target.exists() {
         return Ok(None);
     }
     let content = fs::read_to_string(&target)
         .map_err(|e| format!("Error reading layout: {}", e))?;
-    serde_json::from_str(&content)
-        .map(Some)
-        .map_err(|e| format!("Layout file is corrupt: {}", e))
+    match serde_json::from_str(&content) {
+        Ok(layout) => Ok(Some(layout)),
+        // The app's own layout is unreadable: startup goes on with an empty
+        // one and autosaves it within a second, which used to overwrite the
+        // team's tabs for good. It is moved aside first. A file the user
+        // opened by hand is theirs and is left where it is.
+        Err(e) if is_default => Err(match set_aside_corrupt(&target) {
+            Some(aside) => format!("Layout file is corrupt ({e}); it was kept as {}", aside.display()),
+            None => format!("Layout file is corrupt: {e}"),
+        }),
+        Err(e) => Err(format!("Layout file is corrupt: {}", e)),
+    }
 }
 
 #[tauri::command]
@@ -205,7 +255,7 @@ fn write_mars_settings(settings: MarsSettings) -> Result<(), String> {
     let json = serde_json::to_string_pretty(&settings)
         .map_err(|e| format!("Error serializating: {}", e))?;
 
-    fs::write(&path, json)
+    write_atomic(&path, json.as_bytes())
         .map_err(|e| format!("Error saving config.json: {}", e))?;
 
     Ok(())
@@ -244,15 +294,7 @@ async fn create_mars_project(project_name: String, workspace_path: String, team_
         }
     }
 
-    #[cfg(target_os = "windows")]
-    let _ = Command::new("cmd")
-        .args(["/C", "code", target_path.to_str().unwrap_or("")])
-        .spawn();
-
-    #[cfg(not(target_os = "windows"))]
-    let _ = Command::new("code")
-        .arg(&target_path)
-        .spawn();
+    let _ = external::vscode().arg(&target_path).spawn();
 
     Ok(format!("Proyect created at {}", workspace_path))
 }
@@ -534,4 +576,47 @@ fn main() {
     builder
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod persistence_tests {
+    use super::*;
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("mars-persistence-{}-{}", name, std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn an_atomic_write_replaces_the_file_and_leaves_nothing_behind() {
+        let dir = scratch("atomic");
+        let file = dir.join("workspace.json");
+        fs::write(&file, "old").unwrap();
+        write_atomic(&file, b"new").unwrap();
+        assert_eq!(fs::read_to_string(&file).unwrap(), "new");
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1, "the .tmp is gone");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// The team's layout, corrupted (a laptop that died mid-save with an
+    /// older build), is kept aside instead of being overwritten by the
+    /// empty layout startup goes on with.
+    #[test]
+    fn a_corrupt_layout_is_set_aside_not_overwritten() {
+        let dir = scratch("corrupt");
+        let file = dir.join("workspace.json");
+        fs::write(&file, "{\"openTabs\": [").unwrap();
+
+        let err = load_workspace(Some(file.display().to_string())).unwrap_err();
+        assert!(err.contains("corrupt"), "{err}");
+        assert!(file.exists(), "a file the user picked is left where it is");
+
+        let aside = set_aside_corrupt(&file).expect("moved aside");
+        assert!(!file.exists());
+        assert_eq!(fs::read_to_string(&aside).unwrap(), "{\"openTabs\": [");
+        assert!(aside.file_name().unwrap().to_string_lossy().starts_with("workspace.corrupt-"));
+        let _ = fs::remove_dir_all(&dir);
+    }
 }

@@ -269,7 +269,7 @@ export default function SubsystemWizardPage({ projectPath }: Props) {
           <input
             style={{ ...inputStyle, width: "100%", marginBottom: 12 }}
             value={config.moduleName}
-            onChange={(e) => update({ moduleName: e.target.value.replace(/[^a-zA-Z0-9]/g, "") })}
+            onChange={(e) => update({ moduleName: e.target.value.replace(/[^a-zA-Z0-9]/g, "").replace(/^[0-9]+/, "") })}
             placeholder="Arm"
           />
 
