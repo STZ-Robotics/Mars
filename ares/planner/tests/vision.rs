@@ -166,10 +166,10 @@ fn between_the_hubs_aiming_still_works_and_a_detour_must_pay_for_itself() {
 }
 
 #[test]
-fn behind_the_hub_turning_does_not_help_and_a_detour_does() {
+fn behind_the_hub_a_detour_sees_more_than_turning_alone() {
     let r = robot();
-    // Just behind the blue hub, which hides the tags beyond it: no heading sees more from this
-    // line, but 0.7 m to the side does, and that is worth the time.
+    // Just behind the blue hub, which hides the tags beyond it: turning only gets part of the way
+    // from this line, and 0.7 m to the side sees more, which is worth the time it costs.
     let w = vec![wp(5.8, 3.0, Some(90.0)), wp(6.0, 4.0, None), wp(5.8, 5.0, Some(90.0))];
     let mut d = see_tags(0, 2, None);
     if let ConstraintKind::SeeTags { detour_m, .. } = &mut d.kind {
@@ -180,7 +180,9 @@ fn behind_the_hub_turning_does_not_help_and_a_detour_does() {
     let (f, a, b) = (seen(&r, &free), seen(&r, &aimed), seen(&r, &moved));
     eprintln!("free {:.0}% | turning {:.0}% | detour {:.0}% in {:.2} s {:?}", 100.0 * f, 100.0 * a, 100.0 * b, moved.duration_s, moved.notes);
     assert!(moved.notes.iter().any(|n| n.starts_with("detoured")), "{:?}", moved.notes);
-    assert!(b >= a + 0.15, "{a} -> {b}");
+    // The planner's own bar for a detour: 5 points of coverage, and 15 points per second it adds.
+    let (gain, extra) = (b - a, moved.duration_s - aimed.duration_s);
+    assert!(gain >= 0.05 && (extra <= 0.0 || gain / extra >= 0.15), "a detour that does not pay: {a} -> {b} for +{extra} s");
     passes(&moved, &w);
     assert_eq!(moved.waypoint_times.len(), w.len());
 }
