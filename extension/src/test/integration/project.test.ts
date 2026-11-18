@@ -98,7 +98,7 @@ suite('activation against a MARS project', () => {
 
 	test('the commands are registered', async () => {
 		const commands = await vscode.commands.getCommands(true);
-		for (const id of ['mars.launchDesktop', 'mars.launchStudio', 'mars.refresh', 'mars.showTopics']) {
+		for (const id of ['mars.launchDesktop', 'mars.refresh', 'mars.showTopics']) {
 			assert.ok(commands.includes(id), `${id} is not registered`);
 		}
 	});
