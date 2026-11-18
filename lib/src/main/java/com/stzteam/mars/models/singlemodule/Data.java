@@ -18,6 +18,10 @@ public class Data<T>{
     /**
      * Casts the current data instance to its concrete subclass type.
      * This is useful for passing strongly-typed data to Requests and Telemetry without manual casting.
+     * <p>
+     * It returns this same object, not a copy: the IO keeps writing into it every loop.
+     * Anything that keeps a reference across loops (an input hook that buffers samples, for
+     * instance) has to copy the fields it needs, or every sample it kept will read the latest.
      *
      * @return The data object cast to type {@code T}.
      */

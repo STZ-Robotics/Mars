@@ -40,13 +40,30 @@ public abstract class TestRoutine {
     }
 
     /**
-     * A helper method to create a supplier that continuously calculates the absolute error 
-     * between a target setpoint and a current position (useful for PID verification).
+     * A supplier of the absolute error between a target setpoint and the position as it is
+     * when the supplier is asked (useful for PID verification).
      *
      * @param target   The desired setpoint.
-     * @param position The current measured position.
+     * @param position Where the mechanism is, read each time the error is asked for
+     *                 (e.g. {@code () -> elevator.getInputs().position}).
      * @return A {@link DoubleSupplier} returning the absolute error.
      */
+    protected DoubleSupplier calculateError(double target, DoubleSupplier position){
+        return () -> Math.abs(target - position.getAsDouble());
+    }
+
+    /**
+     * The absolute error against a position read ONCE, when this method is called.
+     *
+     * @param target   The desired setpoint.
+     * @param position A position value, fixed from this call on.
+     * @return A {@link DoubleSupplier} that always returns the same error.
+     * @deprecated The position is a value, so it is read when the routine is built, not
+     *             when the check runs: an assertion on it compares against where the
+     *             mechanism was at startup and can pass with the mechanism not moving. Use
+     *             {@link #calculateError(double, DoubleSupplier)}.
+     */
+    @Deprecated
     protected DoubleSupplier calculateError(double target, double position){
         return ()-> Math.abs(target - position);
     }
@@ -89,7 +106,7 @@ public abstract class TestRoutine {
 
     /**
      * Verifies that a given value is strictly less than a maximum threshold.
-     * Logs the result directly to the terminal using {@link TerminalGCS}.
+     * Logs the result directly to the terminal using {@link GCSConsole}.
      *
      * @param valueSupplier A lambda providing the current value to check.
      * @param max           The maximum allowed value.
@@ -109,7 +126,7 @@ public abstract class TestRoutine {
 
     /**
      * Verifies that a given value is strictly greater than a minimum threshold.
-     * Logs the result directly to the terminal using {@link TerminalGCS}.
+     * Logs the result directly to the terminal using {@link GCSConsole}.
      *
      * @param valueSupplier A lambda providing the current value to check.
      * @param min           The minimum allowed value.
@@ -129,7 +146,7 @@ public abstract class TestRoutine {
 
     /**
      * Verifies that a given boolean condition evaluates to true.
-     * Logs the result directly to the terminal using {@link TerminalGCS}.
+     * Logs the result directly to the terminal using {@link GCSConsole}.
      *
      * @param condition A lambda providing the boolean condition to check.
      * @param message   The contextual message to log if the assertion fails.
