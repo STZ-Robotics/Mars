@@ -138,21 +138,16 @@ async function checkForUpdates(inst) {
 function paintEdition() {
   showStep("edition")
 
-  const hasStudio = state.system.has_simulation_studio
   $("ed-full-list").replaceChildren(
     ...[
       "Full dashboard: NetworkTables, 2D and 3D field, swerve, mechanisms, plots, SysId, .wpilog files",
       "MARS framework: projects, packages, manifest, subsystem wizard, features",
-      hasStudio
-        ? "MARS Simulation Studio (physics simulator)"
-        : `MARS Simulation Studio — not available on ${OS_NAMES[state.system.os] ?? state.system.os} yet`,
-    ].map((t, i) => el("li", i === 2 && !hasStudio ? "no" : null, t)),
+    ].map((t) => el("li", null, t)),
   )
   $("ed-tools-list").replaceChildren(
     ...[
       "Full dashboard: NetworkTables, 2D and 3D field, swerve, mechanisms, plots, SysId, .wpilog files",
       "No MARS framework: nothing about projects, packages or subsystems is compiled or installed",
-      "No simulator",
     ].map((t, i) => el("li", i > 0 ? "no" : null, t)),
   )
 
@@ -413,8 +408,8 @@ async function runUninstall() {
 
 // --- Helpers ----------------------------------------------------------------
 
-function componentName(id) {
-  return id === "mars-simulation-studio" ? "MARS Simulation Studio" : "MARS Desktop"
+function componentName() {
+  return "MARS Desktop"
 }
 
 start()

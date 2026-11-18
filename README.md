@@ -1,14 +1,13 @@
 # MARS
 
 The whole MARS ecosystem for FRC in one repository: the library a robot
-actually imports, the NetworkTables dashboard, the Gazebo-based simulation
-environment, the installer that puts them on a machine, and the documentation.
+actually imports, the NetworkTables dashboard, the installer that puts it on a
+machine, and the documentation.
 
-They live together because they ship together. One release carries all three,
-one `manifest.json` describes it, and one installer reads that manifest — so a
-change that crosses products (a new archive name, a version bump, a folder the
-Studio needs at runtime) is one commit and not a coordination problem across
-three repositories.
+They live together because they ship together. One release carries the
+dashboard, one `manifest.json` describes it, and one installer reads that
+manifest — so a change that crosses products (a new archive name, a version
+bump) is one commit and not a coordination problem across repositories.
 
 ## Installing
 
@@ -31,7 +30,7 @@ uninstalls.
 |---|---|
 | [`lib/`](lib/README.md) | **MARS**, the FRC Java library — the vendordep teams install. Its own version, its own release cycle, and the only thing here whose output is consumed by people who never clone this repository. |
 | [`desktop/`](desktop/README.md) | **MARS Desktop**: the NetworkTables dashboard. React + TypeScript over a Rust/Tauri backend. This is what most people mean by "MARS". |
-| [`simulationstudio/`](simulationstudio/app/README.md) | **MARS Simulation Studio** and the Gazebo-based simulation engine. A separate product with its own version and its own life cycle. |
+| [`simulationstudio/`](simulationstudio/app/README.md) | **MARS Simulation Studio** and the Gazebo-based simulation engine. **Not distributed** since 1.1.7: no release or installer carries it. |
 | [`templates/`](templates/README.md) | The project and feature scaffolds the dashboard writes. They ship inside its binary, so creating a project needs neither network nor git. |
 | [`extension/`](extension/README.md) | **MARS for VS Code**: the editor half. Reads a robot project's architecture out of its Java and puts it in the sidebar, over the declarations, and in the problems panel. |
 | [`installer/`](installer/README.md) | **MARS Installer**: the app that installs, updates and uninstalls the ecosystem. |
@@ -72,19 +71,10 @@ address, so no robot project ever had to be migrated — which also makes the na
 load-bearing. [`lib/README.md`](lib/README.md) explains what that means before
 anybody renames anything again.
 
-### One folder, two names
-
-Inside a release archive the Studio's data travels as `sim/`, not as
-`simulationstudio/`. That name is a contract with the installed application
-(`Supervisor::buscar_sim_dir` looks for a `sim/` next to the executable), so the
-packager writes it literally and it does not follow this repository's layout.
-
 ## Releasing a version
 
 The dashboard's version is written in **one place**,
-`desktop/src/constants/version.ts`; the Studio's is in
-`simulationstudio/app/Cargo.toml` and does not follow it. Line up every file
-that carries either of them with:
+`desktop/src/constants/version.ts`. Line up every file that carries it with:
 
 ```bash
 node scripts/sync-version.mjs          # check

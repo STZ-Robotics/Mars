@@ -121,6 +121,11 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: Ares ${{ github.ref_name }}
           draft: false
+          # Never "Latest": the MARS installers already out there ask GitHub
+          # for the repository's latest release, and when this one took the
+          # mark they found Ares there and could neither install nor update
+          # MARS.
+          make_latest: false
           generate_release_notes: true
           files: release/*
           body: |

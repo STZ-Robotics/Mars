@@ -87,8 +87,6 @@ pub struct Status {
     pub installed: Option<InstallRecord>,
     pub os: &'static str,
     pub arch: &'static str,
-    /// `false` on macOS: the Full edition has no simulator there.
-    pub has_simulation_studio: bool,
     pub suggested_dir: PathBuf,
     pub repo: String,
     pub installer_version: &'static str,
@@ -106,7 +104,6 @@ pub fn status() -> Status {
         installed,
         os: platform::OS,
         arch: platform::ARCH,
-        has_simulation_studio: platform::has_simulation_studio(),
         repo: manifest::repo(),
         installer_version: env!("CARGO_PKG_VERSION"),
         needs_webview2: !integration::has_webview2(),
@@ -170,37 +167,36 @@ where
         integration::install_webview2().await?;
     }
 
-    // Reinstalling over another version: clean the old one out first, so files
-    // from a previous version do not end up mixed in with the new ones.
-    if let Some(previous) = read_record() {
-        report(
-            &mut emit,
-            "prepare",
-            8,
-            format!("Removing the previous version ({})…", previous.version),
-        );
-        remove_installation(&previous);
+    // An update with MARS still open is refused here, before anything is
+    // touched: on Windows its executable is locked, so the old files could not
+    // be deleted and the new ones could not be written over them. Going ahead
+    // used to remove the shortcuts and the program entry, then fail halfway
+    // through the extraction, and leave the user with neither version.
+    let previous = read_record();
+    if let Some(previous) = &previous {
+        ensure_not_running(previous)?;
     }
-
-    std::fs::create_dir_all(&options.dir)
-        .with_context(|| format!("could not create {}", options.dir.display()))?;
 
     let temp = download::temp_dir();
     let total_artifacts = plan.artifacts.len().max(1) as u8;
     let mut files: Vec<String> = Vec::new();
     let mut components: Vec<String> = Vec::new();
 
-    // 10% for preparing, 75% split across download+extract, 15% for the rest.
+    // Everything is downloaded and verified BEFORE the previous version is
+    // removed: a dropped connection or a bad checksum then costs a retry, not
+    // the installation that was working.
+    // 10% for preparing, 60% for downloading, 15% for extracting, 15% for the rest.
+    let mut downloaded: Vec<(&manifest::Artifact, PathBuf)> = Vec::new();
     for (i, art) in plan.artifacts.iter().enumerate() {
-        let base = 10 + (75 / total_artifacts) * i as u8;
-        let span = 75 / total_artifacts;
+        let base = 10 + (60 / total_artifacts) * i as u8;
+        let span = 60 / total_artifacts;
         let name = component_name(&art.component);
 
         let archive_path = temp.join(&art.file);
         let mut last_pct = u8::MAX;
         download::file(&art.url, &archive_path, &art.sha256, |done, total| {
             let frac = if total > 0 { done as f64 / total as f64 } else { 0.0 };
-            let pct = base + (span as f64 * 0.8 * frac) as u8;
+            let pct = base + (span as f64 * frac) as u8;
             // Without this filter one event is emitted per stream chunk:
             // thousands of messages to the webview to move a bar by one pixel.
             if pct != last_pct {
@@ -213,16 +209,36 @@ where
             }
         })
         .await?;
+        downloaded.push((art, archive_path));
+    }
 
+    // Reinstalling over another version: clean the old one out first, so files
+    // from a previous version do not end up mixed in with the new ones. Checked
+    // again because MARS may have been opened while the download ran.
+    if let Some(previous) = &previous {
+        ensure_not_running(previous)?;
+        report(
+            &mut emit,
+            "prepare",
+            70,
+            format!("Removing the previous version ({})…", previous.version),
+        );
+        remove_installation(previous);
+    }
+
+    std::fs::create_dir_all(&options.dir)
+        .with_context(|| format!("could not create {}", options.dir.display()))?;
+
+    for (i, (art, archive_path)) in downloaded.iter().enumerate() {
         report(
             &mut emit,
             "install",
-            base + (span as f64 * 0.85) as u8,
-            format!("Installing {name}…"),
+            72 + (13 / total_artifacts) * i as u8,
+            format!("Installing {}…", component_name(&art.component)),
         );
-        let created = archive::extract(&archive_path, &options.dir)
+        let created = archive::extract(archive_path, &options.dir)
             .with_context(|| format!("could not extract {}", art.file))?;
-        let _ = std::fs::remove_file(&archive_path);
+        let _ = std::fs::remove_file(archive_path);
 
         // Without the filter, a file that ships in both archives (the icon)
         // shows up twice: it does not break removal, but the summary lies to
@@ -315,6 +331,59 @@ where
     Ok(record)
 }
 
+/// Refuses to go on while a program of the installation is open, saying which
+/// one, so the user closes it and tries again with nothing changed yet.
+fn ensure_not_running(record: &InstallRecord) -> Result<()> {
+    let busy = files_in_use(record);
+    if busy.is_empty() {
+        return Ok(());
+    }
+    bail!(
+        "MARS is still open ({} in use). Close it, then try again: nothing has been changed.",
+        busy.join(", ")
+    );
+}
+
+/// The installation's programs that something still has open.
+///
+/// Windows will neither delete nor overwrite the executable of a running
+/// process, and opening it for writing fails with a sharing violation, which
+/// is how this asks without deleting anything. The running installer is
+/// skipped: when it is the uninstaller copy, it is locked by itself and is
+/// handled by `schedule_self_delete`.
+#[cfg(windows)]
+fn files_in_use(record: &InstallRecord) -> Vec<String> {
+    const ERROR_ACCESS_DENIED: i32 = 5;
+    const ERROR_SHARING_VIOLATION: i32 = 32;
+    let me = std::env::current_exe().ok();
+    record
+        .files
+        .iter()
+        .filter(|rel| {
+            let lower = rel.to_ascii_lowercase();
+            lower.ends_with(".exe") || lower.ends_with(".dll")
+        })
+        .filter(|rel| {
+            let path = record.dir.join(rel);
+            if me.as_deref() == Some(path.as_path()) {
+                return false;
+            }
+            match std::fs::OpenOptions::new().write(true).open(&path) {
+                Err(e) => matches!(e.raw_os_error(), Some(ERROR_SHARING_VIOLATION | ERROR_ACCESS_DENIED)),
+                Ok(_) => false,
+            }
+        })
+        .cloned()
+        .collect()
+}
+
+/// Elsewhere an open file can be unlinked and replaced: the running app keeps
+/// the old one until it closes, and nothing has to wait.
+#[cfg(not(windows))]
+fn files_in_use(_: &InstallRecord) -> Vec<String> {
+    Vec::new()
+}
+
 /// Deletes what an installation registered. Does not touch user data.
 fn remove_installation(record: &InstallRecord) {
     integration::remove_shortcuts(&record.shortcuts);
@@ -353,6 +422,7 @@ pub fn uninstall(delete_data: bool) -> Result<String> {
         bail!("I found no MARS installation registered on this computer.");
     };
 
+    ensure_not_running(&record)?;
     remove_installation(&record);
 
     let data = platform::user_data_dir();
@@ -480,12 +550,8 @@ fn total_size(record: &InstallRecord) -> u64 {
         .sum()
 }
 
-fn component_name(id: &str) -> &'static str {
-    if id == Component::SimulationStudio.id() {
-        Component::SimulationStudio.name()
-    } else {
-        Component::MarsDesktop.name()
-    }
+fn component_name(_id: &str) -> &'static str {
+    Component::MarsDesktop.name()
 }
 
 /// The name shown in the Start Menu.
@@ -535,11 +601,6 @@ mod tests {
             shortcut_name(Component::MarsDesktop, Edition::Tools),
             "MARS Desktop Tools"
         );
-        // The Studio only exists in Full: its name does not change.
-        assert_eq!(
-            shortcut_name(Component::SimulationStudio, Edition::Full),
-            "MARS Simulation Studio"
-        );
     }
 
     /// An install record written by 1.1.3, with the old Spanish field names,
@@ -567,8 +628,8 @@ mod tests {
     ///
     /// This covers the stretch where the most can go wrong silently: that the
     /// manifest's checksum matches the published bytes, and that the executable
-    /// lands at the ROOT of the install folder — which is where mars-desktop
-    /// looks for it when opening the Simulation Studio.
+    /// lands at the ROOT of the install folder, which is where the shortcuts
+    /// point.
     ///
     /// It deliberately creates no shortcuts and touches no registry: that would
     /// modify the machine of whoever runs the tests. Everything happens in a
@@ -599,6 +660,42 @@ mod tests {
         );
         assert!(dir.join(&exe).is_file());
 
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A program held open, as a running MARS Desktop holds its .exe, stops an
+    /// update before anything is removed; once it is closed, nothing is in use.
+    #[cfg(windows)]
+    #[test]
+    fn an_open_program_is_reported_in_use() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let dir = std::env::temp_dir().join("mars-installer-in-use");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("mars-desktop.exe"), b"MZ").unwrap();
+        std::fs::write(dir.join("README.txt"), b"").unwrap();
+        let record = InstallRecord {
+            schema: SCHEMA,
+            version: "1.1.6".into(),
+            edition: Edition::Full,
+            installed_at: "0".into(),
+            dir: dir.clone(),
+            components: vec!["mars-desktop".into()],
+            files: vec!["mars-desktop.exe".into(), "README.txt".into()],
+            shortcuts: vec![],
+        };
+
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(0)
+            .open(dir.join("mars-desktop.exe"))
+            .unwrap();
+        assert_eq!(files_in_use(&record), vec!["mars-desktop.exe".to_string()]);
+        let err = ensure_not_running(&record).unwrap_err().to_string();
+        assert!(err.contains("mars-desktop.exe") && err.contains("nothing has been changed"), "{err}");
+
+        drop(held);
+        assert!(files_in_use(&record).is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 

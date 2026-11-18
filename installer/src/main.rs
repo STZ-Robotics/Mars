@@ -90,18 +90,17 @@ fn uninstall(delete_data: bool) -> Result<String, String> {
 #[tauri::command]
 fn launch_installed(app: tauri::AppHandle, component: String) -> Result<(), String> {
     let record = install::read_record().ok_or("no installation is registered")?;
-    let comp = if component == platform::Component::SimulationStudio.id() {
-        platform::Component::SimulationStudio
-    } else {
-        platform::Component::MarsDesktop
-    };
+    // MARS Desktop is the only component; `component` stays in the signature
+    // so the front end's call does not change.
+    let _ = component;
+    let comp = platform::Component::MarsDesktop;
     let exe = record.dir.join(comp.exe_file());
     if !exe.is_file() {
         return Err(format!("could not find {}", exe.display()));
     }
     std::process::Command::new(&exe)
-        // Same thing mars-desktop does with the Studio: the working directory
-        // is set to the executable's own so it finds whatever travels beside it.
+        // The working directory is set to the executable's own so it finds
+        // whatever travels beside it.
         .current_dir(exe.parent().unwrap_or(&record.dir))
         .spawn()
         .map_err(|e| format!("could not open {}: {e}", comp.name()))?;

@@ -65,8 +65,6 @@ jobs:
           workspaces: |
             desktop/src-tauri
             installer
-            simulationstudio/app
-            simulationstudio/bridge
 
       # Tauri on Linux links against WebKitGTK and libsoup. Without this the
       # build fails inside `pkg-config` with an error that never mentions Tauri.
@@ -94,50 +92,28 @@ jobs:
       - name: Check the version is in sync
         run: node scripts/sync-version.mjs
 
+      # The release is named after the tag, but the manifest and the archives
+      # carry version.ts's number, and that is what installers compare against
+      # the installed one. A tag that does not match publishes a release no
+      # installer offers as an update.
+      - name: Check the tag matches the version
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          VERSION=$(grep -oE 'MARS_VERSION = "[^"]+"' desktop/src/constants/version.ts | cut -d'"' -f2)
+          if [ "${GITHUB_REF_NAME}" != "v${VERSION}" ]; then
+            echo "::error::the tag is ${GITHUB_REF_NAME} but desktop/src/constants/version.ts says ${VERSION}"
+            exit 1
+          fi
+
       - run: npm test
         working-directory: desktop
 
-      # The Simulation Studio's engine is C++ against Gazebo, and Gazebo comes
-      # from conda: there is no wheel, no vendored copy and no way around it.
-      # Without this the packager REFUSES to publish the Studio (see
-      # `stageSimBinaries`) and the release goes out with the dashboard only --
-      # which is exactly what shipped before: an install whose Diagnostics page
-      # was three FAILs, on a machine with no compiler to fix them.
-      #
-      # It is the slowest step of the job (the environment is about 2 GB) and
-      # it only runs on Windows because that is the only platform where the
-      # engine is built today.
-      - name: Gazebo toolchain (Windows)
-        if: runner.os == 'Windows'
-        uses: conda-incubator/setup-miniconda@v3
-        with:
-          miniforge-version: latest
-          environment-file: simulationstudio/environment.yml
-          activate-environment: mars-sim
-          # Solving Gazebo's dependency tree with plain conda is the difference
-          # between a couple of minutes and a quarter of an hour.
-          use-mamba: true
-
-      # `pwsh -l` so the profile setup-miniconda wrote runs and CONDA_PREFIX
-      # points at mars-sim; build.ps1 and the bridge both find the environment
-      # through it. MSVC is already on the runner, which is what build.ps1
-      # needs on top of conda.
-      - name: Build the simulation engine (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh -l {0}
-        run: |
-          # A custom shell does not get the `stop` preference and the exit-code
-          # check that GitHub injects into its own `pwsh` shell, so a failed
-          # build here would go green. Both are set by hand.
-          $ErrorActionPreference = "Stop"
-          if (-not $env:CONDA_PREFIX) { throw "the mars-sim environment is not active" }
-          ./simulationstudio/build.ps1
-          # gz-transport-sys resolves the C++ libraries through pkg-config, the
-          # same way simulationstudio/verify.ps1 does it.
-          $env:PKG_CONFIG_PATH = "$env:CONDA_PREFIX\Library\lib\pkgconfig"
-          $env:PATH = "$env:CONDA_PREFIX\Library\bin;$env:PATH"
-          cargo build --release --manifest-path simulationstudio/bridge/Cargo.toml --bins
-          if ($LASTEXITCODE -ne 0) { throw "the bridge build failed" }
+      # On every runner because the code that matters most here differs per
+      # system: on Windows a running MARS locks its own executable, and the
+      # test that an update refuses to start then only exists on Windows.
+      - name: Installer tests
+        run: cargo test --manifest-path installer/Cargo.toml
 
       - name: Build and package
         run: node scripts/package-release.mjs
@@ -209,6 +185,9 @@ jobs:
           # draft would leave it saying "there is no release" with no
           # explanation.
           draft: false
+          # The installers ask for the repository's latest release, which is
+          # shared with Ares': a MARS release always takes the mark.
+          make_latest: true
           generate_release_notes: true
           files: release/*
           body: |
@@ -221,6 +200,10 @@ jobs:
             | **Windows** (recommended) | `MARS-Installer.exe` |
             | Linux | `MARS-Installer-linux-x86_64` |
             | macOS | `MARS-Installer-macos-aarch64` (Apple Silicon) or `-x86_64` (Intel) |
+
+            **Updating:** download the installer from this release and run it.
+            Close MARS first: from installer 1.0.1 on it checks that itself, but
+            an older installer on Windows would fail halfway with MARS open.
 
             On Linux and macOS make it executable first: `chmod +x MARS-Installer-*`.
 

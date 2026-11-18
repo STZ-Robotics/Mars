@@ -32,38 +32,34 @@ pub const EXE_EXT: &str = if cfg!(windows) { ".exe" } else { "" };
 
 /// The components of the ecosystem. `id` is what release file names and the
 /// install record use.
+///
+/// There used to be a second one, the Simulation Studio. It is no longer
+/// distributed: an installation that has it loses it on its next update, since
+/// updating removes everything the install record lists.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Component {
-    /// The dashboard application. Always installed.
+    /// The dashboard application.
     MarsDesktop,
-    /// The simulator. Full edition only, and not on macOS.
-    SimulationStudio,
 }
 
 impl Component {
     pub fn id(&self) -> &'static str {
         match self {
             Component::MarsDesktop => "mars-desktop",
-            Component::SimulationStudio => "mars-simulation-studio",
         }
     }
 
     pub fn name(&self) -> &'static str {
         match self {
             Component::MarsDesktop => "MARS Desktop",
-            Component::SimulationStudio => "MARS Simulation Studio",
         }
     }
 
-    /// Executable name inside the archive, without extension.
-    ///
-    /// This is not the pretty name: it is the one cargo produces, and
-    /// mars-desktop looks for the Studio by this exact name (see
-    /// `simlauncher.rs`). Presentable names belong on the shortcuts.
+    /// Executable name inside the archive, without extension: the one cargo
+    /// produces. Presentable names belong on the shortcuts.
     pub fn binary(&self) -> &'static str {
         match self {
             Component::MarsDesktop => "mars-desktop",
-            Component::SimulationStudio => "mars-sim-app",
         }
     }
 
@@ -91,22 +87,10 @@ impl Edition {
     }
 }
 
-/// Which components an edition ships ON THIS platform.
-///
-/// The Simulation Studio drags Gazebo along, which today is only built for
-/// Windows and Linux: on macOS the Full edition is the app plus the framework,
-/// without the simulator. The selection screen says so before installing, not
-/// after.
-pub fn components(edition: Edition) -> Vec<Component> {
-    let mut v = vec![Component::MarsDesktop];
-    if edition == Edition::Full && has_simulation_studio() {
-        v.push(Component::SimulationStudio);
-    }
-    v
-}
-
-pub const fn has_simulation_studio() -> bool {
-    !cfg!(target_os = "macos")
+/// Which components an edition ships. Both editions are one build of
+/// MARS Desktop each; what differs is what is compiled into it.
+pub fn components(_edition: Edition) -> Vec<Component> {
+    vec![Component::MarsDesktop]
 }
 
 /// Default installation folder.
@@ -158,7 +142,6 @@ pub fn user_data_dir() -> PathBuf {
 /// as "no build for your platform", which is an honest but useless message.
 pub fn archive_name(component: Component, edition: Edition) -> String {
     match component {
-        // Only the dashboard has editions; the Studio is a single build.
         Component::MarsDesktop => format!(
             "mars-desktop-{}-{}-{}.{}",
             edition.id(),
@@ -166,8 +149,5 @@ pub fn archive_name(component: Component, edition: Edition) -> String {
             ARCH,
             ARCHIVE_EXT
         ),
-        Component::SimulationStudio => {
-            format!("mars-simulation-studio-{}-{}.{}", OS, ARCH, ARCHIVE_EXT)
-        }
     }
 }

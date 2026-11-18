@@ -20,6 +20,11 @@ where
 {
     let client = reqwest::Client::builder()
         .user_agent(concat!("mars-installer/", env!("CARGO_PKG_VERSION")))
+        // No overall limit (a slow school connection may need minutes for a
+        // large archive), but a download that stops moving fails instead of
+        // leaving the bar frozen forever.
+        .connect_timeout(std::time::Duration::from_secs(20))
+        .read_timeout(std::time::Duration::from_secs(60))
         .build()?;
 
     let resp = client
