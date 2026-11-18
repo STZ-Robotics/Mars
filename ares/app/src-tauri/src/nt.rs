@@ -42,9 +42,11 @@ fn address(target: &str) -> String {
 #[tauri::command]
 pub async fn nt_connect(target: String, app: AppHandle, state: State<'_, NT4State>) -> Result<String, String> {
     let ip = address(&target);
+    // Opened before taking the lock, which every read command shares: a robot
+    // that does not answer must not freeze the rest of the app meanwhile.
+    let ws_stream = client::open_socket(&ip, NT4_PORT).await?;
     let mut client = state.0.lock().await;
-    client.disconnect().await;
-    client.connect(&ip, NT4_PORT, app).await?;
+    client.attach(ws_stream, &ip, NT4_PORT, app, false).await?;
     client.connection_mode = if ip == "127.0.0.1" { "sim".into() } else { "real".into() };
     Ok(format!("{ip}:{NT4_PORT}"))
 }
