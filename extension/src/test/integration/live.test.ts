@@ -24,7 +24,7 @@ async function settings() {
 
 suite('live NetworkTables in the editor', () => {
 	suiteSetup(async () => {
-		const extension = vscode.extensions.all.find((e) => e.packageJSON.name === 'mars');
+		const extension = vscode.extensions.all.find((e) => e.packageJSON.name === (require('../../../package.json') as { name: string }).name);
 		assert.ok(extension, 'the MARS extension is not loaded');
 		api = (await extension.activate()) as MarsApi;
 

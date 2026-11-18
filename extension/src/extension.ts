@@ -10,6 +10,7 @@ import * as vscode from 'vscode';
 import { MarsCodeActionProvider, renameTable } from './codeactions';
 import { MarsCodeLensProvider, PickTarget } from './codelens';
 import { publishDiagnostics } from './diagnostics';
+import { showHelp } from './help';
 import { MarsCompletionProvider, MarsHoverProvider } from './language';
 import { launch } from './launcher';
 import { LiveNetworkTables } from './nt/live';
@@ -79,10 +80,10 @@ export function activate(context: vscode.ExtensionContext): MarsApi {
 		}),
 		vscode.languages.registerHoverProvider(JAVA, new MarsHoverProvider(workspace)),
 		vscode.languages.registerCompletionItemProvider(
-			JAVA, new MarsCompletionProvider(workspace), '.', '"'),
+			JAVA, new MarsCompletionProvider(workspace), '.', '"', '@'),
 	);
 
-	context.subscriptions.push(...commands(workspace, live, projectView, architectureView));
+	context.subscriptions.push(...commands(context, workspace, live, projectView, architectureView));
 
 	void workspace.discover();
 
@@ -90,6 +91,7 @@ export function activate(context: vscode.ExtensionContext): MarsApi {
 }
 
 function commands(
+	context: vscode.ExtensionContext,
 	workspace: MarsWorkspace,
 	live: LiveNetworkTables,
 	projectView: ProjectView,
@@ -100,6 +102,7 @@ function commands(
 
 	return [
 		register('mars.launchDesktop', () => launch('desktop')),
+		register('mars.showHelp', () => showHelp(context)),
 
 		register('mars.refresh', async () => {
 			await workspace.refresh();

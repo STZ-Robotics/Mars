@@ -1,17 +1,57 @@
 # Change Log
 
-## 0.2.1
+## 0.3.1
 
 ### Fixed
 
 - **MARS Desktop is found wherever it was installed.** The launcher looked only
   in the installer's default folder; it now reads the folder the installer
-  recorded in `installation.json` first.
+  recorded in `installation.json` first, and on macOS it finds the
+  `MARS Desktop.app` bundle the installer puts there.
 
 ### Removed
 
 - **Launch Simulation Studio** and `mars.simulationStudioPath`: the Simulation
   Studio is no longer distributed with MARS.
+
+### Notes
+
+- 0.3.0 was published from a working copy whose changes never reached the
+  repository. They are rebuilt here from the published package: the reference
+  page, the `@`, `@Unit` and `Manifest.` completion, the identifier, the
+  `engines` range and the icons.
+
+## 0.3.0
+
+### Added
+
+- **`MARS: Show what MARS autocompletes and warns about`**, a reference page
+  listing every completion trigger, the hover catalog, the snippet prefixes and
+  every diagnostic code with its meaning and whether a quick fix exists.
+- **More completion.** `@` now offers `@Tunable` and `@Signal` with the `key`
+  argument ready to fill in, `@Fallback`, and `@Unit` with its value list open
+  as a choice; `Manifest.` offers the project's own `HAS_*` switches wherever
+  it is read, not only inside `Injector.createIO`.
+
+### Fixed
+
+- The manifest was missing `publisher`, so a packaged VSIX installed as
+  `undefined_publisher.mars` instead of `STZRobotics.mars-developer-tools`.
+- `engines.vscode` required `^1.137.0`, a version that does not exist yet and
+  refused to install on any VS Code actually released. Lowered to `^1.85.0`,
+  which is what the source actually needs.
+
+### Changed
+
+- The extension is named `mars-developer-tools`, published as
+  `STZRobotics.mars-developer-tools`. The plain `mars` identifier is taken by
+  another extension on the Marketplace and cannot be registered.
+- The status bar entry and the project tree's root icon use `$(symbol-function)`
+  instead of `$(rocket)`.
+- `media/mars.svg` recompressed from 161 KB to 12 KB. The artwork inside was
+  embedded at 1634x1680 and rendered at a fraction of that; it is now downsampled
+  to the size the icon is actually displayed at and palette-encoded, pixel-for-
+  pixel the same at every size the icon is shown.
 
 ## 0.2.0
 

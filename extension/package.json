@@ -1,15 +1,18 @@
 {
-  "name": "mars",
-  "displayName": "MARS",
+  "name": "mars-developer-tools",
+  "displayName": "MARS Developer Tools",
   "description": "MARS framework support for FRC robot projects.",
-  "version": "0.2.1",
+  "publisher": "STZRobotics",
+  "version": "0.3.1",
+  "icon": "media/mars.png",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "https://github.com/STZ-Robotics/Mars.git",
     "directory": "extension"
   },
   "engines": {
-    "vscode": "^1.137.0"
+    "vscode": "^1.85.0"
   },
   "categories": [
     "Programming Languages",
@@ -138,6 +141,12 @@
         "command": "mars.setTopic",
         "title": "Set a NetworkTables value",
         "category": "MARS"
+      },
+      {
+        "command": "mars.showHelp",
+        "title": "Show what MARS autocompletes and warns about",
+        "category": "MARS",
+        "icon": "$(question)"
       }
     ],
     "menus": {
@@ -171,6 +180,11 @@
           "command": "mars.refresh",
           "when": "view == mars.architectureView",
           "group": "navigation@3"
+        },
+        {
+          "command": "mars.showHelp",
+          "when": "view == mars.projectView",
+          "group": "navigation@4"
         }
       ],
       "commandPalette": [
@@ -252,7 +266,7 @@
   "devDependencies": {
     "@types/mocha": "^10.0.10",
     "@types/node": "22.x",
-    "@types/vscode": "^1.137.0",
+    "@types/vscode": "^1.85.0",
     "@types/ws": "^8.18.1",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",

@@ -158,12 +158,38 @@ makes in the dashboard, and for the same reasons. It means the tests are the onl
 thing keeping it honest, so a bug fixed there should arrive with the case that
 found it.
 
-## Before it can be published
+## Publishing
 
-- `publisher` is missing from `package.json`. It needs the Marketplace publisher
-  id, which is an account thing and not a code thing.
-- The Marketplace wants a 128×128 PNG icon; `media/mars.svg` is the activity bar
-  icon, which is a different thing and may stay an SVG.
+It is published to the Marketplace as **`STZRobotics.mars-developer-tools`**
+(the plain `mars` identifier belongs to another extension). The publisher is an
+account thing: something published under another one is a different extension,
+and its users never see the update.
+
+Build the package, then either upload it or publish it from the command line:
+
+```bash
+cd extension
+npx @vscode/vsce@3 package     # builds (vscode:prepublish) -> mars-developer-tools-<version>.vsix
+```
+
+- **Upload by hand**, which needs no token: marketplace.visualstudio.com/manage,
+  signed in with the account that owns `STZRobotics`, the extension's **⋯** menu
+  → **Update**, and the `.vsix`.
+- **Or** `npx @vscode/vsce@3 login STZRobotics` once, in a real terminal (it asks
+  for the token), and then `npx @vscode/vsce@3 publish`. The token is an Azure
+  DevOps Personal Access Token for **All accessible organizations** with the
+  **Marketplace → Manage** scope, made in an Azure DevOps organization of the same
+  account. A login from a shell that cannot prompt sends no token, and the
+  Marketplace answers that the anonymous user (`aaaaaaaa-…`) is not authorized.
+
+**Publish from a commit.** 0.3.0 went out from a working copy whose changes never
+reached the repository, and 0.3.1 had to rebuild them from the published package.
+
+- `media/mars.png` is the Marketplace icon and `media/mars.svg` the activity
+  bar's.
+- `engines.vscode` and `@types/vscode` stay at the same minimum (`^1.85.0`):
+  vsce refuses a package whose types are newer than the VS Code it claims to
+  support, and the source is checked against exactly that API.
 - The version is the *extension's* and follows nothing else here. The dashboard
   and the library each have their own, and `scripts/sync-version.mjs`
   deliberately does not touch this one.
