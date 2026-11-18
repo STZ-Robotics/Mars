@@ -12,9 +12,11 @@
 //
 // Every archive carries its executable AT THE ROOT: the installer drops the
 // contents straight into the install folder and points the shortcuts there.
+// On macOS the root holds an app bundle instead, `MARS Desktop.app`, which the
+// installer knows by that name (`installer/src/platform.rs::MAC_APP`).
 
 import { execFileSync } from "node:child_process"
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -53,6 +55,10 @@ const SUBDIR = TRIPLE ? `${TRIPLE}/release` : "release"
 const EXE = OS === "windows" ? ".exe" : ""
 const EXT = OS === "windows" ? "zip" : "tar.gz"
 
+// The bundle's name is a contract with the installer and with the VS Code
+// extension, which both look for it by this name.
+const MAC_APP = "MARS Desktop.app"
+
 const version = readFileSync(join(root, DESKTOP, "src/constants/version.ts"), "utf8").match(
   /MARS_VERSION\s*=\s*"([^"]+)"/,
 )?.[1]
@@ -71,7 +77,8 @@ const run = (cmd, cmdArgs, options = {}) => {
 /**
  * Compresses `entries` (absolute paths to files or folders) into one archive.
  *
- * Files land at the root; a folder would keep its own name and tree.
+ * Files land at the root; a folder (the macOS app bundle) keeps its own name
+ * and tree.
  *
  * The system's own tool is used rather than an npm library: both
  * `Compress-Archive` and `tar` exist on all three platforms and on the CI
@@ -96,6 +103,63 @@ function packageArchive(name, entries) {
   }
   const bytes = readFileSync(dest).length
   console.log(`  → ${name} (${(bytes / 1048576).toFixed(1)} MB)`)
+}
+
+/**
+ * Wraps the macOS binary in an app bundle.
+ *
+ * A bare executable is not an app on macOS: opened from Finder it starts in a
+ * Terminal window, and neither Launchpad nor Spotlight lists it. A bundle is
+ * a folder with the binary in Contents/MacOS, an Info.plist that names it, and
+ * the icon in Contents/Resources -- nothing that needs Xcode or Tauri's
+ * bundler, which would build the front end a second time.
+ *
+ * It is signed ad hoc (`codesign --sign -`). On Apple Silicon every executable
+ * needs at least that signature to run at all, and the linker's own covers the
+ * binary but not a bundle around it. This is not Apple's notarization, which
+ * needs a developer account; the installer clears the quarantine instead.
+ */
+function macAppBundle(binary, edition) {
+  const tauri = JSON.parse(readFileSync(join(root, DESKTOP, "src-tauri/tauri.conf.json"), "utf8"))
+  const holder = join(outDir, "_bundle", `${edition}-${ARCH}`)
+  rmSync(holder, { recursive: true, force: true })
+  const app = join(holder, MAC_APP)
+  const contents = join(app, "Contents")
+  mkdirSync(join(contents, "MacOS"), { recursive: true })
+  mkdirSync(join(contents, "Resources"), { recursive: true })
+
+  const exe = join(contents, "MacOS", "mars-desktop")
+  cpSync(binary, exe)
+  chmodSync(exe, 0o755)
+  cpSync(join(root, DESKTOP, "src-tauri/icons/icon.icns"), join(contents, "Resources", "icon.icns"))
+
+  const entries = {
+    CFBundleDevelopmentRegion: "en",
+    CFBundleDisplayName: "MARS Desktop",
+    CFBundleExecutable: "mars-desktop",
+    CFBundleIconFile: "icon",
+    CFBundleIdentifier: tauri.identifier,
+    CFBundleInfoDictionaryVersion: "6.0",
+    CFBundleName: "MARS Desktop",
+    CFBundlePackageType: "APPL",
+    CFBundleShortVersionString: version,
+    CFBundleVersion: version,
+    LSApplicationCategoryType: "public.app-category.developer-tools",
+    LSMinimumSystemVersion: tauri.bundle?.macOS?.minimumSystemVersion ?? "10.15",
+    NSHighResolutionCapable: true,
+  }
+  const value = (v) => (v === true ? "<true/>" : v === false ? "<false/>" : `<string>${v}</string>`)
+  const plist =
+    `<?xml version="1.0" encoding="UTF-8"?>\n` +
+    `<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n` +
+    `<plist version="1.0">\n<dict>\n` +
+    Object.entries(entries).map(([k, v]) => `  <key>${k}</key>\n  ${value(v)}\n`).join("") +
+    `</dict>\n</plist>\n`
+  writeFileSync(join(contents, "Info.plist"), plist)
+  writeFileSync(join(contents, "PkgInfo"), "APPL????")
+
+  run("codesign", ["--force", "--deep", "--sign", "-", app])
+  return app
 }
 
 // --- Build ------------------------------------------------------------------
@@ -157,7 +221,10 @@ for (const edition of editions) {
     console.error(`cargo did not leave ${binary}`)
     process.exit(1)
   }
-  packageArchive(`mars-desktop-${edition}-${OS}-${ARCH}.${EXT}`, [binary, icon])
+  // macOS gets the bundle (which carries its own icon); the others get the
+  // binary at the root, and the icon the Linux launcher points at.
+  const contents = OS === "macos" ? [macAppBundle(binary, edition)] : [binary, icon]
+  packageArchive(`mars-desktop-${edition}-${OS}-${ARCH}.${EXT}`, contents)
 }
 
 // --- The installer ----------------------------------------------------------
@@ -176,6 +243,7 @@ if (existsSync(installer)) {
 }
 
 rmSync(icon, { force: true })
+rmSync(join(outDir, "_bundle"), { recursive: true, force: true })
 
 writeFileSync(join(outDir, "VERSION"), `${version}\n`)
 console.log(`\nDone. Archives are in ${outDir}`)

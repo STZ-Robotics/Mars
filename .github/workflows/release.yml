@@ -127,6 +127,40 @@ jobs:
           rustup target add x86_64-apple-darwin
           node scripts/package-release.mjs --arch x86_64
 
+      # The app bundle is assembled by hand (package-release.mjs), so this is
+      # where a broken one is found, not on a team's Mac: each archive must hold
+      # a bundle with a valid Info.plist, a signature that verifies and a binary
+      # of its own architecture, and the native one must open and stay open.
+      - name: Check the app bundles (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          for arch in aarch64 x86_64; do
+            expected=$([ "$arch" = aarch64 ] && echo arm64 || echo x86_64)
+            for edition in full tools; do
+              dir=$(mktemp -d)
+              tar -xzf "release/mars-desktop-${edition}-macos-${arch}.tar.gz" -C "$dir"
+              app="$dir/MARS Desktop.app"
+              test -x "$app/Contents/MacOS/mars-desktop"
+              plutil -lint "$app/Contents/Info.plist"
+              codesign --verify --deep --strict "$app"
+              got=$(lipo -archs "$app/Contents/MacOS/mars-desktop")
+              if [ "$got" != "$expected" ]; then
+                echo "::error::${edition} ${arch}: the binary is ${got}"; exit 1
+              fi
+              echo "ok: ${edition} ${arch}"
+            done
+          done
+          dir=$(mktemp -d)
+          tar -xzf release/mars-desktop-full-macos-aarch64.tar.gz -C "$dir"
+          open "$dir/MARS Desktop.app"
+          sleep 10
+          if ! pgrep -f "MARS Desktop.app/Contents/MacOS/mars-desktop"; then
+            echo "::error::MARS Desktop.app did not stay open"; exit 1
+          fi
+          pkill -f "MARS Desktop.app/Contents/MacOS/mars-desktop" || true
+
       - uses: actions/upload-artifact@v4
         with:
           name: archives-${{ matrix.runner }}
