@@ -1,222 +1,142 @@
 # AresLib
 
-The robot side of Ares, as a **MARS Feature**: it reads the Ares project
-deployed with the robot code, follows its trajectories and builds its autos
-out of the robot's own commands.
-
-It is a Feature and not a vendordep on purpose. It installs the way the rest
-of MARS does (MARS Desktop, `workspace-mars/features/`), it can lean on MARS,
-and it lives next to the planner, so the file format and the code that reads
-it change in the same commit.
+The robot side of [Ares](../README.md). AresLib reads the Ares project deployed
+with the robot code, follows its trajectories with the planned force on every
+wheel, and builds the autos out of the robot's own commands. It is a MARS
+Feature: it installs into a MARS project from MARS Desktop.
 
 ## Install
 
-In MARS Desktop, **Project > Packages > Manual Install**, paste
+In MARS Desktop, **Project → Packages → Manual Install**, paste
 
 ```
 https://stz-robotics.github.io/Mars/ares/MarsFeature.json
 ```
 
-and press **INSTALL FROM URL**. (It is also in the verified catalog.) The
-robot project needs WPILib's command framework, which every MARS project has;
+and press **Install from URL** (it is also in the verified catalog). The robot
+project needs WPILib's command framework, which every MARS project has.
 `CtreSwerve` also needs the Phoenix 6 vendordep, which a CTRE swerve already has.
 
-## The project goes in the deploy folder
+## The Ares project goes in the deploy folder
 
-Keep the Ares project (the `.robot.json` and its `paths/`, `trajectories/`,
-`autos/`, `ares-index.json`) in **`src/main/deploy/ares/`** and open that
-`.robot.json` in Ares. A deploy then carries what you generated, and AresLib
-reads it from `/home/lvuser/deploy/ares` (or the same folder in simulation).
-`ares-index.json` is rewritten by the app on every save: it is how the robot
-knows the branches, variants and autos without listing folders.
+Keep the Ares project (the `.robot.json` with its `paths/`, `trajectories/`,
+`autos/` and `ares-index.json`) in **`src/main/deploy/ares/`** and open that
+`.robot.json` in Ares. Every deploy then carries what you generated, and AresLib
+reads it from the deploy folder on the robot and in simulation.
 
-## Wiring it (CTRE swerve)
+## Setting it up (CTRE swerve)
 
 ```java
 Ares ares = new Ares(
-    CtreSwerve.of(drivetrain)         // the Tuner X CommandSwerveDrivetrain
-        .withModuleConstants(TunerConstants.FrontLeft),   // checks the .robot.json against it
-    new Ares.Config()                 // defaults are fine to start
+    CtreSwerve.of(drivetrain)                                 // the Tuner X CommandSwerveDrivetrain
+        .withModuleConstants(TunerConstants.FrontLeft),       // checks the .robot.json against it
+    new Ares.Config()
         .withGains(new AresController.Gains(3, 0, 0), new AresController.Gains(3, 0, 0)));
 
-// Register BEFORE building autos: they look these up as they are built.
+// Register before building autos: they look these up as they are built.
 ares.registerCommand("shoot", superstructure.shoot());
 ares.registerCommand("intake", intake.deploy());          // also an event marker's name
-ares.registerCondition("hasPiece", indexer::hasPiece);    // if steps and branches
+ares.registerCondition("hasPiece", indexer::hasPiece);    // for if steps and branches
 
 SendableChooser<Command> autos = ares.autoChooser();     // every auto, plus None
 SmartDashboard.putData("Auto", autos);
 ```
 
-**The gains.** Leave `withGains` out and AresLib reads `gains.json` from the
-project: what the Tune tab's "Apply to robot" writes after tuning, so a deploy
-carries the tuned gains with no code to change. `withGains` in the code wins
-over the file. Either way it prints which gains it runs with and from where,
-and publishes them on `/Ares/Gains`.
+**Gains.** Without `withGains`, AresLib uses the gains Ares's Tune tab saved in
+the project (`gains.json`), so a deploy carries tuned gains with no code change.
+Gains set in code win over the file. The gains in use are printed at boot and
+published under `/Ares/Gains`.
 
-**The robot it was planned for.** With `withModuleConstants`, Ares compares the
-`.robot.json`'s drive (gear ratio, wheel radius, current limit, carried in
-`ares-index.json`) with TunerConstants and raises an alert naming every one
-that differs: a stale `.robot.json` plans speeds and forces for another robot.
-The wheel radius gets 3% of room (wheels wear), the ratio 0.5%, the current 10%.
-It also names every path that asks for more speed than the drivetrain reaches
-at 12 V (TunerConstants' `SpeedAt12Volts`): planned at the motor's whole free
-speed, the robot falls behind on every straight and the feedback has nothing
-left to catch up with; `maxSpeedFraction` in the `.robot.json` (about 0.8)
-leaves that headroom. Another drivetrain reports these through
-`AresDrive.mechanics()`.
+**Robot check.** With `withModuleConstants`, AresLib compares the `.robot.json`
+(gear ratio, wheel radius, current limit) with `TunerConstants` and raises an
+alert naming every value that differs, and every path that asks for more speed
+than the drivetrain reaches at 12 V. Setting `maxSpeedFraction` in the
+`.robot.json` (about 0.8) leaves headroom for the feedback.
 
-Not CTRE? `AresDrive.of(pose, robotSpeeds, resetPose, setpoint -> ..., subsystem)`
-takes four lambdas. The setpoint has the speeds (field and robot frame) and
-each wheel's force (field and robot frame) to feed forward however your
-modules take it.
+**Other drivetrains.** `AresDrive.of(pose, robotSpeeds, resetPose, setpoint -> ..., subsystem)`
+takes four lambdas. Each setpoint carries the speeds and every wheel's force,
+in the field and robot frames, to feed forward however your modules take them.
 
 ## What it does
 
-- **Follows with the forces.** Every sample says what force each wheel puts on
-  the carpet; `CtreSwerve` passes them as `WheelForceFeedforwardsX/Y`, so the
-  PID only corrects what the forces missed. The gains can be lower than
-  PathPlanner's 5.
-- **Modules matched by position.** It pairs the `.robot.json`'s modules with
-  the drivetrain's by where they are, so the order does not have to match,
-  and raises an alert when they are not the same robot (a stale
-  `TunerConstants` or `.robot.json`).
-- **Alliance flip** on red, decided when each path starts: `ROTATIONAL`
-  (2026) by default, `MIRRORED` with `withSymmetry`. A mirror trades the
-  left wheels' forces for the right ones'.
-- **Event markers** run the command built on them in Ares (Paths → the
-  marker → "Build a command": named commands, waits, groups, as PathPlanner's
-  markers carry one) or, without one, the command registered under their
-  name, inside the path follower; a zone's command is cut when the zone
-  ends. Either way `ares.event("intake")` is true while it lasts, to react
-  with `.onTrue(...)` / `.whileTrue(...)`.
-- **Branches.** At the waypoint where a branch leaves, if its condition holds,
-  the robot carries on along the branch, without stopping. In an auto, a path
-  followed by one of its own branches is driven only up to where the branch
-  leaves.
-- **"?" stretches (pathfinding).** If the robot is where Ares expected, it
-  follows Ares's estimate, which is a real trajectory. If not, it hands over
-  to the pathfinder:
-  - with a **navgrid** (drawn in the Field tab, deployed as `navgrid.json`),
-    `GridPathfinder`: A* around its blocked cells from where the robot
-    actually is (the same search as the app's "Test route"), the corners
-    driven with a profile that slows for each one. On red it searches in
-    blue's frame and flips the corners back;
-  - without one, `StraightPathfinder`: a straight profiled drive that avoids
-    nothing;
-  - or anything you plug in with `withPathfinder` (PathPlanner's AD*, see
-    `AresPathfinder`). `navgrid.json` is PathPlanner's format, so the same
-    file works for its pathfinder if copied to `deploy/pathplanner/`.
-- **Knocked off the trajectory** (more than 0.5 m for 0.2 s: a hit, a stall),
-  the pathfinder takes the robot to where the trajectory will be a second
-  later and the path goes on from there, at most 3 times per path; it never
-  rejoins past a "?" stretch or a branch point. `withReplan(...)` tunes it, a
-  tolerance of 0 turns it off. `/Ares/Replans` counts them.
-- **Autos**: path, wait, command (and "alongside", which runs with everything
-  after it), if/else on a condition, nested autos, **together** (lists at once:
-  until all end, the first ends, or list 1 ends: WPILib's parallel, race and
-  deadline), and **when** (armed where it sits; once a time since the auto
-  started comes, the robot enters a zone, or a condition holds, its steps run
-  alongside the rest). Two things that need the same subsystem at once (two
-  paths together) are an alert and only the first runs, not a crash. An auto that starts at a
-  known pose resets odometry there (`withResetPoseAtAutoStart(false)` to not).
-  `ares.startPose(auto)` gives that pose for placing the robot before a match.
-- **Telemetry** under `/Ares` on NetworkTables, for Ares's Live tab (or
-  AdvantageScope): the active path (`Path`, Pose2d[]), where the trajectory
-  says to be (`Target`) and where the robot is (`Robot`, every loop), the
-  error, the time, the active events, the replans, the speeds commanded and
-  measured (`CommandedSpeeds`, `MeasuredSpeeds`: field vx, vy, omega) and the
-  gains in use (`Gains/`).
+- **Follows with the forces.** Each trajectory sample says what force each wheel
+  puts on the carpet, and `CtreSwerve` feeds them forward, so the feedback only
+  corrects what the forces missed.
+- **Matches modules by position**, so their order does not have to agree, and
+  raises an alert when the `.robot.json` and the drivetrain are not the same
+  robot.
+- **Flips for the red alliance** when each path starts: rotational symmetry by
+  default, mirrored with `withSymmetry`. The field's own symmetry comes from the
+  project.
+- **Event markers** run the command built on them in Ares, or the command
+  registered under their name. A zone's command is cut when the zone ends.
+  `ares.event("intake")` is a trigger that is true while the event lasts.
+- **Branches.** Where a branch leaves a path, if its condition holds, the robot
+  carries on along the branch without stopping.
+- **Pathfinding stretches.** A path segment marked as unknown is driven from
+  wherever the robot actually is: around the project's navigation grid when
+  there is one (`GridPathfinder`), in a straight line otherwise, or with your own
+  `AresPathfinder`.
+- **Recovers when knocked off course.** More than 0.5 m off for 0.2 s (a hit, a
+  stall), the robot pathfinds to where the trajectory will be a second later and
+  carries on, up to 3 times per path. `withReplan(...)` tunes it; a tolerance of
+  0 turns it off.
+- **Autos**: paths, waits, commands, if/else on a condition, nested autos,
+  steps that run together (all, the first to end, or until one ends) and steps
+  armed on a time, a zone or a condition. An auto that starts at a known pose
+  resets odometry there, and `ares.startPose(auto)` tells you where to place
+  the robot.
+- **Telemetry** under `/Ares`: the active path, the target and actual pose,
+  the error, the active events, the replans, commanded against measured speeds,
+  and the gains — what Ares's Live tab draws.
 - **Never stops the robot from booting.** A missing or broken project, an
-  ungenerated path, a command or condition nobody registered: an alert on the
-  dashboard and a message in the Driver Station, not an exception.
+  ungenerated path, or a command nobody registered becomes a dashboard alert and
+  a Driver Station message, not an exception.
 
-Also: `ares.path("Hub run")`, `ares.path("Hub run", "wide")` (a variant),
-`ares.section("Hub run", "intake")`, `ares.split("Hub run", 1)`.
+Paths can also be used piece by piece: `ares.path("Hub run")`,
+`ares.path("Hub run", "wide")` (a variant), `ares.section("Hub run", "intake")`,
+`ares.split("Hub run", 1)`.
 
 ## Going somewhere by itself
 
-PathPlanner's `pathfindToPose` and `pathfindThenFollowPath`: around the
-project's navgrid when it has one, straight otherwise. `pathfindTo` takes
-poses in blue's coordinates, as the paths are drawn, and flips them on red;
-`pathfindToField` takes them in the field's own coordinates (the estimator's,
-the AprilTag layout's) and never flips, for a goal the code already worked out
-for its alliance, such as a spot in front of this alliance's hub from its tags.
+Drive to a pose around the navigation grid, from wherever the robot is.
+`pathfindTo` takes poses in blue's coordinates, as paths are drawn, and flips
+them on red; `pathfindToField` takes field coordinates and never flips, for a
+goal the code already computed for its alliance.
 
 ```java
-driver.a().whileTrue(ares.pathfindTo(new Pose2d(1.8, 7.6, Rotation2d.fromDegrees(-90)))); // line up at the amp
-driver.b().whileTrue(ares.pathfindToField(() -> hubSpotFor(alliance()), limits));        // already this alliance's
+driver.a().whileTrue(ares.pathfindTo(new Pose2d(1.8, 7.6, Rotation2d.fromDegrees(-90))));
+driver.b().whileTrue(ares.pathfindToField(() -> hubSpotFor(alliance()), limits));
 ares.pathfindThenFollow("Score");   // to where Score starts, then Score
 ```
 
-A goal (or a start) inside a blocked cell, a shooting spot drawn against the
-tower, say, is reached from the nearest open cell, the last stretch straight,
-instead of giving up on the whole way.
+A goal inside a blocked cell is reached from the nearest open one.
 
-## Hot reload, and the auto chooser
+### Obstacles that come and go
 
-While the Ares app is connected (Live, Measure: the same connection), every
-path it generates and every auto it saves goes to the robot at once and
-replaces what AresLib has, without a deploy (PathPlanner's hot reload). Never
-with a field connected; it lasts until the robot restarts, so deploy to keep
-it. `/Ares/HotReload/Last` says what the robot did. Off with
-`withHotReload(false)`, or in the app's Settings.
-
-`ares.autoChooser("Qualifiers")` lists one folder of the Autos tab.
-While the robot is disabled, the auto picked is published with where to put
-the robot for it: `/Ares/Auto/Selected`, `/Ares/Auto/StartPose`, and the
-"Ares Auto" field (start pose and first path) on the dashboard; the Live tab
-draws it too.
-
-## The field
-
-The field the Ares project plays on (the app's Settings → Project → Field:
-Rebuilt 2026, Reefscape 2025, Crescendo 2024, Charged Up 2023) comes in the
-index: AresLib takes its size and its red side's symmetry (rotational, or
-mirrored for 2023 and 2024) unless the code sets them with `withFieldSize` /
-`withSymmetry`.
-
-## Obstacles that come and go
-
-PathPlanner's `setDynamicObstacles`: boxes by two opposite corners, in field
-coordinates as the robot sees them (other robots from vision, say). The
-pathfinder keeps the robot's center half its diagonal clear of them (or what
-`withObstacleClearance` says), so pass the obstacles' own size: growing them by
-the robot as well would keep it twice as far. A
-pathfind under way whose way ahead they now cross finds another from where
-the robot is. With no navgrid drawn, an open one the field's size takes them.
+Boxes given by two opposite corners, in field coordinates — other robots seen by
+vision, for example. The pathfinder keeps the robot clear of them and finds a
+new way when they block the current one.
 
 ```java
 ares.setDynamicObstacles(List.of(Pair.of(new Translation2d(4.5, 3.5), new Translation2d(5.4, 4.4))));
 ares.setDynamicObstacles(List.of());   // clear them
 ```
 
-## Paths made on the robot
+### Paths made on the robot
 
-PathPlanner's paths from poses: a smooth curve through poses decided in code
-(each pose's rotation is the direction of travel there), its speed planned
-within the pathfinding limits, ending still and facing the end heading.
-Blue's coordinates, flipped on red. No wheel forces and no obstacles: for
-short moves decided in the moment.
+A smooth path through poses decided in code, for short moves decided in the
+moment. Blue's coordinates, flipped on red.
 
 ```java
-ares.pathThrough(Rotation2d.kCW_90deg, start, via, end);      // the first pose is where it starts
-ares.pathFromHere(Rotation2d.kZero, via, end);                 // sets off from wherever the robot is
+ares.pathThrough(Rotation2d.kCW_90deg, start, via, end);      // starts at the first pose
+ares.pathFromHere(Rotation2d.kZero, via, end);                 // starts wherever the robot is
 ares.pathFromHere(limits, heading, () -> posesFromVision());   // poses decided when it starts
 ```
 
-## The project's variables in the robot code
-
-With Settings → Project → "Variables in the robot code" on, the Ares app
-writes the Variables tab as a Java class (Choreo's ChoreoVars) every time a
-variable changes: `AresVars.reach` is a `Distance`, `AresVars.Poses.speaker`
-a `Pose2d`.
-
 ## Autos with triggers, in code
 
-Choreo's AutoRoutine: instead of the Autos tab's list of steps, the paths say
-when they run, end, reach a time, a marker or a pose, and commands are bound
-to that. The triggers are polled only while the routine's command runs.
+Instead of the Autos tab's list of steps, bind commands to what the paths do:
 
 ```java
 var r = ares.routine("Two piece");
@@ -231,62 +151,48 @@ alt.done().onTrue(shoot());
 chooser.addOption("Two piece", r.cmd());
 ```
 
-## Characterization, with no logs and no SysId
+## Hot reload and the auto chooser
+
+While the Ares app is connected, every path it generates and every auto it saves
+is sent to the robot and replaces what AresLib has, without a deploy. It never
+happens with a field connected, and it lasts until the robot restarts — deploy
+to keep the changes. Turn it off with `withHotReload(false)` or in the app's
+Settings.
+
+`ares.autoChooser("Qualifiers")` lists one folder of the Autos tab. While the
+robot is disabled, the selected auto and where to place the robot for it are
+published under `/Ares/Auto/` and drawn on the dashboard.
+
+## The project's variables in code
+
+With *Settings → Project → Variables in the robot code* turned on, the Ares app
+writes the Variables tab as a Java class: `AresVars.reach` is a `Distance`,
+`AresVars.Poses.speaker` a `Pose2d`.
+
+## Drivetrain characterization
 
 ```java
 AresCharacterization.publish(CtreSwerve.of(drivetrain).characterizable(TunerConstants.FrontLeft));
 ```
 
-Three routines, as dashboard buttons under `Ares Characterize/`, that measure
-on the robot and publish as they run under `/Ares/Characterize/<routine>`
-(the team's DriveCharacterizationCommand, generalized):
+Three routines appear as dashboard buttons under `Ares Characterize/`:
 
-- **Drive**: spins in place stepping the drives from 1 to 6 V both ways and
-  fits |V| = kS + kV·rps (rotor rps, Tuner X's units); the gyro gives the
-  wheel radius too. About 1.5 m of room.
-- **Steer**: the robot stays put, the modules turn stepping the steers from
-  0.3 to 2 V: kS and kV of the steer (module rps).
-- **WheelRadius**: spins slowly; the gyro's angle against how far the wheels
-  rolled is their true radius.
+- **Drive** — spins in place stepping the drive voltage and fits kS and kV; the
+  gyro gives the wheel radius too. Needs about 1.5 m of room.
+- **Steer** — the robot stays put while the modules turn: kS and kV of the steer.
+- **WheelRadius** — spins slowly and compares the gyro's angle with how far the
+  wheels rolled.
 
-Ares's Measure tab connects over NetworkTables, presses them, draws the points
-and the line as they come, compares with TunerConstants, and saves the results
-(Tune starts from them). Results also land in Preferences.
+Ares's Measure tab runs them over NetworkTables, plots the results as they come,
+compares them with `TunerConstants` and saves them for the Tune tab.
 
 ## Building and testing
 
 ```bash
-./gradlew test          # trajectories, flips, and the commands on the real scheduler
-./gradlew e2eTest       # the real planner, then a simulated CTRE swerve following it
-./gradlew publish       # writes maven/, which is committed
+./gradlew test       # trajectories, alliance flips and the commands on the real scheduler
+./gradlew e2eTest    # plans with the real planner, then follows it on a simulated CTRE swerve
 ```
 
-`e2eTest` is the whole chain: it runs `ares plan` (the Rust planner, built by
-cargo the first time) on `examples/paths/hub-run.json` for the team's robot
-(`src/test/resources/e2e/`, planned at 85% of the free speed) and follows the result on a simulated
-CTRE swerve built from the same `.robot.json`, the wheel forces fed forward
-through `CtreSwerve`. It checks the tracking error along the path and at its
-end on both alliances, that the grid pathfinder never puts the robot's center
-in a blocked cell, and that a stale `.robot.json` is caught. It runs in real
-time. On Windows with a newer Visual Studio than CMake knows, set
-`CMAKE_GENERATOR="Visual Studio 17 2022"`.
-
-The tests drive a perfect simulated drivetrain through the fixture project in
-`src/test/resources/project/` (made with `ares plan`): ending where the path
-ends, the feedback pulling it back, the red alliance, markers and zones,
-branches taken and not, an auto that leaves at a branch point, the
-pathfinder taking over when the robot is knocked off the estimate, the
-forces handed over in the drivetrain's order, and the grid pathfinder driving
-around a wall without its center ever entering a blocked cell, on both
-alliances.
-
-## Releasing
-
-The version is in `MarsFeature.json` (both `version` and the dependency's).
-Bump it, `./gradlew publish`, commit `maven/`. The `pages` workflow copies
-`maven/` and `MarsFeature.json` to `https://stz-robotics.github.io/Mars/ares/`
-when it reaches `main`, and checks the jar is there.
-
-`ares-index.json` carries `"format": 1`. A change the old AresLib cannot read
-bumps it; AresLib refuses a format it does not know with a message, rather
-than half-reading it.
+The version is in `MarsFeature.json`. Releasing: bump it, run `./gradlew publish`
+and commit `maven/`; the `pages` workflow publishes it to
+`https://stz-robotics.github.io/Mars/ares/`.

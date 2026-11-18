@@ -1,100 +1,72 @@
 # MARS
 
-The whole MARS ecosystem for FRC in one repository: the library a robot
-actually imports, the NetworkTables dashboard, the installer that puts it on a
-machine, and the documentation.
+**MARS** is a toolkit for FRC robot software from STZ Robotics: a Java framework
+for structuring robot code, a desktop dashboard to see what the robot is doing,
+an editor extension that understands MARS projects, and Ares, a trajectory
+planner with its own robot library.
 
-They live together because they ship together. One release carries the
-dashboard, one `manifest.json` describes it, and one installer reads that
-manifest — so a change that crosses products (a new archive name, a version
-bump) is one commit and not a coordination problem across repositories.
+| | What it is |
+|---|---|
+| [**MARS library**](lib/README.md) | A WPILib vendordep. Subsystems built from swappable hardware layers, a run mode for real, simulated and replayed hardware, live diagnostics, a blackboard for sharing state, controller abstractions and pit-test routines. |
+| [**MARS Desktop**](desktop/README.md) | A NetworkTables dashboard: 2D and 3D field, swerve and mechanism views, plots, live equations, SysId, `.wpilog` files, loop timing and bandwidth. With the framework edition it also creates projects, installs packages and generates subsystems. |
+| [**MARS for VS Code**](extension/README.md) | The editor side: architecture view, live NetworkTables values next to the code, diagnostics and quick fixes for common MARS mistakes, completion and snippets. |
+| [**Ares**](ares/README.md) | A trajectory planner and auto builder that plans with the robot's real physics, plus [**AresLib**](ares/areslib/README.md), which follows those trajectories and runs the autos on the robot. |
 
-## Installing
+## Install
 
-Download the installer for your system from the
+**MARS Desktop** — download the installer for your system from the
 [latest release](https://github.com/STZ-Robotics/Mars/releases/latest) and run it.
-It fetches everything else.
+No administrator rights are needed; the same installer updates and uninstalls.
 
 | System | File |
 |---|---|
-| **Windows** (recommended) | `MARS-Installer.exe` |
-| Linux | `MARS-Installer-linux-x86_64` (`chmod +x` first) |
-| macOS | `MARS-Installer-macos-aarch64` or `-x86_64` (`chmod +x` first) |
+| Windows | `MARS-Installer.exe` |
+| macOS | `MARS-Installer-macos-aarch64` (Apple Silicon) or `MARS-Installer-macos-x86_64` (Intel) |
+| Linux | `MARS-Installer-linux-x86_64` |
 
-The installer lets you pick the edition, needs no administrator rights, and also
-uninstalls.
+On macOS and Linux, make the installer executable first:
+`chmod +x MARS-Installer-*`.
 
-## What is in here
+**MARS library** — in VS Code with the WPILib extension, *WPILib: Manage Vendor
+Libraries → Install new library (online)*, and paste:
 
-| Folder | What it is |
-|---|---|
-| [`lib/`](lib/README.md) | **MARS**, the FRC Java library — the vendordep teams install. Its own version, its own release cycle, and the only thing here whose output is consumed by people who never clone this repository. |
-| [`desktop/`](desktop/README.md) | **MARS Desktop**: the NetworkTables dashboard. React + TypeScript over a Rust/Tauri backend. This is what most people mean by "MARS". |
-| [`simulationstudio/`](simulationstudio/app/README.md) | **MARS Simulation Studio** and the Gazebo-based simulation engine. **Not distributed** since 1.1.7: no release or installer carries it. |
-| [`templates/`](templates/README.md) | The project and feature scaffolds the dashboard writes. They ship inside its binary, so creating a project needs neither network nor git. |
-| [`extension/`](extension/README.md) | **MARS for VS Code**: the editor half. Reads a robot project's architecture out of its Java and puts it in the sidebar, over the declarations, and in the problems panel. |
-| [`installer/`](installer/README.md) | **MARS Installer**: the app that installs, updates and uninstalls the ecosystem. |
-| [`docs/`](docs/) | The documentation site (MkDocs Material). |
-| [`scripts/`](scripts/) | The only things that know about more than one at once: release packaging, version syncing, the vendordep check. |
-
-Each folder builds on its own — no cargo workspace, no npm workspace, on
-purpose: the products have different toolchains (gradle, npm + cargo, cargo +
-conda + CMake, cargo) and nothing to gain from sharing a lockfile.
-
-```bash
-cd lib                && ./gradlew build
-cd desktop            && npm install && npm run tauri dev
-cd simulationstudio   && ./build.ps1 && cargo run --manifest-path app/Cargo.toml
-cd installer          && cargo run
+```
+https://stz-robotics.github.io/Mars/Mars.json
 ```
 
-## The published site
+A project created from MARS Desktop already has it.
 
-One GitHub Pages site, at `https://stz-robotics.github.io/Mars/`, built by
-[`.github/workflows/pages.yml`](.github/workflows/pages.yml):
+**MARS for VS Code** — install
+[MARS Developer Tools](https://marketplace.visualstudio.com/items?itemName=STZRobotics.mars-developer-tools)
+from the Marketplace.
 
-| Path | What |
-|---|---|
-| `/` | this documentation (MkDocs, from `docs/`) |
-| `/api/` | the library's Javadoc |
-| `/maven/` | **the maven repository** the vendordep resolves against |
-| `/Mars.json` | **the vendordep itself** |
+**Ares** — the installers are on the
+[Releases page](https://github.com/STZ-Robotics/Mars/releases), under the
+`ares-v*` tags. See the [Ares README](ares/README.md).
 
-The last two are URLs written into the `vendordeps/Mars.json` of every robot
-project that has MARS installed, so they are not ours to move once published.
-`node scripts/check-vendordep.mjs` refuses a `Mars.json` that promises a version
-`lib/maven/` does not carry, and the workflow runs it before uploading anything.
+## Documentation
 
-The library used to be published from a separate repository at the same address
-this one now answers on. Renaming this repository to `Mars` reclaimed that
-address, so no robot project ever had to be migrated — which also makes the name
-load-bearing. [`lib/README.md`](lib/README.md) explains what that means before
-anybody renames anything again.
+- Guides: <https://stz-robotics.github.io/Mars/>
+- Library API (Javadoc): <https://stz-robotics.github.io/Mars/api/>
 
-## Releasing a version
+## Building from source
 
-The dashboard's version is written in **one place**,
-`desktop/src/constants/version.ts`. Line up every file that carries it with:
+Each product builds on its own with its own toolchain:
 
 ```bash
-node scripts/sync-version.mjs          # check
-node scripts/sync-version.mjs --write  # fix
+cd lib        && ./gradlew build                       # Java 17
+cd desktop    && npm install && npm run tauri dev      # Node 22 + Rust
+cd extension  && npm install && npm run compile        # Node 22
+cd installer  && cargo run                             # Rust
+cd ares       && cargo test --release                  # Rust + CMake + a C++23 compiler
 ```
 
-After that, a `vX.Y.Z` tag fires [`.github/workflows/release.yml`](.github/workflows/release.yml),
-which builds on three runners (Windows, Linux, and macOS producing both
-architectures), writes `manifest.json` with the real sha256 sums, and publishes
-the release. Each platform is built on its own because Tauri links against the
-system webview: cross-compiling between operating systems is not possible.
-
-To build the archives for your own platform without a tag:
-
-```bash
-node scripts/package-release.mjs       # leaves them in release/
-```
+`node scripts/package-release.mjs` builds the installer and MARS Desktop
+archives for the current platform into `release/`. Pushing a `vX.Y.Z` tag builds
+and publishes them for Windows, Linux and macOS; `node scripts/sync-version.mjs`
+checks that every file carrying the version agrees first.
 
 ## License
 
-[MIT](LICENSE), for everything in this repository except
-`templates/project/WPILib-License.md`, which covers the WPILib-derived files the
-project template carries.
+[MIT](LICENSE), except `templates/project/WPILib-License.md`, which covers the
+WPILib-derived files in the project template.

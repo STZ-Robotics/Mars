@@ -1,10 +1,11 @@
-# The MARS block
+# Complete-edition code
 
-MARS Desktop ships in two editions:
+This folder holds what only the Complete edition of MARS Desktop has. MARS Desktop
+ships in two editions:
 
 | Edition | What it has | Who it is for |
 |---|---|---|
-| **Full** | Everything: NetworkTables + the MARS framework (projects, packages, manifest, wizard, features, subsystem status, watchdog) + the MARS Simulation Studio launcher | Teams using MARS |
+| **Full** | Everything: NetworkTables + the MARS framework (projects, packages, manifest, wizard, features, subsystem status, watchdog) | Teams using MARS |
 | **Tools** | Just the dashboard: NetworkTables, 2D/3D visualisers, swerve, mechanisms, telemetry, plots, equations, SysId, loop timing, bandwidth, console, preferences, `.wpilog` files | Teams who want the tool without adopting the framework |
 
 ## How MARS is actually removed

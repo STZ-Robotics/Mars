@@ -5,8 +5,7 @@
 ### Fixed
 
 - **On macOS, MARS Desktop is found as `MARS Desktop.app`,** the app bundle
-  the installer puts there from MARS 1.1.8 on. 0.3.1's notes claimed this
-  already; that change had not reached its build.
+  MARS 1.1.8 installs.
 
 ## 0.3.1
 
@@ -20,13 +19,6 @@
 
 - **Launch Simulation Studio** and `mars.simulationStudioPath`: the Simulation
   Studio is no longer distributed with MARS.
-
-### Notes
-
-- 0.3.0 was published from a working copy whose changes never reached the
-  repository. They are rebuilt here from the published package: the reference
-  page, the `@`, `@Unit` and `Manifest.` completion, the identifier, the
-  `engines` range and the icons.
 
 ## 0.3.0
 
