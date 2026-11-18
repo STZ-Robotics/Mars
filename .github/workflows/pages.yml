@@ -53,18 +53,18 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Before anything is built: does Mars.json describe artifacts that are
       # actually in lib/maven, and do its URLs point here? See the script.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
       - name: Check the vendordep
         run: node scripts/check-vendordep.mjs
 
       # --- The documentation, which becomes the root ------------------------
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -78,7 +78,7 @@ jobs:
         working-directory: docs
 
       # --- The Javadoc ------------------------------------------------------
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           java-version: "17"
           distribution: temurin
@@ -141,7 +141,7 @@ jobs:
             [ "$CODE" = "200" ] || echo "::warning::catalog entry answers $CODE: $URL"
           done
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: _site
 
@@ -153,7 +153,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 
       # Everything up to here checked the site against what the repository says
       # about itself. This checks it against what is actually being served, which

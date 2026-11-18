@@ -47,9 +47,9 @@ jobs:
             runner: macos-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -161,7 +161,7 @@ jobs:
           fi
           pkill -f "MARS Desktop.app/Contents/MacOS/mars-desktop" || true
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: archives-${{ matrix.runner }}
           path: release/*
@@ -183,13 +183,13 @@ jobs:
     if: github.ref_type == 'tag' || github.ref_name == 'main'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           path: downloads
 
@@ -211,7 +211,7 @@ jobs:
           node scripts/make-manifest.mjs release "$VERSION"
 
       - name: Publish
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', env.VERSION) }}
           name: MARS ${{ env.VERSION }}
