@@ -1,117 +1,133 @@
-# MARS (the library)
+# MARS library
 
-The FRC Java library: what a robot project actually imports. Everything else in
-this repository is a tool that sits around it — the dashboard talks to a robot
-running this, and the Simulation Studio simulates one.
+A Java framework for FRC robot code, distributed as a WPILib vendordep. It gives
+every subsystem the same shape — hardware behind an interface, state in a data
+object, behavior in small requests — so subsystems are easy to read, test,
+simulate and swap.
 
-It is a Gradle project with its own version, its own release cycle and its own
-consumers, and it is the only part of this repository whose output is consumed
-by people who will never clone it.
+## Install
 
-## Where it is published
-
-One GitHub Pages site, built by [`.github/workflows/pages.yml`](../.github/workflows/pages.yml):
-
-| URL | What |
-|---|---|
-| `https://stz-robotics.github.io/Mars/Mars.json` | **The vendordep.** `jsonUrl` points here; this is what WPILib re-reads on "Check for updates". |
-| `https://stz-robotics.github.io/Mars/maven/` | **The maven repository.** Gradle resolves `com.stzteam.mars:Mars` out of here. |
-| `https://stz-robotics.github.io/Mars/api/` | The Javadoc. |
-| `https://stz-robotics.github.io/Mars/` | The documentation (MkDocs, from `docs/`). |
-
-The first two are written into the `vendordeps/Mars.json` of every robot project
-that has MARS installed. They are not ours to move once published: a team that
-installed MARS last season has those strings on disk, and nothing we do here
-changes their copy. Treat both as permanent.
-
-## The `maven/` folder is committed on purpose
-
-`build.gradle` publishes into `lib/maven/` (`LocalRepo`), and that folder is in
-git. The site does not build the jars — it copies them. So a release is a
-commit, which means it is reviewable, revertible, and the bytes a team downloads
-are the bytes that were in the tree.
-
-## Cutting a release
-
-The version lives in **one place**: `Mars.json`. `build.gradle` reads it with
-`JsonSlurper` and takes both the project version and the generated
-`MarsConstants.MARS_VERSION` from it, so there is nothing else to bump.
-
-```bash
-cd lib
-$EDITOR Mars.json                  # "version" and javaDependencies[Mars].version
-./gradlew publish                  # writes lib/maven/.../<version>/
-node ../scripts/check-vendordep.mjs  # says no if those two disagree
-git add Mars.json maven/
-```
-
-Push to `main` and the `pages` workflow deploys. The same check runs there
-before anything is uploaded, because a `Mars.json` that promises a version with
-no jar behind it does not fail here — it fails on a team's laptop, as
-`could not resolve com.stzteam.mars:Mars`, possibly at a competition.
-
-### The uuid is frozen
-
-```
-8b9c1d2e-3f4a-5b6c-7d8e-9f0a1b2c3d4e
-```
-
-WPILib identifies an installed vendordep by uuid, not by name. Change it and the
-extension does not replace MARS — it installs a **second** copy alongside the
-old one, and the project ends up with two versions of the same classes on the
-classpath. `check-vendordep.mjs` fails if it ever moves.
-
-### ForgeMini is somewhere else
-
-`com.stzteam.forgemini:ForgeMini` is a declared dependency served from
-`https://Imcab.github.io/FORGEmini/maven/`, its own repository. It has the same
-one-way-door property as the URLs above. Nothing here can verify it; the check
-script prints it as a note so it is at least visible.
-
-## The repository this used to live in
-
-The library was published from a separate repository that also lived at
-`STZ-Robotics/Mars`, whose GitHub Pages served the Javadoc at the root with
-`Mars.json` beside it and `maven/` underneath. Development moved here, and for a
-while this repository was called `Mars-frc` — which meant the vendordep had to
-change URL, and a vendordep that changes URL has to drag every already-installed
-robot project along with it.
-
-**Renaming this repository to `Mars` deleted that problem instead of solving
-it.** The URL every installed project already has written in its
-`vendordeps/Mars.json` —
+In VS Code with the WPILib extension: *WPILib: Manage Vendor Libraries → Install
+new library (online)*, and paste
 
 ```
 https://stz-robotics.github.io/Mars/Mars.json
-https://stz-robotics.github.io/Mars/maven/
 ```
 
-— is now the URL this repository serves. `lib/maven/` carries every version the
-old site carried and one more (1.6.0 … 1.6.7), and the jars are byte-identical:
-checked 1.6.0, 1.6.3 and 1.6.6 against the old site before the rename. So a team
-that never touches anything keeps resolving, and a team that hits "Check for
-updates" is offered 1.6.7 at the same address it always used.
+Projects created from MARS Desktop already include it. API reference:
+<https://stz-robotics.github.io/Mars/api/>.
 
-Nothing had to be migrated, and nothing had to be announced.
+## What it gives you
 
-### What that cost, and what to remember
+### Subsystems with swappable hardware
 
-1.6.7 exists because of the plan that is no longer needed: it is 1.6.6 with no
-code change, cut to carry a version number higher than the one installed, since
-WPILib's "Check for updates" compares versions and reports an equal one as
-already up to date. It is a perfectly ordinary release now.
+A `ModularSubsystem` is built from three pieces:
 
-Two things are worth keeping in mind, because they are the reason this worked:
+- **`Data`** — what the hardware read this loop, as plain public fields.
+- **`IO`** — the hardware layer. It has a real, a simulated and a fallback
+  implementation; the subsystem never knows which one it has.
+- **`Request`** — one loop of behavior: given the latest data and the IO, do
+  something and report an `ActionStatus`.
 
-- **A Pages URL follows the repository name.** Renaming a repository moves its
-  site, which is exactly why the rename could reclaim the old address — and
-  exactly why renaming this one again would break every installed project at
-  once. The name `Mars` is now load-bearing.
-- **`Mars-frc` must never be created again.** Binaries already released have
-  that slug compiled into them (see `installer/src/manifest.rs`) and reach this
-  repository through GitHub's rename redirect. A new repository claiming the
-  freed name would intercept them.
+```java
+public class Elevator extends ModularSubsystem<ElevatorData, ElevatorIO> {
+    public Elevator(ElevatorIO io) {
+        super(SubsystemBuilder.<ElevatorData, ElevatorIO>setup()
+            .key(KeyManager.ELEVATOR_KEY)         // its NetworkTables table
+            .hardware(io, new ElevatorData())
+            .request(ElevatorRequests.hold()));   // what it does by default
+    }
 
-`check-vendordep.mjs` derives the expected Pages URL from `GITHUB_REPOSITORY`
-and fails when the declared URLs name a different repository than the one
-publishing them, so a future rename cannot ship quietly — it stops the deploy.
+    @Override
+    public void absolutePeriodic(ElevatorData inputs) {}   // runs every loop, whatever the request
+}
+```
+
+The subsystem reads its inputs, runs the current request and publishes its
+status every loop. Commands come from the requests:
+
+```java
+elevator.runRequest(() -> ElevatorRequests.manual(stick));          // until interrupted
+elevator.runRequestUntilDone(() -> ElevatorRequests.goTo(1.2));     // until the request reports done
+```
+
+### Real, simulated or replayed
+
+`Environment` holds the run mode (`REAL`, `SIM`, `REPLAY`) and `Injector` builds
+the matching IO:
+
+```java
+ElevatorIO io = Injector.createIO(
+    Manifest.HAS_ELEVATOR,       // false: a fallback that does nothing
+    ElevatorIOFallback::new,
+    ElevatorIOReal::new,         // in REAL; if it throws, the fallback instead
+    ElevatorIOSim::new);         // in SIM and REPLAY
+```
+
+A subsystem on a fallback IO skips its loop entirely, so a half-built robot runs
+safely with any module switched off.
+
+### Diagnostics
+
+- **`ActionStatus`** — every request reports `ok()`, `warning(...)`,
+  `error(...)` or a team-defined `ModuleColorCode`, each with a severity, a
+  message and an LED pattern. The status is published per subsystem and shown
+  in MARS Desktop's Subsystems page.
+- **`AlertRegistry`** — every subsystem's latest non-OK status in one place, for
+  a dashboard or a pre-match check.
+- **`MARSWatchdog`** — times each subsystem's loop and warns when it overruns
+  (rate-limited, so a slow subsystem does not flood the Driver Station).
+- **`GCSConsole`** — readable, timestamped console output for boot, mounts,
+  requests and errors, with a crash report that shows the cause chain.
+
+### Sharing state
+
+- **`Blackboard`** — typed values one subsystem writes and another reads,
+  without either importing the other. Writing `null` removes a value.
+- **`Node`** — background processing that publishes a message every loop
+  (vision, sensor fusion), ticked from the robot container.
+
+### Controllers
+
+`ControllerOI` describes a gamepad by position — sticks, bumpers, the four face
+buttons, D-pad, triggers — with `XboxOI` and `PS5OI` implementations. Bindings
+written against it work with either controller.
+
+### Pit tests
+
+A `TestRoutine` is a command sequence with assertions (`assertLessThan`,
+`assertGreaterThan`, `assertTrue`) that log PASS or FAIL. `TestScheduler.runTest`
+wraps one with start and finish logging, and it runs in Test mode.
+
+```java
+@MARSTest(name = "Elevator range")
+public class ElevatorCheck extends TestRoutine {
+    public Command getRoutineCommand() {
+        return run(ElevatorRequests.goTo(1.0), elevator)
+            .andThen(delay(1.5))
+            .andThen(assertLessThan(calculateError(1.0, elevator::height), 0.02,
+                "the elevator did not reach 1 m"));    // height(): a getter the subsystem declares
+    }
+}
+```
+
+## Building
+
+```bash
+cd lib
+./gradlew build      # compile and test
+```
+
+### Releasing (maintainers)
+
+The version is in `Mars.json` (`version` and the `Mars` dependency's version).
+Bump both, run `./gradlew publish` — which writes the jars into `lib/maven/`,
+committed with the change — and push to `main`. The `pages` workflow publishes
+`Mars.json` and `maven/` to <https://stz-robotics.github.io/Mars/>, after
+`node scripts/check-vendordep.mjs` confirms the version is in `maven/`. The `lib`
+workflow builds and tests every change and uploads what `publish` writes, for a
+machine that cannot build the library itself.
+
+Keep stable, because every installed project depends on them: the vendordep URLs
+(`…/Mars.json`, `…/maven/`), the repository name `STZ-Robotics/Mars` that those
+URLs come from, and the vendordep uuid `8b9c1d2e-3f4a-5b6c-7d8e-9f0a1b2c3d4e`.
